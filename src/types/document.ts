@@ -34,6 +34,8 @@ export type FeatureKind =
   | "linear-pattern"
   | "circular-pattern"
   | "mirror"
+  // A body loaded from STEP or STL; it has no history to replay
+  | "imported"
   // Reference geometry created by the user
   | "reference-plane"
   | "reference-axis"

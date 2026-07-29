@@ -45,6 +45,7 @@ export function StatusBar() {
   );
   const geometryStatus = useGeometryStore((state) => state.status);
   const geometryMessage = useGeometryStore((state) => state.message);
+  const toast = useGeometryStore((state) => state.toast);
 
   return (
     <footer className={styles.statusbar}>
@@ -71,11 +72,12 @@ export function StatusBar() {
         X 0.00 &nbsp; Y 0.00 &nbsp; Z 0.00
       </div>
 
-      {geometryStatus !== "empty" && (
+      {(toast || geometryStatus !== "empty" || geometryMessage) && (
         <>
           <div className={styles.divider} aria-hidden="true" />
           <div className={styles.item} data-testid="geometry-status">
-            {geometryMessage ??
+            {toast ??
+              geometryMessage ??
               (geometryStatus === "building"
                 ? "Rebuilding…"
                 : geometryStatus === "error"

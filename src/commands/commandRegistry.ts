@@ -3,6 +3,8 @@ import type { GeometricConstraintKind } from "@/sketch/types";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 
+import { runExport, runImport } from "./interchange";
+
 /**
  * Ribbon command ids that create a feature, mapped to the kind they create.
  *
@@ -100,6 +102,13 @@ function addExtrudedFeature(kind: "extrude" | "cut-extrude") {
 const DIRECT_COMMANDS: Record<string, () => void> = {
   "feature.extrude": () => addExtrudedFeature("extrude"),
   "feature.cut-extrude": () => addExtrudedFeature("cut-extrude"),
+
+  // `file.export-iges` is deliberately absent: the bundled OpenCASCADE build contains no
+  // IGES support, so the ribbon button stays disabled and says why in its tooltip rather
+  // than failing at the point of use.
+  "file.import": () => void runImport(),
+  "file.export-step": () => void runExport("step"),
+  "file.export-stl": () => void runExport("stl-binary"),
 
   "edit.undo": () => useDocumentStore.getState().undo(),
   "edit.redo": () => useDocumentStore.getState().redo(),

@@ -6,14 +6,27 @@ import type { Feature } from "@/types/document";
 
 export type GeometryStatus = "empty" | "loading-kernel" | "building" | "ready" | "error";
 
+/** Feature kinds that the kernel actually contributes geometry for. */
+const GEOMETRY_FEATURE_KINDS = new Set(["extrude", "cut-extrude", "imported"]);
+
 interface GeometryStore {
   status: GeometryStatus;
   mesh: MeshData | null;
   /** Feature id -> rebuild error, surfaced as badges in the feature tree. */
   errors: Record<string, string>;
   message: string | null;
+  /**
+   * Transient notice from interchange (import/export progress, success, failure).
+   *
+   * Kept separate from `message` on purpose: a rebuild triggered by the same import (the
+   * new feature entering the document) would otherwise overwrite "Imported x.step" with
+   * "Model up to date" within a couple hundred milliseconds, so the two need independent
+   * lifetimes rather than sharing one field.
+   */
+  toast: string | null;
 
   rebuild: (features: Feature[], sketches: Record<string, Sketch>) => Promise<void>;
+  showToast: (message: string, durationMs?: number) => void;
 }
 
 /**
@@ -23,17 +36,24 @@ interface GeometryStore {
  */
 let latestRequest = 0;
 let kernelReady = false;
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 export const useGeometryStore = create<GeometryStore>((set) => ({
   status: "empty",
   mesh: null,
   errors: {},
   message: null,
+  toast: null,
+
+  showToast: (toastMessage, durationMs = 4000) => {
+    if (toastTimer !== undefined) clearTimeout(toastTimer);
+    set({ toast: toastMessage });
+    toastTimer = setTimeout(() => set({ toast: null }), durationMs);
+  },
 
   rebuild: async (features, sketches) => {
     const modelling = features.filter(
-      (feature) =>
-        !feature.suppressed && (feature.kind === "extrude" || feature.kind === "cut-extrude"),
+      (feature) => !feature.suppressed && GEOMETRY_FEATURE_KINDS.has(feature.kind),
     );
 
     if (modelling.length === 0) {

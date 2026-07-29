@@ -7,6 +7,7 @@ import {
   Cuboid,
   Cylinder,
   Drill,
+  FileInput,
   Grid3x3,
   Blend,
   Minus,
@@ -146,6 +147,13 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
     namePrefix: "Mirror",
     icon: Blend,
     description: "Mirrors features about a plane",
+    defaultParameters: {},
+  },
+
+  imported: {
+    namePrefix: "Imported",
+    icon: FileInput,
+    description: "Body loaded from a STEP or STL file",
     defaultParameters: {},
   },
 

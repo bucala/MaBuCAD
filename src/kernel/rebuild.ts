@@ -4,6 +4,7 @@ import { planeBasis } from "@/sketch/planeBasis";
 import type { Sketch } from "@/sketch/types";
 import type { EndCondition, Feature } from "@/types/document";
 
+import { getImportedShape } from "./importedShapes";
 import { initKernel } from "./occ";
 import { profileRegions, type CircleLoop, type Loop } from "./profile";
 
@@ -25,11 +26,36 @@ export interface RebuildResult {
 }
 
 /** Anything replicad hands back that can be extruded, cut and meshed. */
-type Solid = ReturnType<ReturnType<typeof drawCircle>["sketchOnPlane"]>["extrude"] extends (
+export type Solid = ReturnType<ReturnType<typeof drawCircle>["sketchOnPlane"]>["extrude"] extends (
   ...args: never[]
 ) => infer R
   ? R
   : never;
+
+/**
+ * The solid produced by the last successful rebuild, kept so export can hand the kernel's
+ * own B-Rep to STEP rather than re-deriving it from the triangulated mesh.
+ *
+ * Shapes are WebAssembly-backed and are not reclaimed by the JavaScript garbage collector,
+ * so the previous one is released whenever a new rebuild replaces it.
+ */
+let currentShape: Solid | null = null;
+
+export function getCurrentShape(): Solid | null {
+  return currentShape;
+}
+
+function replaceCurrentShape(next: Solid | null): void {
+  const previous = currentShape as unknown as { delete?: () => void } | null;
+  if (previous && previous !== (next as unknown as typeof previous)) {
+    try {
+      previous.delete?.();
+    } catch {
+      // A shape already released by the kernel is not worth failing a rebuild over.
+    }
+  }
+  currentShape = next;
+}
 
 /** Builds a replicad drawing for one closed region of a sketch. */
 function drawRegion(region: Loop | CircleLoop) {
@@ -126,6 +152,21 @@ export async function rebuildDocument(
 
   for (const feature of features) {
     if (feature.suppressed) continue;
+
+    // An imported body has no history to replay; it simply enters the model as a base.
+    if (feature.kind === "imported") {
+      const imported = getImportedShape(feature.id);
+      if (!imported) {
+        errors[feature.id] = "Imported geometry is no longer loaded";
+        continue;
+      }
+      current = current
+        ? (current as unknown as { fuse: (other: Solid) => Solid }).fuse(imported as Solid)
+        : (imported as Solid);
+      rotation = [0, 0, 0];
+      continue;
+    }
+
     if (feature.kind !== "extrude" && feature.kind !== "cut-extrude") continue;
 
     const sketchId = feature.parents.find((parent) => sketches[parent]);
@@ -162,6 +203,7 @@ export async function rebuildDocument(
   }
 
   if (!current) {
+    replaceCurrentShape(null);
     return { mesh: null, errors };
   }
 
@@ -176,6 +218,8 @@ export async function rebuildDocument(
 
   const triangulated = shape.mesh({ tolerance: 0.05, angularTolerance: 20 });
   const wireframe = shape.meshEdges();
+
+  replaceCurrentShape(current);
 
   return {
     mesh: {

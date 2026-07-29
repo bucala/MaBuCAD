@@ -37,6 +37,12 @@ The project is being built in gated steps; each one is verified before the next 
 - [x] **Step 5 — 3D geometry.** OpenCASCADE-backed extruded boss and cut, with blind,
       mid-plane and through-all end conditions driven from the property manager. Inner
       sketch loops become through holes. Rollback and suppression re-evaluate the model.
+- [x] **Import / Export.** STEP (exact B-Rep, round-trips) and STL (binary, for
+      manufacturing hand-off) export and import, backed by native save/open dialogs.
+      IGES is not available — see [Geometric kernel](#geometric-kernel).
+
+The five steps above were the original build plan; import/export is the first module built
+past it, picked because the kernel and the file plugins were already in place for it.
 
 The full command surface is laid out in `src/commands/ribbonConfig.ts`, and
 `src/commands/commandRegistry.ts` maps the ids that are wired up to store actions. Commands
@@ -103,16 +109,21 @@ src/
     viewport/                Graphics area: canvas, scene contents and CAD navigation
     statusbar/               Sketch status, cursor readout, unit system
   commands/commandRegistry.ts  Maps ribbon command ids to store actions
+  commands/interchange.ts    Export/import commands, reported through a status toast
   kernel/occ.ts              Lazy OpenCASCADE WebAssembly boot
   kernel/profile.ts          Closed-loop extraction from a sketch
   kernel/rebuild.ts          Feature history -> solid -> triangulated mesh
+  kernel/io.ts                STEP/STL export and import against the kernel
+  kernel/importedShapes.ts   Kernel-owned bodies loaded from a file, keyed by feature id
   sketch/solver.ts           Damped Newton constraint solver and DOF counting
   sketch/residuals.ts        Constraint and dimension residual equations
   sketch/sketchModel.ts      Sketch construction, snapping and measuring
   sketch/planeBasis.ts       Sketch 2D <-> world transforms
   state/documentStore.ts     Zustand store: feature history, selection, undo/redo
   state/sketchStore.ts       Active sketch, tools, selection and solving
+  state/geometryStore.ts     Rebuilt mesh, rebuild status, transient toast
   state/featureCatalog.ts    Per-kind naming, icons and default parameters
+  io/files.ts                 Native save/open dialogs, with a browser download/picker fallback
   hooks/                     Tauri app info, theme resolution
   styles/                    Fluent design tokens and global styles
   types/document.ts          Feature and document model
@@ -120,6 +131,7 @@ src/
 src-tauri/
   src/lib.rs                 Tauri builder, plugin and command registration
   src/app_info.rs            get_app_info command
+  src/fileio.rs               Scoped read/write commands for interchange
   tauri.conf.json            Window, Mica effect, CSP and bundle configuration
   capabilities/default.json  Permissions granted to the main window
 ```
@@ -148,6 +160,78 @@ silently flipping a part.
   both genuinely re-evaluate the model rather than only changing the tree.
 - Rebuilds are debounced and only the newest result may publish, so a slow earlier rebuild
   cannot overwrite a newer one while dragging a value.
+
+## Import / Export
+
+`Home → Interchange` exports the current model or imports a body into the document.
+
+- **STEP** is written from the kernel's own boundary representation (`ADVANCED_BREP`
+  entities, not a tessellation), so an exported file round-trips exactly — re-importing it
+  reproduces the same bounding box and surfaces, verified in the interchange test suite.
+- **STL** (binary) is a triangulation for manufacturing hand-off and 3D printing. It is
+  lossy by construction: an STL import re-enters the document as a faceted body, which is
+  a property of the format, not of the conversion.
+- **IGES is not available.** The OpenCASCADE build this project bundles
+  (`replicad-opencascadejs`) has zero IGES symbols compiled in — not a missing binding,
+  the module itself isn't there. Supporting it means rebuilding the WebAssembly kernel
+  with IGES enabled, which is a build-pipeline change, not application code. The ribbon
+  button stays visibly present but disabled, with the reason in its tooltip, rather than
+  being hidden or silently failing at the point of use.
+
+An imported body has no history to replay — it enters the model as a base solid and fuses
+with whatever the rest of the feature history produces. It is deliberately excluded from
+undo/redo's document snapshots for the same reason sketches are: it is a
+WebAssembly-backed kernel object, not serialisable state, and is instead tracked by feature
+id in `kernel/importedShapes.ts` and released explicitly when its feature is deleted.
+
+Interchange progress and outcomes surface as a status-bar toast, not the same field the
+rebuild pipeline uses. A rebuild is triggered a moment after most interchange actions (a
+new feature enters the document), so a shared field would let "Model up to date" overwrite
+"Imported x.step" within a couple hundred milliseconds — the toast has its own lifetime and
+survives that.
+
+In a plain browser — `vite dev`, and this project's automated tests — export falls back to
+a normal file download and import to a standard `<input type="file">` picker, so the whole
+path is exercised without packaging the desktop app. Inside Tauri both go through a native
+dialog and a pair of scoped Rust commands (`write_binary_file` / `read_binary_file`) rather
+than the filesystem plugin's broader scope, following the dialog plugin's own guidance to
+"write a dedicated command" when a save path needs to be arbitrary.
+
+### A memory-corruption bug found and fixed in the vendored kernel
+
+STEP export goes through `shape.blobSTEP()` rather than replicad's module-level
+`exportSTEP()` function, and that choice is load-bearing, not stylistic.
+
+`exportSTEP()` builds a throwaway XCAF assembly document internally and cleans up the
+OpenCascade objects it creates (a work session, a CAF writer, a handle to the session)
+through a `FinalizationRegistry` — cleanup that the JS engine runs at a time of its own
+choosing, possibly long after the call returns. Two of those objects have an internal
+C++ ownership relationship (the writer holds the session through a reference-counted
+`Handle`), and when the browser's garbage collector eventually runs, both the writer's
+own cleanup *and* the independently-registered session cleanup can fire and free the same
+underlying object twice. The result is silent WASM heap corruption.
+
+This was caught, not assumed: forcing V8's GC after a single `exportSTEP()` call
+(`node --expose-gc`) reliably made the *next* kernel call throw
+`RuntimeError: memory access out of bounds` — and the corruption wasn't scoped to STEP
+export; it could take down unrelated subsequent kernel calls in the same session. A
+Playwright run against the real dev server first surfaced this as a console error that
+didn't fail any assertion, which was itself worth noticing rather than dismissing as
+noise — an error with no visible symptom yet is still a bug, just one that hasn't been
+triggered at the wrong moment.
+
+`Shape.blobSTEP()` (a single-shape STEP writer using the plain, non-CAF
+`STEPControl_Writer`) deletes every OpenCascade object it touches synchronously before
+returning — the same pattern replicad's own `importSTEP`, `importSTL` and `blobSTL`
+already use safely. Verified stable under the identical stress test that broke
+`exportSTEP()`: 8 STEP exports with 16 forced GC cycles directly in a real browser tab,
+zero errors, kernel fully functional afterward.
+
+`replicad` is pinned at `0.23.1`, the latest release at the time of writing, so this isn't
+a version to upgrade past — it's the current behaviour of the module-level export
+function. `blobSTEP()` doesn't support multi-shape assemblies, names or colours the way
+`exportSTEP()` does, none of which this project uses, since every export here is one
+plain solid.
 
 ## Sketcher
 

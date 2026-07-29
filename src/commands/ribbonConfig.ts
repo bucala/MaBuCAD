@@ -100,8 +100,16 @@ export const RIBBON_TABS: RibbonTab[] = [
         id: "home-interchange",
         label: "Interchange",
         items: [
-          { id: "file.import", label: "Import", icon: FileInput, size: "large", description: "Import STEP, IGES or STL geometry" },
-          { id: "file.export", label: "Export", icon: FileOutput, size: "large", description: "Export the model as STEP, IGES or STL" },
+          { id: "file.import", label: "Import", icon: FileInput, size: "large", description: "Import a STEP or STL body into the document" },
+          { id: "file.export-step", label: "Export STEP", icon: FileOutput, size: "small", description: "Exact B-Rep solid, keeps surfaces for re-import" },
+          { id: "file.export-stl", label: "Export STL", icon: FileOutput, size: "small", description: "Triangulated mesh for 3D printing and manufacturing hand-off" },
+          {
+            id: "file.export-iges",
+            label: "Export IGES",
+            icon: FileOutput,
+            size: "small",
+            description: "Unavailable: the bundled OpenCASCADE build has no IGES support compiled in",
+          },
         ],
       },
       {
