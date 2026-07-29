@@ -1,0 +1,79 @@
+.button {
+  display: flex;
+  align-items: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--fill-subtle);
+  color: var(--text-primary);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--fill-subtle-hover);
+}
+
+.button:active:not(:disabled) {
+  background: var(--fill-subtle-active);
+  color: var(--text-secondary);
+}
+
+.button:disabled {
+  color: var(--text-disabled);
+}
+
+/* Tall variant: icon over a wrapped label, anchoring each ribbon group. */
+.large {
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  width: 76px;
+  height: 100%;
+  padding: var(--space-2) var(--space-1);
+}
+
+.large .icon {
+  color: var(--accent);
+}
+
+.large:disabled .icon {
+  color: var(--text-disabled);
+}
+
+/* Wrap at spaces so "Smart Dimension" splits across two lines; only break inside a
+   word when a single word genuinely cannot fit. */
+.largeLabel {
+  font-size: var(--font-size-caption);
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: break-word;
+}
+
+/* Compact variant: icon beside a single-line label. */
+.small {
+  flex-direction: row;
+  gap: var(--space-2);
+  height: 24px;
+  min-width: 26px;
+  max-width: 168px;
+  padding: 0 var(--space-2);
+}
+
+.small .icon {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+.small:disabled .icon {
+  color: var(--text-disabled);
+}
+
+.smallLabel {
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon {
+  display: flex;
+}

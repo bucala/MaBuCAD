@@ -1,0 +1,60 @@
+.shell {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100%;
+  overflow: hidden;
+}
+
+.body {
+  min-height: 0;
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.group {
+  height: 100%;
+}
+
+/* Panel applies className to a nested element, so this styles the panel content box. */
+.managerPanel {
+  height: 100%;
+  min-width: 0;
+}
+
+.viewportPanel {
+  height: 100%;
+  min-width: 0;
+}
+
+/*
+ * Separator keeps a wide hit target for easy grabbing while the visible grip is a
+ * hairline that thickens on hover, matching the Windows 11 splitter treatment.
+ */
+.separator {
+  position: relative;
+  flex: 0 0 8px;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.separator::after {
+  content: "";
+  width: 1px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--stroke-divider);
+  transition: background var(--duration-fast) var(--ease-standard),
+    width var(--duration-fast) var(--ease-standard);
+}
+
+.separator:hover::after,
+.separator[data-separator-dragging]::after,
+.separator:focus-visible::after {
+  width: 3px;
+  background: var(--accent);
+}
+
+.separator:focus-visible {
+  outline: none;
+}

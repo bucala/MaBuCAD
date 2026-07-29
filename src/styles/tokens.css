@@ -1,0 +1,189 @@
+/*
+ * Fluent 2 design tokens for MaBuCAD.
+ *
+ * The window itself is transparent so the Windows 11 Mica backdrop shows through
+ * (see `windowEffects` in src-tauri/tauri.conf.json). Every surface below is therefore
+ * expressed as a translucent fill layered over that backdrop rather than an opaque colour.
+ *
+ * Light theme is the default; the dark palette applies either from the OS preference or
+ * from an explicit `data-theme` attribute on <html>, which wins over the media query.
+ */
+
+:root {
+  /* Typography */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+
+  --font-size-caption: 12px;
+  --font-size-body: 13px;
+  --font-size-subtitle: 16px;
+
+  /* Corner radii — Fluent 2 uses 4px for controls, 8px for surfaces */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Spacing scale */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+
+  /* Fixed chrome metrics */
+  --menubar-height: 32px;
+  --ribbon-tabs-height: 34px;
+  --ribbon-body-height: 92px;
+  --statusbar-height: 26px;
+
+  /* Motion */
+  --duration-fast: 90ms;
+  --duration-normal: 160ms;
+  --ease-standard: cubic-bezier(0.33, 0, 0.67, 1);
+}
+
+/* ---------------------------------------------------------------- light theme */
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Layered surfaces, translucent so Mica reads through them */
+  --bg-base: rgba(243, 243, 243, 0.6);
+  --bg-layer: rgba(255, 255, 255, 0.6);
+  --bg-card: rgba(255, 255, 255, 0.72);
+  --bg-solid: #f9f9f9;
+  --bg-viewport-top: #dfe6ee;
+  --bg-viewport-bottom: #a8b6c6;
+
+  /* Control fills */
+  --fill-subtle: rgba(0, 0, 0, 0);
+  --fill-subtle-hover: rgba(0, 0, 0, 0.037);
+  --fill-subtle-active: rgba(0, 0, 0, 0.024);
+  --fill-control: rgba(255, 255, 255, 0.7);
+  --fill-control-hover: rgba(249, 249, 249, 0.5);
+  --fill-selected: rgba(0, 120, 212, 0.1);
+  --fill-selected-hover: rgba(0, 120, 212, 0.16);
+
+  /* Text */
+  --text-primary: #1a1a1a;
+  --text-secondary: #5d5d5d;
+  --text-tertiary: #8a8a8a;
+  --text-disabled: #9c9c9c;
+  --text-on-accent: #ffffff;
+  --text-accent: #003e92;
+
+  /* Strokes */
+  --stroke-divider: rgba(0, 0, 0, 0.0803);
+  --stroke-surface: rgba(117, 117, 117, 0.4);
+  --stroke-control: rgba(0, 0, 0, 0.0578);
+  --stroke-focus: #1a1a1a;
+
+  /* Accent ramp */
+  --accent: #0078d4;
+  --accent-hover: #006cbe;
+  --accent-active: #005ba1;
+  --accent-subtle: rgba(0, 120, 212, 0.12);
+
+  /* Semantic status colours */
+  --status-defined: #0f7b0f;
+  --status-under: #005fb8;
+  --status-over: #c42b1c;
+
+  /* Elevation */
+  --shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.14);
+  --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* ----------------------------------------------------------------- dark theme */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --bg-base: rgba(32, 32, 32, 0.6);
+    --bg-layer: rgba(58, 58, 58, 0.3);
+    --bg-card: rgba(255, 255, 255, 0.0512);
+    --bg-solid: #272727;
+    --bg-viewport-top: #33383e;
+    --bg-viewport-bottom: #16181b;
+
+    --fill-subtle: rgba(255, 255, 255, 0);
+    --fill-subtle-hover: rgba(255, 255, 255, 0.0605);
+    --fill-subtle-active: rgba(255, 255, 255, 0.0419);
+    --fill-control: rgba(255, 255, 255, 0.0605);
+    --fill-control-hover: rgba(255, 255, 255, 0.0837);
+    --fill-selected: rgba(76, 194, 255, 0.14);
+    --fill-selected-hover: rgba(76, 194, 255, 0.2);
+
+    --text-primary: #ffffff;
+    --text-secondary: #cfcfcf;
+    --text-tertiary: #9a9a9a;
+    --text-disabled: #7a7a7a;
+    --text-on-accent: #000000;
+    --text-accent: #99ebff;
+
+    --stroke-divider: rgba(255, 255, 255, 0.0837);
+    --stroke-surface: rgba(117, 117, 117, 0.4);
+    --stroke-control: rgba(255, 255, 255, 0.0698);
+    --stroke-focus: #ffffff;
+
+    --accent: #4cc2ff;
+    --accent-hover: #47b1e8;
+    --accent-active: #42a1d2;
+    --accent-subtle: rgba(76, 194, 255, 0.16);
+
+    --status-defined: #6ccb5f;
+    --status-under: #60cdff;
+    --status-over: #ff99a4;
+
+    --shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.4);
+    --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.26);
+  }
+}
+
+/* Explicit dark selection overrides the media query in both directions. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-base: rgba(32, 32, 32, 0.6);
+  --bg-layer: rgba(58, 58, 58, 0.3);
+  --bg-card: rgba(255, 255, 255, 0.0512);
+  --bg-solid: #272727;
+  --bg-viewport-top: #33383e;
+  --bg-viewport-bottom: #16181b;
+
+  --fill-subtle: rgba(255, 255, 255, 0);
+  --fill-subtle-hover: rgba(255, 255, 255, 0.0605);
+  --fill-subtle-active: rgba(255, 255, 255, 0.0419);
+  --fill-control: rgba(255, 255, 255, 0.0605);
+  --fill-control-hover: rgba(255, 255, 255, 0.0837);
+  --fill-selected: rgba(76, 194, 255, 0.14);
+  --fill-selected-hover: rgba(76, 194, 255, 0.2);
+
+  --text-primary: #ffffff;
+  --text-secondary: #cfcfcf;
+  --text-tertiary: #9a9a9a;
+  --text-disabled: #7a7a7a;
+  --text-on-accent: #000000;
+  --text-accent: #99ebff;
+
+  --stroke-divider: rgba(255, 255, 255, 0.0837);
+  --stroke-surface: rgba(117, 117, 117, 0.4);
+  --stroke-control: rgba(255, 255, 255, 0.0698);
+  --stroke-focus: #ffffff;
+
+  --accent: #4cc2ff;
+  --accent-hover: #47b1e8;
+  --accent-active: #42a1d2;
+  --accent-subtle: rgba(76, 194, 255, 0.16);
+
+  --status-defined: #6ccb5f;
+  --status-under: #60cdff;
+  --status-over: #ff99a4;
+
+  --shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.26);
+}

@@ -1,0 +1,40 @@
+.group {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  padding: 0 var(--space-3);
+  border-right: 1px solid var(--stroke-divider);
+}
+
+.group:last-child {
+  border-right: none;
+}
+
+.items {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * Small commands stack two per column the way Office and SolidWorks ribbons do,
+ * so a group mixes one tall button with a grid of compact ones.
+ */
+.smallColumn {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  height: 100%;
+}
+
+.label {
+  flex: 0 0 auto;
+  padding-top: var(--space-1);
+  text-align: center;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
