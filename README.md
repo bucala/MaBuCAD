@@ -4,6 +4,9 @@ A parametric 3D/2D CAD system for Windows 11 x64, in the spirit of SolidWorks, S
 Inventor: history-based feature modelling, a constraint-driven 2D sketcher, assemblies with mates,
 and drawings with ordinate dimensioning.
 
+See [CHANGELOG.md](./CHANGELOG.md) for a dated history of what was built and why, including
+the bugs found and fixed along the way.
+
 ## Stack
 
 | Layer | Technology |
