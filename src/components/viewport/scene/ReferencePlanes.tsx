@@ -4,6 +4,7 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { DoubleSide } from "three";
 
 import { selectSelectedPlaneId, useDocumentStore } from "@/state/documentStore";
+import { useGeometryStore } from "@/state/geometryStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
 import { useClickGuard } from "../controls/useClickGuard";
@@ -45,6 +46,13 @@ export function ReferencePlanes() {
    */
   const isSketchMode = useSketchStore(selectIsSketchMode);
 
+  /**
+   * Once a solid exists the planes are visual noise, so they step back the way they do in
+   * SolidWorks after the first feature. A selected plane still shows, since the selection
+   * would otherwise have nothing to point at.
+   */
+  const hasSolid = useGeometryStore((state) => state.mesh !== null);
+
   return (
     <group
       // Clicking empty space clears the selection, as in any CAD graphics area. Fires
@@ -58,6 +66,7 @@ export function ReferencePlanes() {
       {REFERENCE_PLANES.map((plane) => {
         const isSelected = selectedId === plane.id;
         const isHovered = hoveredId === plane.id;
+        const isDimmed = hasSolid && !isSketchMode && !isSelected;
 
         const handleOver = (event: ThreeEvent<PointerEvent>) => {
           event.stopPropagation();
@@ -89,7 +98,9 @@ export function ReferencePlanes() {
               <meshBasicMaterial
                 color={plane.color}
                 transparent
-                opacity={isSketchMode ? 0.02 : isSelected ? 0.16 : isHovered ? 0.1 : 0.05}
+                opacity={
+                  isSketchMode ? 0.02 : isDimmed ? 0 : isSelected ? 0.16 : isHovered ? 0.1 : 0.05
+                }
                 side={DoubleSide}
                 depthWrite={false}
               />
@@ -100,7 +111,9 @@ export function ReferencePlanes() {
               color={plane.color}
               lineWidth={isSelected ? 2 : 1}
               transparent
-              opacity={isSketchMode ? 0.2 : isSelected ? 1 : isHovered ? 0.85 : 0.5}
+              opacity={
+                isSketchMode ? 0.2 : isDimmed ? 0.12 : isSelected ? 1 : isHovered ? 0.85 : 0.5
+              }
               raycast={() => null}
             />
           </group>

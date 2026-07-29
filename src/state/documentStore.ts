@@ -70,7 +70,8 @@ interface DocumentStore {
   past: CadDocument[];
   future: CadDocument[];
 
-  addFeature: (kind: FeatureKind, parameters?: FeatureParameters) => string;
+  addFeature: (kind: FeatureKind, parameters?: FeatureParameters, parents?: string[]) => string;
+  setFeatureErrors: (errors: Record<string, string>) => void;
   renameFeature: (id: string, name: string) => void;
   deleteFeature: (id: string) => void;
   toggleSuppressed: (id: string) => void;
@@ -118,7 +119,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     past: [],
     future: [],
 
-    addFeature: (kind, parameters) => {
+    addFeature: (kind, parameters, parents = []) => {
       const id = nextId(kind);
 
       commit((document) => {
@@ -128,7 +129,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           name: nextFeatureName(document.features, kind),
           suppressed: false,
           isDefault: false,
-          parents: [],
+          parents,
           parameters: { ...FEATURE_CATALOG[kind].defaultParameters, ...parameters },
         };
 
@@ -143,6 +144,33 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       set({ selectedFeatureIds: [id] });
       return id;
     },
+
+    /**
+     * Records rebuild failures against their features.
+     *
+     * Written outside `commit` on purpose: a failed rebuild is a consequence of an edit,
+     * not an edit itself, so it must not create an undo step of its own.
+     */
+    setFeatureErrors: (errors) =>
+      set((state) => {
+        const changed = state.document.features.some(
+          (feature) => (feature.error ?? undefined) !== (errors[feature.id] ?? undefined),
+        );
+        if (!changed) return state;
+
+        return {
+          document: {
+            ...state.document,
+            features: state.document.features.map((feature) =>
+              errors[feature.id]
+                ? { ...feature, error: errors[feature.id] }
+                : feature.error
+                  ? { ...feature, error: undefined }
+                  : feature,
+            ),
+          },
+        };
+      }),
 
     renameFeature: (id, name) => {
       const trimmed = name.trim();

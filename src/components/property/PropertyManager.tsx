@@ -103,6 +103,19 @@ export function PropertyManager() {
           </label>
         )}
 
+        {feature.parameters.reversed !== undefined && (
+          <label className={styles.checkboxField}>
+            <input
+              type="checkbox"
+              checked={feature.parameters.reversed}
+              onChange={(event) =>
+                updateParameters(feature.id, { reversed: event.target.checked })
+              }
+            />
+            Reverse direction
+          </label>
+        )}
+
         {fields.map((field) => (
           <label key={field.key} className={styles.field}>
             <span className={styles.fieldLabel}>

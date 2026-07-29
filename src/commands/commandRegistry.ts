@@ -11,12 +11,10 @@ import { useSketchStore, type SketchTool } from "@/state/sketchStore";
  * a command up is a one-line entry here.
  */
 const FEATURE_COMMANDS: Record<string, FeatureKind> = {
-  "feature.extrude": "extrude",
   "feature.revolve": "revolve",
   "feature.sweep": "sweep",
   "feature.loft": "loft",
 
-  "feature.cut-extrude": "cut-extrude",
   "feature.cut-revolve": "cut-revolve",
   "feature.cut-sweep": "cut-sweep",
   "feature.hole-wizard": "hole",
@@ -74,8 +72,35 @@ function beginSketch() {
   useSketchStore.getState().beginSketch(featureId, planeId);
 }
 
+/**
+ * Creates an extruded feature from a sketch.
+ *
+ * An extrude consumes a profile, so the command resolves one from the selection and falls
+ * back to the most recent sketch above the rollback bar — the sketch you just finished is
+ * almost always the one you mean.
+ */
+function addExtrudedFeature(kind: "extrude" | "cut-extrude") {
+  const documentState = useDocumentStore.getState();
+  const { sketches } = useSketchStore.getState();
+  const { features, rollbackIndex } = documentState.document;
+
+  const selectedSketch = documentState.selectedFeatureIds.find(
+    (id) => features.some((feature) => feature.id === id && feature.kind === "sketch") && sketches[id],
+  );
+
+  const lastSketch = [...features.slice(0, rollbackIndex)]
+    .reverse()
+    .find((feature) => feature.kind === "sketch" && sketches[feature.id])?.id;
+
+  const sketchId = selectedSketch ?? lastSketch;
+  documentState.addFeature(kind, undefined, sketchId ? [sketchId] : []);
+}
+
 /** Commands handled directly rather than by creating a feature. */
 const DIRECT_COMMANDS: Record<string, () => void> = {
+  "feature.extrude": () => addExtrudedFeature("extrude"),
+  "feature.cut-extrude": () => addExtrudedFeature("cut-extrude"),
+
   "edit.undo": () => useDocumentStore.getState().undo(),
   "edit.redo": () => useDocumentStore.getState().redo(),
   "edit.delete": () => {

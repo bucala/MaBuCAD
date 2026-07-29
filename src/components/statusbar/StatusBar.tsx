@@ -1,5 +1,6 @@
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { useDocumentStore } from "@/state/documentStore";
+import { useGeometryStore } from "@/state/geometryStore";
 import { selectSketchStatus, useSketchStore } from "@/state/sketchStore";
 import type { SketchStatus, UnitSystem } from "@/types/ui";
 
@@ -42,6 +43,8 @@ export function StatusBar() {
   const featureCount = useDocumentStore(
     (state) => state.document.features.filter((feature) => !feature.isDefault).length,
   );
+  const geometryStatus = useGeometryStore((state) => state.status);
+  const geometryMessage = useGeometryStore((state) => state.message);
 
   return (
     <footer className={styles.statusbar}>
@@ -67,6 +70,20 @@ export function StatusBar() {
       <div className={`${styles.item} ${styles.coordinates}`} title="Cursor position">
         X 0.00 &nbsp; Y 0.00 &nbsp; Z 0.00
       </div>
+
+      {geometryStatus !== "empty" && (
+        <>
+          <div className={styles.divider} aria-hidden="true" />
+          <div className={styles.item} data-testid="geometry-status">
+            {geometryMessage ??
+              (geometryStatus === "building"
+                ? "Rebuilding…"
+                : geometryStatus === "error"
+                  ? "Rebuild failed"
+                  : "Model up to date")}
+          </div>
+        </>
+      )}
 
       <div className={styles.spacer} />
 

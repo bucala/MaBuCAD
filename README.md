@@ -13,7 +13,7 @@ and drawings with ordinate dimensioning.
 | Styling | CSS custom properties and CSS Modules, following Windows 11 Fluent 2 |
 | State | Zustand store holding the document's feature history |
 | Viewport | Three.js 0.185 via react-three-fiber 9 and drei 10 |
-| Geometric kernel | OpenCASCADE compiled to WebAssembly *(from Step 5)* |
+| Geometric kernel | OpenCASCADE (WebAssembly) via replicad |
 
 ## Implementation status
 
@@ -34,8 +34,9 @@ The project is being built in gated steps; each one is verified before the next 
       spline/construction drawing with point snapping, geometric relations, smart and
       ordinate dimensioning, all driven by a numeric constraint solver that reports
       degrees of freedom.
-- [ ] **Step 5 — 3D geometry.** OpenCASCADE-backed extrude with blind and mid-plane end
-      conditions, driven from the property manager.
+- [x] **Step 5 — 3D geometry.** OpenCASCADE-backed extruded boss and cut, with blind,
+      mid-plane and through-all end conditions driven from the property manager. Inner
+      sketch loops become through holes. Rollback and suppression re-evaluate the model.
 
 The full command surface is laid out in `src/commands/ribbonConfig.ts`, and
 `src/commands/commandRegistry.ts` maps the ids that are wired up to store actions. Commands
@@ -102,6 +103,9 @@ src/
     viewport/                Graphics area: canvas, scene contents and CAD navigation
     statusbar/               Sketch status, cursor readout, unit system
   commands/commandRegistry.ts  Maps ribbon command ids to store actions
+  kernel/occ.ts              Lazy OpenCASCADE WebAssembly boot
+  kernel/profile.ts          Closed-loop extraction from a sketch
+  kernel/rebuild.ts          Feature history -> solid -> triangulated mesh
   sketch/solver.ts           Damped Newton constraint solver and DOF counting
   sketch/residuals.ts        Constraint and dimension residual equations
   sketch/sketchModel.ts      Sketch construction, snapping and measuring
@@ -119,6 +123,31 @@ src-tauri/
   tauri.conf.json            Window, Mica effect, CSP and bundle configuration
   capabilities/default.json  Permissions granted to the main window
 ```
+
+## Geometric kernel
+
+Solids are real B-Rep, built by OpenCASCADE compiled to WebAssembly and driven through
+[replicad](https://replicad.xyz). The trimmed OCCT build is about 11 MB of wasm, loaded
+lazily on the first feature that needs geometry rather than at startup.
+
+`replicad` was chosen over raw `opencascade.js` because its build is a third of the size
+for the operations this project needs, and B-Rep matters for the roadmap: fillet, shell,
+booleans and STEP export are impossible on a triangle soup.
+
+Extrusion works entirely in the sketch plane's local XY and extrudes along local +Z, then
+the resulting mesh is rotated into place with the same quaternion the sketch is drawn with.
+Mapping our plane names onto the kernel's own plane conventions would risk a mirrored axis
+silently flipping a part.
+
+- **Blind** extrudes one way from the plane; **Mid Plane** puts half the depth each side;
+  **Through All** is a large symmetric extrude, since there are no other bodies to
+  terminate against yet.
+- The **largest closed region** of a sketch becomes the body and any smaller regions inside
+  it become through holes, the convention every mainstream modeller uses.
+- Rebuilds run only over features **above the rollback bar** and skip suppressed ones, so
+  both genuinely re-evaluate the model rather than only changing the tree.
+- Rebuilds are debounced and only the newest result may publish, so a slow earlier rebuild
+  cannot overwrite a newer one while dragging a value.
 
 ## Sketcher
 

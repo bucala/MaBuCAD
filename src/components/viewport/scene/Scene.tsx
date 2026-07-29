@@ -5,6 +5,7 @@ import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
 import { CadControls } from "../controls/CadControls";
+import { SolidModel } from "../model/SolidModel";
 import { SketchScene } from "../sketch/SketchScene";
 import { CameraRig, type ProjectionMode } from "./CameraRig";
 import { Origin } from "./Origin";
@@ -30,14 +31,19 @@ export function Scene({ projection }: SceneProps) {
       <CameraRig mode={projection} />
       <CadControls />
 
-      <ambientLight intensity={1.6} />
-      <directionalLight position={[1, 2, 3]} intensity={1.2} />
+      {/* Sketch and reference geometry are unlit, so this lighting exists purely to shade
+          the solid: a key light for form, a weaker fill so back faces do not go black, and
+          just enough ambient to keep shadowed faces readable. */}
+      <ambientLight intensity={0.55} />
+      <directionalLight position={[1, 2, 3]} intensity={1.5} />
+      <directionalLight position={[-2, -1, -1.5]} intensity={0.45} />
 
       {/* The ground grid competes with the sketch's own in-plane grid, so it steps
           aside while a sketch is open. */}
       {!isSketchMode && <ViewportGrid />}
       <ReferencePlanes />
       <Origin />
+      <SolidModel />
       {isSketchMode && <SketchScene />}
 
       <GizmoHelper alignment="top-right" margin={[86, 86]}>
