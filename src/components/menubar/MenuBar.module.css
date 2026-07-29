@@ -1,0 +1,99 @@
+.menubar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--menubar-height);
+  padding: 0 var(--space-3);
+  flex: 0 0 auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--space-3);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+
+.brandMark {
+  color: var(--accent);
+  display: flex;
+}
+
+.menus {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.menu {
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--fill-subtle);
+  color: var(--text-primary);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.menu:hover {
+  background: var(--fill-subtle-hover);
+}
+
+.menu:active {
+  background: var(--fill-subtle-active);
+  color: var(--text-secondary);
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+/* Quick access toolbar, mirroring the SolidWorks shortcut strip */
+.quickAccess {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.quickButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--fill-subtle);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.quickButton:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
+
+.quickButton:active {
+  background: var(--fill-subtle-active);
+}
+
+.documentName {
+  padding: 0 var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 var(--space-2);
+  background: var(--stroke-divider);
+}
