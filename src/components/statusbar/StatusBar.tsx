@@ -1,5 +1,6 @@
 import { useAppInfo } from "@/hooks/useAppInfo";
-import { selectSketchStatus, useDocumentStore } from "@/state/documentStore";
+import { useDocumentStore } from "@/state/documentStore";
+import { selectSketchStatus, useSketchStore } from "@/state/sketchStore";
 import type { SketchStatus, UnitSystem } from "@/types/ui";
 
 import styles from "./StatusBar.module.css";
@@ -35,17 +36,31 @@ export function StatusBar() {
   const appInfo = useAppInfo();
   const unitSystem = useDocumentStore((state) => state.unitSystem);
   const setUnitSystem = useDocumentStore((state) => state.setUnitSystem);
-  const sketchStatus = useDocumentStore(selectSketchStatus);
+  const sketchStatus = useSketchStore(selectSketchStatus);
+  const dof = useSketchStore((state) => state.diagnostics.dof);
+  const isSketchMode = useSketchStore((state) => state.activeSketchId !== null);
   const featureCount = useDocumentStore(
     (state) => state.document.features.filter((feature) => !feature.isDefault).length,
   );
 
   return (
     <footer className={styles.statusbar}>
-      <div className={`${styles.statusChip} ${SKETCH_STATUS_CLASS[sketchStatus]}`}>
+      <div
+        className={`${styles.statusChip} ${SKETCH_STATUS_CLASS[sketchStatus]}`}
+        data-testid="sketch-status"
+      >
         <span className={styles.statusDot} aria-hidden="true" />
         {SKETCH_STATUS_LABEL[sketchStatus]}
       </div>
+
+      {isSketchMode && (
+        <>
+          <div className={styles.divider} aria-hidden="true" />
+          <div className={styles.item}>
+            {dof} {dof === 1 ? "DOF" : "DOF"}
+          </div>
+        </>
+      )}
 
       <div className={styles.divider} aria-hidden="true" />
 

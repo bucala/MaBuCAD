@@ -4,6 +4,7 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { DoubleSide } from "three";
 
 import { selectSelectedPlaneId, useDocumentStore } from "@/state/documentStore";
+import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
 import { useClickGuard } from "../controls/useClickGuard";
 import { PLANE_SIZE, REFERENCE_PLANES, type ReferencePlaneId } from "../constants";
@@ -36,6 +37,13 @@ export function ReferencePlanes() {
   const selectedId = useDocumentStore(selectSelectedPlaneId);
   const selectFeature = useDocumentStore((state) => state.selectFeature);
   const onSelect = (id: ReferencePlaneId | null) => selectFeature(id);
+
+  /**
+   * A sketch is drawn on a plane, so the plane sits directly under the drawing surface and
+   * would otherwise intercept every click meant for the sketch. Planes stop being pickable
+   * — and fade back — while a sketch is open.
+   */
+  const isSketchMode = useSketchStore(selectIsSketchMode);
 
   return (
     <group
@@ -71,16 +79,17 @@ export function ReferencePlanes() {
           <group key={plane.id} rotation={plane.rotation}>
             <mesh
               name={plane.label}
-              onPointerOver={handleOver}
-              onPointerOut={handleOut}
-              onClick={handleClick}
+              onPointerOver={isSketchMode ? undefined : handleOver}
+              onPointerOut={isSketchMode ? undefined : handleOut}
+              onClick={isSketchMode ? undefined : handleClick}
+              raycast={isSketchMode ? () => null : undefined}
               renderOrder={-1}
             >
               <planeGeometry args={[PLANE_SIZE, PLANE_SIZE]} />
               <meshBasicMaterial
                 color={plane.color}
                 transparent
-                opacity={isSelected ? 0.16 : isHovered ? 0.1 : 0.05}
+                opacity={isSketchMode ? 0.02 : isSelected ? 0.16 : isHovered ? 0.1 : 0.05}
                 side={DoubleSide}
                 depthWrite={false}
               />
@@ -91,7 +100,8 @@ export function ReferencePlanes() {
               color={plane.color}
               lineWidth={isSelected ? 2 : 1}
               transparent
-              opacity={isSelected ? 1 : isHovered ? 0.85 : 0.5}
+              opacity={isSketchMode ? 0.2 : isSelected ? 1 : isHovered ? 0.85 : 0.5}
+              raycast={() => null}
             />
           </group>
         );

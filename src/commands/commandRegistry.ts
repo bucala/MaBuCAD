@@ -1,5 +1,7 @@
 import type { FeatureKind } from "@/types/document";
-import { useDocumentStore } from "@/state/documentStore";
+import type { GeometricConstraintKind } from "@/sketch/types";
+import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
+import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 
 /**
  * Ribbon command ids that create a feature, mapped to the kind they create.
@@ -9,8 +11,6 @@ import { useDocumentStore } from "@/state/documentStore";
  * a command up is a one-line entry here.
  */
 const FEATURE_COMMANDS: Record<string, FeatureKind> = {
-  "sketch.new": "sketch",
-
   "feature.extrude": "extrude",
   "feature.revolve": "revolve",
   "feature.sweep": "sweep",
@@ -36,15 +36,99 @@ const FEATURE_COMMANDS: Record<string, FeatureKind> = {
   "reference.point": "reference-point",
 };
 
+/** Sketch tools, active only while a sketch is open. */
+const SKETCH_TOOL_COMMANDS: Record<string, SketchTool> = {
+  "sketch.select": "select",
+  "sketch.line": "line",
+  "sketch.rectangle": "rectangle",
+  "sketch.circle": "circle",
+  "sketch.spline": "spline",
+  "sketch.construction": "construction-line",
+};
+
+const SKETCH_RELATION_COMMANDS: Record<string, GeometricConstraintKind> = {
+  "relation.horizontal": "horizontal",
+  "relation.vertical": "vertical",
+  "relation.parallel": "parallel",
+  "relation.perpendicular": "perpendicular",
+  "relation.tangent": "tangent",
+  "relation.coincident": "coincident",
+  "relation.equal": "equal",
+  "relation.fix": "fix",
+};
+
+/**
+ * Opens a sketch on the selected plane.
+ *
+ * A sketch needs a plane, so the command uses the current selection and falls back to the
+ * Front plane — the same default a new SolidWorks part offers.
+ */
+function beginSketch() {
+  const documentState = useDocumentStore.getState();
+  const selectedPlane = documentState.selectedFeatureIds.find((id) =>
+    (DEFAULT_PLANE_IDS as readonly string[]).includes(id),
+  );
+
+  const planeId = selectedPlane ?? DEFAULT_PLANE_IDS[0];
+  const featureId = documentState.addFeature("sketch");
+  useSketchStore.getState().beginSketch(featureId, planeId);
+}
+
 /** Commands handled directly rather than by creating a feature. */
 const DIRECT_COMMANDS: Record<string, () => void> = {
   "edit.undo": () => useDocumentStore.getState().undo(),
   "edit.redo": () => useDocumentStore.getState().redo(),
   "edit.delete": () => {
+    const sketchState = useSketchStore.getState();
+    if (sketchState.activeSketchId) {
+      sketchState.deleteSelection();
+      return;
+    }
     const { selectedFeatureIds, deleteFeature } = useDocumentStore.getState();
     selectedFeatureIds.forEach(deleteFeature);
   },
+
+  "sketch.new": beginSketch,
+  "sketch.exit": () => useSketchStore.getState().exitSketch(),
+
+  "dimension.smart": () => useSketchStore.getState().applySmartDimension(),
+  "dimension.ordinate": () => useSketchStore.getState().applyOrdinateDimension("both"),
+  "dimension.horizontal-ordinate": () => useSketchStore.getState().applyOrdinateDimension("x"),
+  "dimension.vertical-ordinate": () => useSketchStore.getState().applyOrdinateDimension("y"),
+
+  ...Object.fromEntries(
+    Object.entries(SKETCH_TOOL_COMMANDS).map(([id, tool]) => [
+      id,
+      () => useSketchStore.getState().setTool(tool),
+    ]),
+  ),
+  ...Object.fromEntries(
+    Object.entries(SKETCH_RELATION_COMMANDS).map(([id, kind]) => [
+      id,
+      () => useSketchStore.getState().applyConstraint(kind),
+    ]),
+  ),
 };
+
+/** Commands that only make sense while a sketch is open. */
+const SKETCH_ONLY_COMMANDS: ReadonlySet<string> = new Set([
+  "sketch.exit",
+  ...Object.keys(SKETCH_TOOL_COMMANDS),
+  ...Object.keys(SKETCH_RELATION_COMMANDS),
+  "dimension.smart",
+  "dimension.ordinate",
+  "dimension.horizontal-ordinate",
+  "dimension.vertical-ordinate",
+]);
+
+/** Whether a command can be invoked right now, given sketch mode. */
+export function isCommandAvailable(commandId: string, inSketchMode: boolean): boolean {
+  if (!IMPLEMENTED_COMMANDS.has(commandId)) return false;
+  if (SKETCH_ONLY_COMMANDS.has(commandId)) return inSketchMode;
+  // Modelling features cannot be created from inside a sketch.
+  if (commandId.startsWith("feature.") || commandId === "sketch.new") return !inSketchMode;
+  return true;
+}
 
 /** Every command id that currently does something, for greying out the rest. */
 export const IMPLEMENTED_COMMANDS: ReadonlySet<string> = new Set([

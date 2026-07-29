@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
-import { IMPLEMENTED_COMMANDS, runCommand } from "@/commands/commandRegistry";
+import { isCommandAvailable, runCommand } from "@/commands/commandRegistry";
 import { RIBBON_TABS } from "@/commands/ribbonConfig";
+import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import type { RibbonItem } from "@/types/ui";
 
 import { RibbonGroup } from "./RibbonGroup";
@@ -15,6 +16,7 @@ import styles from "./Ribbon.module.css";
 export function Ribbon() {
   const [activeTabId, setActiveTabId] = useState(RIBBON_TABS[0].id);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const isSketchMode = useSketchStore(selectIsSketchMode);
 
   const activeTab = RIBBON_TABS.find((tab) => tab.id === activeTabId) ?? RIBBON_TABS[0];
 
@@ -73,11 +75,11 @@ export function Ribbon() {
             key={group.id}
             group={{
               ...group,
-              // A command is live once it is registered; the rest stay greyed out so the
-              // ribbon reflects what actually works today.
+              // A command is live once it is registered and applicable to the current
+              // mode, so the ribbon reflects both what is built and what makes sense now.
               items: group.items.map((item) => ({
                 ...item,
-                enabled: IMPLEMENTED_COMMANDS.has(item.id),
+                enabled: isCommandAvailable(item.id, isSketchMode),
               })),
             }}
             onInvoke={handleInvoke}

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 import type { CadDocument, Feature, FeatureKind, FeatureParameters } from "@/types/document";
-import type { SketchStatus, UnitSystemId } from "@/types/ui";
+import type { UnitSystemId } from "@/types/ui";
 
 import { FEATURE_CATALOG } from "./featureCatalog";
 
@@ -66,8 +66,6 @@ interface DocumentStore {
   document: CadDocument;
   selectedFeatureIds: string[];
   unitSystem: UnitSystemId;
-  /** Set once the sketcher lands in Step 4. */
-  activeSketchId: string | null;
 
   past: CadDocument[];
   future: CadDocument[];
@@ -117,7 +115,6 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     document: createDocument(),
     selectedFeatureIds: [],
     unitSystem: "MMGS",
-    activeSketchId: null,
     past: [],
     future: [],
 
@@ -305,11 +302,6 @@ export function selectBuiltFeatures(state: DocumentStore): Feature[] {
 
 export function selectRolledBackCount(state: DocumentStore): number {
   return state.document.features.length - state.document.rollbackIndex;
-}
-
-export function selectSketchStatus(state: DocumentStore): SketchStatus {
-  // Constraint solving arrives in Step 4; until then a document has no active sketch.
-  return state.activeSketchId === null ? "no-sketch" : "under-defined";
 }
 
 /** Selected plane, if exactly one default plane is selected — used to highlight it in 3D. */

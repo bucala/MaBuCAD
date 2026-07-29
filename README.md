@@ -30,8 +30,10 @@ The project is being built in gated steps; each one is verified before the next 
       feature history, rendered live in the tree with rename, suppress, delete, rollback
       and undo/redo. Ribbon feature commands create real features, and selection is shared
       between the tree, the property manager and the 3D viewport.
-- [ ] **Step 4 — 2D sketcher.** Orthogonal sketch mode, entity drawing, geometric constraints,
-      smart and ordinate dimensioning.
+- [x] **Step 4 — 2D sketcher.** Sketch mode on any reference plane, line/rectangle/circle/
+      spline/construction drawing with point snapping, geometric relations, smart and
+      ordinate dimensioning, all driven by a numeric constraint solver that reports
+      degrees of freedom.
 - [ ] **Step 5 — 3D geometry.** OpenCASCADE-backed extrude with blind and mid-plane end
       conditions, driven from the property manager.
 
@@ -100,7 +102,12 @@ src/
     viewport/                Graphics area: canvas, scene contents and CAD navigation
     statusbar/               Sketch status, cursor readout, unit system
   commands/commandRegistry.ts  Maps ribbon command ids to store actions
+  sketch/solver.ts           Damped Newton constraint solver and DOF counting
+  sketch/residuals.ts        Constraint and dimension residual equations
+  sketch/sketchModel.ts      Sketch construction, snapping and measuring
+  sketch/planeBasis.ts       Sketch 2D <-> world transforms
   state/documentStore.ts     Zustand store: feature history, selection, undo/redo
+  state/sketchStore.ts       Active sketch, tools, selection and solving
   state/featureCatalog.ts    Per-kind naming, icons and default parameters
   hooks/                     Tauri app info, theme resolution
   styles/                    Fluent design tokens and global styles
@@ -112,6 +119,32 @@ src-tauri/
   tauri.conf.json            Window, Mica effect, CSP and bundle configuration
   capabilities/default.json  Permissions granted to the main window
 ```
+
+## Sketcher
+
+Select a plane in the tree (or accept the Front plane default) and run **Sketch → Sketch**.
+The camera squares up to the plane and the property manager becomes the sketch panel.
+
+Geometry is a pool of points plus entities referencing them by id. Clicking within the snap
+radius of an existing point **reuses** that point rather than adding a coincident duplicate,
+which is what makes a drawn profile genuinely closed rather than merely looking closed.
+
+Constraints and dimensions are both equations in one system, solved by damped Newton
+iteration (`src/sketch/solver.ts`) with a finite-difference Jacobian:
+
+- **Relations**: coincident, horizontal, vertical, parallel, perpendicular, tangent, equal,
+  point-on-line and fix.
+- **Dimensions**: distance, horizontal/vertical distance, radius, diameter, angle, and
+  **ordinate** measured from the sketch origin — a chain of ordinates shares one datum, so
+  tolerance does not accumulate along it the way it does with chained dimensions.
+- **Degrees of freedom** come from the rank of the Jacobian, so the status bar reports
+  *Fully Defined* (DOF 0), *Under Defined*, or *Over Defined* (redundant or conflicting).
+  An under-defined sketch is not an error; the damping term is what lets a rank-deficient
+  system solve and keep its remaining freedom.
+
+Dragging a point re-solves with that point pinned to the cursor rather than writing its
+coordinate directly, so constrained neighbours follow and a fully defined sketch refuses to
+move at all.
 
 ## Viewport navigation
 

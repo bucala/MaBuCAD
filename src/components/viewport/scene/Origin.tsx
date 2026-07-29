@@ -27,10 +27,12 @@ export function Origin() {
           points={axis.points.map((point) => [...point] as [number, number, number])}
           color={axis.color}
           lineWidth={1.5}
+          // Decorative only: the triad must never intercept a pick meant for geometry.
+          raycast={() => null}
         />
       ))}
 
-      <mesh>
+      <mesh raycast={() => null}>
         <sphereGeometry args={[LEN * 0.055, 12, 12]} />
         <meshBasicMaterial color="#9a9a9a" />
       </mesh>

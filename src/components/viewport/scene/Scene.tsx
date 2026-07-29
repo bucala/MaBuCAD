@@ -2,7 +2,10 @@ import { GizmoHelper, GizmoViewcube } from "@react-three/drei";
 
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 
+import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
+
 import { CadControls } from "../controls/CadControls";
+import { SketchScene } from "../sketch/SketchScene";
 import { CameraRig, type ProjectionMode } from "./CameraRig";
 import { Origin } from "./Origin";
 import { ReferencePlanes } from "./ReferencePlanes";
@@ -20,6 +23,7 @@ interface SceneProps {
  */
 export function Scene({ projection }: SceneProps) {
   const isDark = useIsDarkTheme();
+  const isSketchMode = useSketchStore(selectIsSketchMode);
 
   return (
     <>
@@ -29,9 +33,12 @@ export function Scene({ projection }: SceneProps) {
       <ambientLight intensity={1.6} />
       <directionalLight position={[1, 2, 3]} intensity={1.2} />
 
-      <ViewportGrid />
+      {/* The ground grid competes with the sketch's own in-plane grid, so it steps
+          aside while a sketch is open. */}
+      {!isSketchMode && <ViewportGrid />}
       <ReferencePlanes />
       <Origin />
+      {isSketchMode && <SketchScene />}
 
       <GizmoHelper alignment="top-right" margin={[86, 86]}>
         <GizmoViewcube
