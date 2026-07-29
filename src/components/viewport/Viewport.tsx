@@ -1,32 +1,61 @@
-import { Rotate3d } from "lucide-react";
+import { useState } from "react";
+import { Canvas } from "@react-three/fiber";
+import { Box, Frame } from "lucide-react";
 
+import { Scene } from "./scene/Scene";
+import type { ProjectionMode } from "./scene/CameraRig";
 import styles from "./Viewport.module.css";
+
+const PROJECTIONS: { id: ProjectionMode; label: string; icon: typeof Box; title: string }[] = [
+  {
+    id: "orthographic",
+    label: "Ortho",
+    icon: Frame,
+    title: "Orthographic — parallel projection, equal lengths measure equal on screen",
+  },
+  {
+    id: "perspective",
+    label: "Persp",
+    icon: Box,
+    title: "Perspective — natural depth, for presentation views",
+  },
+];
 
 /**
  * Graphics area.
  *
- * Step 1 only establishes the surface, its overlay slots and the sizing behaviour. The
- * react-three-fiber canvas, orbit controls, default planes and navigation cube land in
- * Step 2 without changing anything around this component.
+ * `frameloop="demand"` renders only when something actually changes, which is the right
+ * behaviour for a modelling tool: a static model costs nothing, and navigation still runs
+ * at full rate because the controls invalidate on every change.
  */
 export function Viewport() {
+  const [projection, setProjection] = useState<ProjectionMode>("orthographic");
+
   return (
     <div className={styles.viewport}>
-      <div className={styles.canvasSlot}>
-        <span className={styles.placeholderIcon} aria-hidden="true">
-          <Rotate3d size={44} strokeWidth={1.25} />
-        </span>
-        <span className={styles.placeholderTitle}>Graphics area</span>
-        <p className={styles.placeholderBody}>
-          The 3D viewport is mounted here in Step 2, together with orbit, pan and zoom
-          navigation, the default Front, Top and Right planes, and the origin triad.
-        </p>
-      </div>
+      <Canvas
+        className={styles.canvas}
+        frameloop="demand"
+        dpr={[1, 2]}
+        gl={{ antialias: true, alpha: true }}
+      >
+        <Scene projection={projection} />
+      </Canvas>
 
-      <div className={styles.navCubeSlot} aria-hidden="true">
-        Navigation
-        <br />
-        cube
+      <div className={styles.toolbar} role="group" aria-label="Projection">
+        {PROJECTIONS.map(({ id, label, icon: Icon, title }) => (
+          <button
+            key={id}
+            type="button"
+            className={styles.toolbarButton}
+            aria-pressed={projection === id}
+            title={title}
+            onClick={() => setProjection(id)}
+          >
+            <Icon size={14} strokeWidth={1.75} />
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className={styles.originGizmo} aria-hidden="true">
@@ -39,6 +68,10 @@ export function Viewport() {
         <span className={styles.axis}>
           <span className={`${styles.axisSwatch} ${styles.axisZ}`} />Z
         </span>
+      </div>
+
+      <div className={styles.hint}>
+        Middle drag orbit · Ctrl+middle pan · Shift+middle or wheel zoom
       </div>
     </div>
   );

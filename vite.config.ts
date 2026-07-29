@@ -18,6 +18,21 @@ export default defineConfig(async () => ({
   // Surface TAURI_* variables to the frontend alongside the usual VITE_* ones.
   envPrefix: ["VITE_", "TAURI_"],
 
+  build: {
+    // The three.js chunk is inherently past the default 500 kB warning threshold, and it
+    // loads from local disk in the packaged app rather than over a network.
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        // three.js dwarfs everything else and changes far less often than app code,
+        // so it gets its own chunk rather than being rebuilt into one large bundle.
+        manualChunks: {
+          three: ["three", "@react-three/fiber", "@react-three/drei"],
+        },
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

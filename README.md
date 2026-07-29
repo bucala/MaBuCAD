@@ -11,7 +11,7 @@ and drawings with ordinate dimensioning.
 | Desktop shell | Tauri 2 (Rust) — native window, file access, MSI/NSIS packaging |
 | Frontend | React 19 + TypeScript, built with Vite 7 |
 | Styling | CSS custom properties and CSS Modules, following Windows 11 Fluent 2 |
-| Viewport | Three.js via react-three-fiber *(from Step 2)* |
+| Viewport | Three.js 0.185 via react-three-fiber 9 and drei 10 |
 | Geometric kernel | OpenCASCADE compiled to WebAssembly *(from Step 5)* |
 
 ## Implementation status
@@ -21,8 +21,10 @@ The project is being built in gated steps; each one is verified before the next 
 - [x] **Step 1 — Project initialisation and UI shell.** Tauri + React + Vite scaffolding, and the
       static application chrome: menu strip, ribbon command manager, feature manager tree,
       property manager, viewport surface and status bar, with Mica-aware Fluent styling.
-- [ ] **Step 2 — Viewport and camera system.** react-three-fiber canvas, orbit/pan/zoom
-      navigation, default planes and origin, navigation cube.
+- [x] **Step 2 — Viewport and camera system.** react-three-fiber canvas with SolidWorks
+      navigation, switchable orthographic/perspective camera, the three default reference
+      planes with hover and pick, the origin triad, a millimetre ground grid and a
+      navigation cube.
 - [ ] **Step 3 — Document model and feature tree.** State store for the operation history,
       rendered live in the tree with rename and rollback.
 - [ ] **Step 4 — 2D sketcher.** Orthogonal sketch mode, entity drawing, geometric constraints,
@@ -71,7 +73,7 @@ src/
     manager/                 Left dock hosting the three manager tabs
     tree/                    Feature manager design tree
     property/                Context-sensitive property manager
-    viewport/                Graphics area (3D canvas mounts here in Step 2)
+    viewport/                Graphics area: canvas, scene contents and CAD navigation
     statusbar/               Sketch status, cursor readout, unit system
   hooks/useAppInfo.ts        Reads build identity over Tauri IPC
   styles/                    Fluent design tokens and global styles
@@ -82,6 +84,26 @@ src-tauri/
   tauri.conf.json            Window, Mica effect, CSP and bundle configuration
   capabilities/default.json  Permissions granted to the main window
 ```
+
+## Viewport navigation
+
+Mouse bindings follow SolidWorks, so left-click stays free for entity selection:
+
+| Gesture | Action |
+| --- | --- |
+| Middle drag | Orbit |
+| Ctrl + middle drag | Pan |
+| Shift + middle drag | Zoom |
+| Wheel | Zoom towards the cursor |
+| Left click | Select (a click that travels more than a few pixels is treated as a drag, not a pick) |
+
+One scene unit is one millimetre. The coordinate system matches SolidWorks — Y-up, with the
+Front plane on XY — which is also three.js's native convention, so no axis conversion happens
+anywhere. The camera is orthographic by default because parallel projection is what makes equal
+lengths measure equal on screen; the Ortho/Persp toggle sits at the top left of the graphics area.
+
+The canvas uses `frameloop="demand"`, so frames are rendered only when something changes rather
+than continuously.
 
 ## Notes on the Windows 11 integration
 
