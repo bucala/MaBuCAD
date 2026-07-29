@@ -1,10 +1,8 @@
-import { useState } from "react";
 import { GizmoHelper, GizmoViewcube } from "@react-three/drei";
 
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 
 import { CadControls } from "../controls/CadControls";
-import type { ReferencePlaneId } from "../constants";
 import { CameraRig, type ProjectionMode } from "./CameraRig";
 import { Origin } from "./Origin";
 import { ReferencePlanes } from "./ReferencePlanes";
@@ -21,7 +19,6 @@ interface SceneProps {
  * materials, and shaded solids only arrive with the geometry kernel in Step 5.
  */
 export function Scene({ projection }: SceneProps) {
-  const [selectedPlaneId, setSelectedPlaneId] = useState<ReferencePlaneId | null>(null);
   const isDark = useIsDarkTheme();
 
   return (
@@ -33,7 +30,7 @@ export function Scene({ projection }: SceneProps) {
       <directionalLight position={[1, 2, 3]} intensity={1.2} />
 
       <ViewportGrid />
-      <ReferencePlanes selectedId={selectedPlaneId} onSelect={setSelectedPlaneId} />
+      <ReferencePlanes />
       <Origin />
 
       <GizmoHelper alignment="top-right" margin={[86, 86]}>

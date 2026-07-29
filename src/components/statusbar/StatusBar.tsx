@@ -1,7 +1,6 @@
-import { useState } from "react";
-
 import { useAppInfo } from "@/hooks/useAppInfo";
-import type { SketchStatus, UnitSystem, UnitSystemId } from "@/types/ui";
+import { selectSketchStatus, useDocumentStore } from "@/state/documentStore";
+import type { SketchStatus, UnitSystem } from "@/types/ui";
 
 import styles from "./StatusBar.module.css";
 
@@ -33,10 +32,13 @@ const SKETCH_STATUS_CLASS: Record<SketchStatus, string> = {
  * the unit selector is already live because it is pure UI state.
  */
 export function StatusBar() {
-  const [unitSystem, setUnitSystem] = useState<UnitSystemId>("MMGS");
   const appInfo = useAppInfo();
-
-  const sketchStatus: SketchStatus = "no-sketch";
+  const unitSystem = useDocumentStore((state) => state.unitSystem);
+  const setUnitSystem = useDocumentStore((state) => state.setUnitSystem);
+  const sketchStatus = useDocumentStore(selectSketchStatus);
+  const featureCount = useDocumentStore(
+    (state) => state.document.features.filter((feature) => !feature.isDefault).length,
+  );
 
   return (
     <footer className={styles.statusbar}>
@@ -52,6 +54,12 @@ export function StatusBar() {
       </div>
 
       <div className={styles.spacer} />
+
+      <div className={styles.item}>
+        {featureCount} {featureCount === 1 ? "feature" : "features"}
+      </div>
+
+      <div className={styles.divider} aria-hidden="true" />
 
       <div className={styles.item}>Editing Part</div>
 

@@ -1,5 +1,8 @@
 import { Box, FolderOpen, Redo2, Save, Settings, Undo2 } from "lucide-react";
 
+import { runCommand } from "@/commands/commandRegistry";
+import { useDocumentStore } from "@/state/documentStore";
+
 import styles from "./MenuBar.module.css";
 
 const MENUS = ["File", "Edit", "View", "Insert", "Tools", "Window", "Help"];
@@ -19,6 +22,9 @@ const QUICK_ACTIONS = [
  * sits below it and carries no window controls of its own.
  */
 export function MenuBar() {
+  const documentName = useDocumentStore((state) => state.document.name);
+  const isModified = useDocumentStore((state) => state.past.length > 0);
+
   return (
     <div className={styles.menubar}>
       <div className={styles.brand}>
@@ -40,7 +46,14 @@ export function MenuBar() {
 
       <div className={styles.quickAccess}>
         {QUICK_ACTIONS.map(({ id, label, icon: Icon }) => (
-          <button key={id} type="button" className={styles.quickButton} title={label} aria-label={label}>
+          <button
+            key={id}
+            type="button"
+            className={styles.quickButton}
+            title={label}
+            aria-label={label}
+            onClick={() => runCommand(id)}
+          >
             <Icon size={15} strokeWidth={1.75} />
           </button>
         ))}
@@ -48,7 +61,9 @@ export function MenuBar() {
 
       <div className={styles.spacer} />
 
-      <div className={styles.documentName}>Part1 — Untitled</div>
+      <div className={styles.documentName}>
+        {documentName} — Untitled{isModified ? " *" : ""}
+      </div>
     </div>
   );
 }

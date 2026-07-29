@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
+import { IMPLEMENTED_COMMANDS, runCommand } from "@/commands/commandRegistry";
 import { RIBBON_TABS } from "@/commands/ribbonConfig";
 import type { RibbonItem } from "@/types/ui";
 
@@ -18,8 +19,11 @@ export function Ribbon() {
   const activeTab = RIBBON_TABS.find((tab) => tab.id === activeTabId) ?? RIBBON_TABS[0];
 
   const handleInvoke = (item: RibbonItem) => {
-    // Commands are registered in later steps; until then a click is a no-op.
-    console.info(`[command] ${item.id}`);
+    if (!runCommand(item.id)) {
+      // Commands still without an implementation report themselves rather than
+      // failing silently, which keeps the roadmap visible while working in the app.
+      console.info(`[command] ${item.id} is not implemented yet`);
+    }
   };
 
   return (
@@ -65,7 +69,19 @@ export function Ribbon() {
         className={isCollapsed ? styles.panelCollapsed : styles.panel}
       >
         {activeTab.groups.map((group) => (
-          <RibbonGroup key={group.id} group={group} onInvoke={handleInvoke} />
+          <RibbonGroup
+            key={group.id}
+            group={{
+              ...group,
+              // A command is live once it is registered; the rest stay greyed out so the
+              // ribbon reflects what actually works today.
+              items: group.items.map((item) => ({
+                ...item,
+                enabled: IMPLEMENTED_COMMANDS.has(item.id),
+              })),
+            }}
+            onInvoke={handleInvoke}
+          />
         ))}
       </div>
     </div>

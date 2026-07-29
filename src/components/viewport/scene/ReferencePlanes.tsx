@@ -3,6 +3,8 @@ import { Line } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
 import { DoubleSide } from "three";
 
+import { selectSelectedPlaneId, useDocumentStore } from "@/state/documentStore";
+
 import { useClickGuard } from "../controls/useClickGuard";
 import { PLANE_SIZE, REFERENCE_PLANES, type ReferencePlaneId } from "../constants";
 
@@ -17,20 +19,23 @@ const BORDER_POINTS: [number, number, number][] = [
   [-HALF, -HALF, 0],
 ];
 
-interface ReferencePlanesProps {
-  selectedId: ReferencePlaneId | null;
-  onSelect: (id: ReferencePlaneId | null) => void;
-}
-
 /**
  * The Front, Top and Right planes every new document starts with.
  *
  * Each is a translucent square with a solid border, so the plane still reads when it is
  * viewed edge-on and the fill collapses to nothing.
+ *
+ * Selection lives in the document store rather than locally, so picking a plane here
+ * highlights its row in the feature tree and selecting that row highlights the plane —
+ * the plane ids in `constants.ts` deliberately match the default feature ids.
  */
-export function ReferencePlanes({ selectedId, onSelect }: ReferencePlanesProps) {
+export function ReferencePlanes() {
   const [hoveredId, setHoveredId] = useState<ReferencePlaneId | null>(null);
   const isPick = useClickGuard();
+
+  const selectedId = useDocumentStore(selectSelectedPlaneId);
+  const selectFeature = useDocumentStore((state) => state.selectFeature);
+  const onSelect = (id: ReferencePlaneId | null) => selectFeature(id);
 
   return (
     <group

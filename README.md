@@ -11,6 +11,7 @@ and drawings with ordinate dimensioning.
 | Desktop shell | Tauri 2 (Rust) — native window, file access, MSI/NSIS packaging |
 | Frontend | React 19 + TypeScript, built with Vite 7 |
 | Styling | CSS custom properties and CSS Modules, following Windows 11 Fluent 2 |
+| State | Zustand store holding the document's feature history |
 | Viewport | Three.js 0.185 via react-three-fiber 9 and drei 10 |
 | Geometric kernel | OpenCASCADE compiled to WebAssembly *(from Step 5)* |
 
@@ -25,15 +26,38 @@ The project is being built in gated steps; each one is verified before the next 
       navigation, switchable orthographic/perspective camera, the three default reference
       planes with hover and pick, the origin triad, a millimetre ground grid and a
       navigation cube.
-- [ ] **Step 3 — Document model and feature tree.** State store for the operation history,
-      rendered live in the tree with rename and rollback.
+- [x] **Step 3 — Document model and feature tree.** Zustand store holding the ordered
+      feature history, rendered live in the tree with rename, suppress, delete, rollback
+      and undo/redo. Ribbon feature commands create real features, and selection is shared
+      between the tree, the property manager and the 3D viewport.
 - [ ] **Step 4 — 2D sketcher.** Orthogonal sketch mode, entity drawing, geometric constraints,
       smart and ordinate dimensioning.
 - [ ] **Step 5 — 3D geometry.** OpenCASCADE-backed extrude with blind and mid-plane end
       conditions, driven from the property manager.
 
-Ribbon commands for later steps are already laid out in `src/commands/ribbonConfig.ts` so the
-command surface is visible; invoking one currently logs its id and does nothing else.
+The full command surface is laid out in `src/commands/ribbonConfig.ts`, and
+`src/commands/commandRegistry.ts` maps the ids that are wired up to store actions. Commands
+without an implementation render greyed out, so the ribbon reflects what actually works today.
+
+## Document model
+
+A document is an ordered list of features, and rebuilding means replaying that list from the
+top — the structure SolidWorks, NX and Inventor all share. Consequences worth knowing:
+
+- **Order matters.** A feature may only reference features above it.
+- **The rollback bar** (`rollbackIndex`) marks how far the rebuild has run. Features below it
+  stay in the document but are skipped, which is how you step back and insert a feature
+  mid-history. It cannot move above the default reference geometry.
+- **New features are inserted at the bar**, not appended, so adding a feature while rolled back
+  puts it where you are working.
+- **Deleting a feature deletes its dependents**, since a parametric child cannot rebuild
+  without its parent.
+- **Undo/redo** snapshots the document. Selection and unit changes are deliberately excluded —
+  undoing a click is surprising.
+
+Features are auto-named from `src/state/featureCatalog.ts` following SolidWorks conventions
+(`Boss-Extrude1`, `Cut-Extrude1`, `Fillet1`). Numbering scans existing names rather than keeping
+a counter, so deleting a feature frees its number again.
 
 ## Prerequisites (Windows 11 x64)
 
@@ -75,8 +99,12 @@ src/
     property/                Context-sensitive property manager
     viewport/                Graphics area: canvas, scene contents and CAD navigation
     statusbar/               Sketch status, cursor readout, unit system
-  hooks/useAppInfo.ts        Reads build identity over Tauri IPC
+  commands/commandRegistry.ts  Maps ribbon command ids to store actions
+  state/documentStore.ts     Zustand store: feature history, selection, undo/redo
+  state/featureCatalog.ts    Per-kind naming, icons and default parameters
+  hooks/                     Tauri app info, theme resolution
   styles/                    Fluent design tokens and global styles
+  types/document.ts          Feature and document model
   types/ui.ts                Shared UI types
 src-tauri/
   src/lib.rs                 Tauri builder, plugin and command registration
