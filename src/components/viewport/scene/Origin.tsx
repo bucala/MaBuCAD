@@ -1,5 +1,7 @@
 import { Line } from "@react-three/drei";
 
+import { useViewportStore } from "@/state/viewportStore";
+
 import { AXIS_COLORS, ORIGIN_AXIS_LENGTH as LEN } from "../constants";
 
 const AXES = [
@@ -19,6 +21,9 @@ const AXES = [
  * coordinate system.
  */
 export function Origin() {
+  const visible = useViewportStore((state) => state.referenceGeometryVisible);
+  if (!visible) return null;
+
   return (
     <group>
       {AXES.map((axis) => (

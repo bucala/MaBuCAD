@@ -2,6 +2,7 @@ import type { Feature, FeatureKind } from "@/types/document";
 import type { GeometricConstraintKind } from "@/sketch/types";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useSketchStore, type SketchTool } from "@/state/sketchStore";
+import { useViewportStore } from "@/state/viewportStore";
 
 import { runExport, runImport } from "./interchange";
 
@@ -181,6 +182,10 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "dimension.vertical-ordinate": () => useSketchStore.getState().applyOrdinateDimension("y"),
 
   "sketch.mirror": () => useSketchStore.getState().mirrorSelection(),
+
+  "view.zoom-fit": () => useViewportStore.getState().requestZoomFit(),
+  "view.display-mode": () => useViewportStore.getState().cycleDisplayMode(),
+  "view.hide-show": () => useViewportStore.getState().toggleReferenceGeometry(),
 
   ...Object.fromEntries(
     Object.entries(SKETCH_TOOL_COMMANDS).map(([id, tool]) => [

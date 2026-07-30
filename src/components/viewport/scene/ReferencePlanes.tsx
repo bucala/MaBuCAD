@@ -6,6 +6,7 @@ import { DoubleSide } from "three";
 import { selectSelectedPlaneId, useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
+import { useViewportStore } from "@/state/viewportStore";
 
 import { useClickGuard } from "../controls/useClickGuard";
 import { PLANE_SIZE, REFERENCE_PLANES, type ReferencePlaneId } from "../constants";
@@ -54,6 +55,11 @@ export function ReferencePlanes() {
    */
   const hasSolid = useGeometryStore((state) => state.mesh !== null);
 
+  /** Hide/Show on the ribbon; a selected plane still shows even when toggled off, same
+   * as it does when dimmed for having a solid — the selection needs something to point
+   * at. */
+  const referenceGeometryVisible = useViewportStore((state) => state.referenceGeometryVisible);
+
   return (
     <group
       // Clicking empty space clears the selection, as in any CAD graphics area. Fires
@@ -67,7 +73,7 @@ export function ReferencePlanes() {
       {REFERENCE_PLANES.map((plane) => {
         const isSelected = selectedId === plane.id;
         const isHovered = hoveredId === plane.id;
-        const isDimmed = hasSolid && !isSketchMode && !isSelected;
+        const isDimmed = (hasSolid || !referenceGeometryVisible) && !isSketchMode && !isSelected;
 
         /**
          * A plane faded to full invisibility still sits exactly where it was drawn on —

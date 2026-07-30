@@ -5,6 +5,44 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Zoom to Fit, Display Style, Hide/Show
+
+### Added
+- **`Zoom to Fit`** reframes the camera on the model's true world-space bounding sphere —
+  computed from the same triangulated mesh `SolidModel.tsx` renders, with `mesh.rotation`
+  (the sketch plane's placement) applied to each corner of the local bounding box before
+  taking its sphere, since the raw positions are still in the sketch's local space. New
+  `ZoomToFit.tsx`, rendered inside the `Canvas`, is what makes this possible at all: the
+  ribbon lives outside the r3f tree and can't reach the camera directly the way
+  `CadControls.tsx` does from inside it, so `viewportStore.ts`'s `zoomFitRequest` counter
+  is the bridge — incremented by the ribbon command, watched by an effect that does the
+  actual camera math. With no model yet, it falls back to a fixed default framing.
+- **`Display Style`** cycles Shaded → Shaded with Edges (the existing default) →
+  Wireframe on each click — the ribbon has one button, not SolidWorks's dropdown, so
+  cycling is the only affordance a single click has. "Wireframe" here means the B-Rep
+  edges `SolidModel.tsx` already draws as a separate overlay, not the raw triangulation —
+  showing the real triangle wireframe would defeat the entire reason that overlay exists
+  (a curved face reading as curved, not faceted). The shaded mesh stays in the scene graph
+  in every mode, just with an invisible material when hidden, rather than being removed or
+  set `visible={false}` — either of which would also drop it from raycasting and take
+  right-click selection of the solid with it.
+- **`Hide / Show`** toggles the reference planes and origin triad together — the two
+  things "reference geometry" means today, since a document only ever has the one
+  modelled body and there's no separate axis geometry to toggle independently yet. A
+  selected plane still shows even when toggled off, the same carve-out
+  `ReferencePlanes.tsx` already had for a plane dimmed by having a solid — the selection
+  needs something to point at.
+- New `state/viewportStore.ts` holds all three: display mode, reference-geometry
+  visibility, and the zoom-fit request counter — none of it belongs in `documentStore.ts`
+  (it's not part of the document) or `sketchStore.ts` (it applies outside sketch mode too).
+
+### Fixed
+- A freshly built mesh already asked the demand-render canvas for a frame
+  (`invalidate()`), but a display-mode change swaps which materials/overlays are mounted
+  without touching the geometry itself, so it was never asking for one — the mode would
+  change in React's state but the canvas would keep showing the old frame until something
+  else (an orbit, a resize) forced a redraw.
+
 ## 2026-07-30 — Sketch Mirror
 
 ### Added
