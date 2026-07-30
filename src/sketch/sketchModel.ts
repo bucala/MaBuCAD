@@ -827,3 +827,176 @@ export function patternEntities(sketch: Sketch, entityIds: string[], options: Pa
 
   return working;
 }
+
+/* ------------------------------------------------------------------------ trim */
+
+/** Whether `(x, y)` falls within an arc's counter-clockwise sweep from start to end. */
+function isWithinArcSweep(
+  sketch: Sketch,
+  arc: Extract<SketchEntity, { kind: "arc" }>,
+  x: number,
+  y: number,
+): boolean {
+  const centre = pointById(sketch, arc.center);
+  const start = pointById(sketch, arc.start);
+  const end = pointById(sketch, arc.end);
+  if (!centre || !start || !end) return false;
+
+  const startAngle = Math.atan2(start.y - centre.y, start.x - centre.x);
+  let endAngle = Math.atan2(end.y - centre.y, end.x - centre.x);
+  if (endAngle <= startAngle) endAngle += Math.PI * 2;
+
+  let angle = Math.atan2(y - centre.y, x - centre.x);
+  if (angle < startAngle) angle += Math.PI * 2;
+  return angle >= startAngle - 1e-6 && angle <= endAngle + 1e-6;
+}
+
+/**
+ * Parameters `t` (in `[0, 1]`) where the segment from `start` to `end` crosses `other`,
+ * used by `trimLineAt` to find the boundaries a trim can cut back to. Only intersections
+ * that land within `other`'s own extent count — a circle's full boundary, or an arc's
+ * swept range — the same as any CAD trim tool only cutting back to geometry that's
+ * actually there, not an entity's infinite extension.
+ */
+function lineIntersectionParams(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  other: SketchEntity,
+  sketch: Sketch,
+): number[] {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+
+  if (other.kind === "line") {
+    const os = pointById(sketch, other.start);
+    const oe = pointById(sketch, other.end);
+    if (!os || !oe) return [];
+    const odx = oe.x - os.x;
+    const ody = oe.y - os.y;
+    const denom = dx * ody - dy * odx;
+    if (Math.abs(denom) < 1e-9) return [];
+    const t = ((os.x - start.x) * ody - (os.y - start.y) * odx) / denom;
+    const u = ((os.x - start.x) * dy - (os.y - start.y) * dx) / denom;
+    if (t < -1e-6 || t > 1 + 1e-6 || u < -1e-6 || u > 1 + 1e-6) return [];
+    return [Math.min(Math.max(t, 0), 1)];
+  }
+
+  if (other.kind === "circle" || other.kind === "arc") {
+    const centre = pointById(sketch, other.center);
+    if (!centre) return [];
+
+    // |start + t*d - centre|^2 = radius^2, solved for t.
+    const fx = start.x - centre.x;
+    const fy = start.y - centre.y;
+    const a = dx * dx + dy * dy;
+    if (a < 1e-12) return [];
+    const b = 2 * (fx * dx + fy * dy);
+    const c = fx * fx + fy * fy - other.radius * other.radius;
+    const discriminant = b * b - 4 * a * c;
+    if (discriminant < 0) return [];
+
+    const sqrtDisc = Math.sqrt(discriminant);
+    const results: number[] = [];
+    for (const t of [(-b - sqrtDisc) / (2 * a), (-b + sqrtDisc) / (2 * a)]) {
+      if (t < -1e-6 || t > 1 + 1e-6) continue;
+      const clamped = Math.min(Math.max(t, 0), 1);
+      if (other.kind === "circle") {
+        results.push(clamped);
+        continue;
+      }
+      const px = start.x + clamped * dx;
+      const py = start.y + clamped * dy;
+      if (isWithinArcSweep(sketch, other, px, py)) results.push(clamped);
+    }
+    return results;
+  }
+
+  return [];
+}
+
+/**
+ * Trims a line back to its nearest intersections: `(x, y)` (the click position, in sketch
+ * space) picks which stretch of the line to remove, and every other entity that actually
+ * crosses this line contributes a cut point. A line with no crossings has nowhere to trim
+ * back to, so a click anywhere on it removes the whole entity — the same as trimming an
+ * overshooting stray segment down to nothing in any CAD sketcher.
+ *
+ * Circles, arcs, splines, and standalone points are not yet trimmable themselves — only
+ * lines are, though they can be trimmed back to where they cross any of those — the same
+ * kind of scope cut `offsetEntities` documents for entities with no single well-defined
+ * offset direction. A closed curve needs different bookkeeping (removing an interior arc
+ * of it rather than an end of it), which is a natural follow-up, not something this
+ * forecloses.
+ */
+export function trimLineAt(sketch: Sketch, entityId: string, x: number, y: number): Sketch {
+  const entity = entityById(sketch, entityId);
+  if (!entity || entity.kind !== "line") return sketch;
+
+  const start = pointById(sketch, entity.start);
+  const end = pointById(sketch, entity.end);
+  if (!start || !end) return sketch;
+
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy || 1e-12;
+
+  const cutSet = new Set<number>([0, 1]);
+  for (const other of sketch.entities) {
+    if (other.id === entityId) continue;
+    for (const t of lineIntersectionParams(start, end, other, sketch)) cutSet.add(t);
+  }
+  const cuts = [...cutSet].sort((a, b) => a - b);
+
+  const clickT = Math.min(1, Math.max(0, ((x - start.x) * dx + (y - start.y) * dy) / lengthSquared));
+
+  let clickedIndex = -1;
+  for (let i = 0; i < cuts.length - 1; i += 1) {
+    if (clickT >= cuts[i] - 1e-6 && clickT <= cuts[i + 1] + 1e-6) {
+      clickedIndex = i;
+      break;
+    }
+  }
+  if (clickedIndex === -1) return sketch;
+
+  let working = sketch;
+  const pointAt = (t: number): string => {
+    if (t <= 1e-9) return entity.start;
+    if (t >= 1 - 1e-9) return entity.end;
+    const result = ensurePoint(working, start.x + t * dx, start.y + t * dy, 0);
+    working = result.sketch;
+    return result.pointId;
+  };
+
+  const survivors: SketchEntity[] = [];
+  for (let i = 0; i < cuts.length - 1; i += 1) {
+    if (i === clickedIndex || cuts[i + 1] - cuts[i] < 1e-6) continue;
+    survivors.push({
+      id: uid("line"),
+      kind: "line",
+      start: pointAt(cuts[i]),
+      end: pointAt(cuts[i + 1]),
+      construction: entity.construction,
+    });
+  }
+
+  const removed = new Set([entityId]);
+  const entities = [...working.entities.filter((candidate) => !removed.has(candidate.id)), ...survivors];
+  const survivingPoints = new Set(entities.flatMap(entityPoints));
+  survivingPoints.add(originPointId(working.id));
+
+  return {
+    ...working,
+    entities,
+    points: working.points.filter((point) => survivingPoints.has(point.id)),
+    constraints: working.constraints.filter(
+      (constraint) =>
+        !constraint.entities.some((id) => removed.has(id)) &&
+        constraint.points.every((id) => survivingPoints.has(id)),
+    ),
+    dimensions: working.dimensions.filter(
+      (dimension) =>
+        !dimension.entities.some((id) => removed.has(id)) &&
+        dimension.points.every((id) => survivingPoints.has(id)),
+    ),
+  };
+}

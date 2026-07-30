@@ -13,6 +13,7 @@ import {
   MoveVertical,
   Route,
   Ruler,
+  Scissors,
   Spline,
   Square,
   Tangent,
@@ -38,6 +39,7 @@ const TOOLS: { id: SketchTool; label: string; icon: LucideIcon }[] = [
   { id: "spline", label: "Spline", icon: Spline },
   { id: "construction-line", label: "Construction", icon: Route },
   { id: "point", label: "Point", icon: CircleDot },
+  { id: "trim", label: "Trim", icon: Scissors },
 ];
 
 const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideIcon; hint: string }[] = [

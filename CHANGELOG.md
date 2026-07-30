@@ -5,6 +5,36 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Sketch Trim
+
+### Added
+- **`Trim`** is a persistent tool (unlike `Offset`/`Mirror`/`Pattern`, which act once on a
+  selection and return to `Select`): activate it, then click any line to cut it back to
+  its nearest intersections on either side of the click — the same interaction every CAD
+  sketcher's trim tool uses. A line with nothing crossing it has nowhere to trim back to,
+  so a click anywhere on it deletes the whole entity, the same as trimming away a stray
+  overshoot down to nothing.
+- `sketchModel.ts` gained `trimLineAt()`: it parametrizes the clicked line as `t` in
+  `[0, 1]`, collects every `t` where another entity actually crosses it (line-line via
+  standard 2D segment intersection, line-circle/line-arc via the quadratic intersection
+  of a parametrized line with a circle, an arc intersection additionally checked against
+  its swept angle range via a new `isWithinArcSweep()` helper), sorts those into a list of
+  cut points, and rebuilds every bracket except the one straddling the click as its own
+  new line — reusing `ensurePoint()` at each cut the same way `offsetEntities()` already
+  does, so a point shared with other geometry stays shared. Orphaned points, constraints,
+  and dimensions are swept up afterward the same way `deleteSelection()` already does for
+  a manually deleted entity.
+- Only lines are trimmable themselves for now — circles, arcs, splines, and standalone
+  points are not, though a line can still be trimmed back to where it crosses any of
+  them. A closed curve needs different bookkeeping (cutting an interior arc out of it
+  rather than shortening an end), which is a natural follow-up this doesn't foreclose —
+  the same kind of scope cut `offsetEntities()` already documents for entities with no
+  single well-defined offset direction.
+- `sketchStore.ts` gained `trimAt(entityId, position)`. `SketchGeometry.tsx` wires a
+  line's click handler to it while the Trim tool is active, converting the click's world
+  point to sketch space with the same `worldToSketch()` helper `SketchCanvas.tsx` already
+  uses for drawing.
+
 ## 2026-07-30 — Sketch Pattern
 
 ### Added

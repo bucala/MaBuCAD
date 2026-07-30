@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import { Line } from "@react-three/drei";
+import type { ThreeEvent } from "@react-three/fiber";
 import { CatmullRomCurve3, Vector3 } from "three";
 
+import { worldToSketch } from "@/sketch/planeBasis";
 import { entityPoints, pointById } from "@/sketch/sketchModel";
 import type { Sketch, SketchEntity } from "@/sketch/types";
 import { SNAP_TOLERANCE, useSketchStore } from "@/state/sketchStore";
@@ -31,12 +33,15 @@ interface SketchGeometryProps {
 export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   const selection = useSketchStore((state) => state.selection);
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
+  const trimAt = useSketchStore((state) => state.trimAt);
+  const tool = useSketchStore((state) => state.tool);
   // Points and entities only intercept clicks for selection while the Select tool is
   // active. Any drawing tool needs those same clicks to reach the invisible drawing
   // surface behind them (SketchCanvas), which is what actually creates and snaps
   // geometry — otherwise clicking an existing point (or the origin) just selects it
   // instead of extending whatever is being drawn.
-  const isSelectMode = useSketchStore((state) => state.tool === "select");
+  const isSelectMode = tool === "select";
+  const isTrimMode = tool === "trim";
 
   const baseColor = isDark ? COLORS.geometryDark : COLORS.geometry;
 
@@ -51,6 +56,11 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
           isSelected={selection.includes(entity.id)}
           isSelectMode={isSelectMode}
           onSelect={(additive) => toggleSelection(entity.id, additive)}
+          // Only a line can be trimmed today (see trimLineAt's doc comment) — other kinds
+          // simply don't get a click handler in trim mode, so the click falls through to
+          // the drawing surface behind them instead of doing nothing silently on a hit.
+          isTrimTarget={isTrimMode && entity.kind === "line"}
+          onTrim={(point) => trimAt(entity.id, worldToSketch(sketch.planeId, point))}
         />
       ))}
 
@@ -109,9 +119,20 @@ interface EntityViewProps {
   isSelected: boolean;
   isSelectMode: boolean;
   onSelect: (additive: boolean) => void;
+  isTrimTarget: boolean;
+  onTrim: (point: Vector3) => void;
 }
 
-function EntityView({ entity, sketch, color, isSelected, isSelectMode, onSelect }: EntityViewProps) {
+function EntityView({
+  entity,
+  sketch,
+  color,
+  isSelected,
+  isSelectMode,
+  onSelect,
+  isTrimTarget,
+  onTrim,
+}: EntityViewProps) {
   const points = useMemo(() => {
     const resolved = entityPoints(entity)
       .map((id) => pointById(sketch, id))
@@ -180,7 +201,12 @@ function EntityView({ entity, sketch, color, isSelected, isSelectMode, onSelect 
               event.stopPropagation();
               onSelect(event.ctrlKey || event.metaKey);
             }
-          : undefined
+          : isTrimTarget
+            ? (event: ThreeEvent<MouseEvent>) => {
+                event.stopPropagation();
+                onTrim(event.point);
+              }
+            : undefined
       }
       // See the point mesh above: not toggling `raycast` deliberately, only `onClick`.
     />

@@ -21,6 +21,7 @@ import {
   patternEntities,
   roundDimensionValue,
   pointById,
+  trimLineAt,
 } from "@/sketch/sketchModel";
 import type { PatternOptions } from "@/sketch/sketchModel";
 import { sketchStatusFromDiagnostics, solveSketch } from "@/sketch/solver";
@@ -42,6 +43,7 @@ export type SketchTool =
   | "construction-line"
   | "point"
   | "arc"
+  | "trim"
   | "smart-dimension"
   | "ordinate"
   | "ordinate-horizontal"
@@ -96,6 +98,7 @@ interface SketchStore {
   drawSpline: (positions: Point2[]) => void;
   drawPoint: (position: Point2) => void;
   drawArc: (centre: Point2, start: Point2, end: Point2) => void;
+  trimAt: (entityId: string, position: Point2) => void;
 
   applyConstraint: (kind: GeometricConstraintKind) => boolean;
   mirrorSelection: () => boolean;
@@ -226,6 +229,9 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
     drawArc: (centre, start, end) =>
       edit((sketch) => addArc(sketch, centre, start, end, { tolerance: SNAP_TOLERANCE }).sketch),
+
+    trimAt: (entityId, position) =>
+      edit((sketch) => trimLineAt(sketch, entityId, position.x, position.y)),
 
     applyConstraint: (kind) => {
       const { activeSketchId, sketches } = get();
