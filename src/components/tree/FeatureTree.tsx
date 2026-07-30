@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { useDocumentStore } from "@/state/documentStore";
+import { useSketchStore } from "@/state/sketchStore";
 
 import { FeatureRow } from "./FeatureRow";
 import styles from "./FeatureTree.module.css";
@@ -37,6 +38,7 @@ export function FeatureTree() {
   const rollToEnd = useDocumentStore((state) => state.rollToEnd);
   const undo = useDocumentStore((state) => state.undo);
   const redo = useDocumentStore((state) => state.redo);
+  const resumeSketch = useSketchStore((state) => state.resumeSketch);
 
   const [isRootExpanded, setIsRootExpanded] = useState(true);
 
@@ -151,6 +153,7 @@ export function FeatureTree() {
                   onDelete={deleteFeature}
                   onToggleSuppressed={toggleSuppressed}
                   onRollbackToBefore={rollbackToBefore}
+                  onEditSketch={resumeSketch}
                 />
               </div>
             ))}

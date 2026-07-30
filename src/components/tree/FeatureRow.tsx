@@ -16,6 +16,7 @@ interface FeatureRowProps {
   onDelete: (id: string) => void;
   onToggleSuppressed: (id: string) => void;
   onRollbackToBefore: (id: string) => void;
+  onEditSketch: (id: string) => void;
 }
 
 export function FeatureRow({
@@ -28,6 +29,7 @@ export function FeatureRow({
   onDelete,
   onToggleSuppressed,
   onRollbackToBefore,
+  onEditSketch,
 }: FeatureRowProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [draftName, setDraftName] = useState(feature.name);
@@ -104,7 +106,15 @@ export function FeatureRow({
           className={styles.rowInner}
           onClick={(event) => onSelect(feature.id, event.ctrlKey || event.metaKey)}
           onDoubleClick={() => {
-            if (!feature.isDefault) beginRename();
+            // A sketch is edited on double-click, matching SolidWorks; renaming it still
+            // works via F2 or the pencil action. Without this, an exited sketch has no
+            // way back in — it just looks deleted, since its geometry only renders while
+            // it is the active sketch.
+            if (feature.kind === "sketch") {
+              onEditSketch(feature.id);
+            } else if (!feature.isDefault) {
+              beginRename();
+            }
           }}
         >
           <span className={styles.label}>{feature.name}</span>

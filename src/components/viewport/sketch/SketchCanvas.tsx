@@ -34,6 +34,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const drawSpline = useSketchStore((state) => state.drawSpline);
   const clearSelection = useSketchStore((state) => state.clearSelection);
   const dragPoint = useSketchStore((state) => state.dragPoint);
+  const openContextMenu = useSketchStore((state) => state.openContextMenu);
 
   /** Anchor for the entity being drawn: line start, rectangle corner, circle centre. */
   const [anchor, setAnchor] = useState<Point2 | null>(null);
@@ -139,7 +140,19 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
         onClick={handleClick}
         onContextMenu={(event) => {
           event.stopPropagation();
-          finishChain();
+          // Stop the browser/OS's own right-click menu — our menu (or the finish-chain
+          // shortcut below) is meant to be the only one that appears here.
+          event.nativeEvent.preventDefault();
+
+          const isMidDraw = anchor !== null || splinePoints.length > 0;
+          if (isMidDraw) {
+            // Right-click while drawing keeps its existing shortcut: finish or cancel the
+            // in-progress entity, rather than interrupting the gesture with a menu.
+            finishChain();
+            return;
+          }
+
+          openContextMenu(event.nativeEvent.clientX, event.nativeEvent.clientY);
         }}
         position={[0, 0, -0.01]}
       >

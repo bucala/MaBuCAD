@@ -55,10 +55,22 @@ interface SketchStore {
   tool: SketchTool;
   /** Entity and point ids selected inside the sketch. */
   selection: string[];
+  /**
+   * Screen position of an open right-click menu, or null when it is closed.
+   *
+   * Lives here rather than as local state in the component that opens it
+   * (`SketchCanvas`, which renders inside the react-three-fiber `<Canvas>`) because the
+   * menu itself has to render as a plain DOM overlay outside that canvas — react-dom's
+   * `createPortal` does not safely cross out of r3f's own reconciler, so the store is
+   * what lets a component outside the canvas see this state.
+   */
+  contextMenu: { x: number; y: number } | null;
 
   beginSketch: (featureId: string, planeId: string) => void;
   resumeSketch: (featureId: string) => void;
   exitSketch: () => void;
+  openContextMenu: (x: number, y: number) => void;
+  closeContextMenu: () => void;
 
   setTool: (tool: SketchTool) => void;
   setSelection: (ids: string[]) => void;
@@ -115,6 +127,10 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     diagnostics: IDLE_DIAGNOSTICS,
     tool: "select",
     selection: [],
+    contextMenu: null,
+
+    openContextMenu: (x, y) => set({ contextMenu: { x, y } }),
+    closeContextMenu: () => set({ contextMenu: null }),
 
     beginSketch: (featureId, planeId) => {
       const sketch = createSketch(featureId, planeId);
@@ -126,6 +142,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         diagnostics: solved.diagnostics,
         tool: "line",
         selection: [],
+        contextMenu: null,
       }));
     },
 
@@ -137,11 +154,18 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         diagnostics: solveSketch(sketch).diagnostics,
         tool: "select",
         selection: [],
+        contextMenu: null,
       });
     },
 
     exitSketch: () =>
-      set({ activeSketchId: null, tool: "select", selection: [], diagnostics: IDLE_DIAGNOSTICS }),
+      set({
+        activeSketchId: null,
+        tool: "select",
+        selection: [],
+        diagnostics: IDLE_DIAGNOSTICS,
+        contextMenu: null,
+      }),
 
     setTool: (tool) => set({ tool, selection: [] }),
     setSelection: (ids) => set({ selection: ids }),

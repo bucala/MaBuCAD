@@ -58,20 +58,37 @@ const SKETCH_RELATION_COMMANDS: Record<string, GeometricConstraintKind> = {
 };
 
 /**
- * Opens a sketch on the selected plane.
+ * Opens a sketch: resumes editing the selected one if there is one, otherwise starts a new
+ * sketch on the selected plane.
  *
- * A sketch needs a plane, so the command uses the current selection and falls back to the
- * Front plane — the same default a new SolidWorks part offers.
+ * Matches SolidWorks: clicking Sketch with an existing sketch selected re-enters it rather
+ * than creating a second, unrelated empty sketch. A new sketch needs a plane, so that path
+ * uses the current selection and falls back to the Front plane — the same default a new
+ * SolidWorks part offers.
  */
 function beginSketch() {
   const documentState = useDocumentStore.getState();
+  const sketchStore = useSketchStore.getState();
+
+  const selectedSketchId = documentState.selectedFeatureIds.find(
+    (id) =>
+      documentState.document.features.some(
+        (feature) => feature.id === id && feature.kind === "sketch",
+      ) && sketchStore.sketches[id],
+  );
+
+  if (selectedSketchId) {
+    sketchStore.resumeSketch(selectedSketchId);
+    return;
+  }
+
   const selectedPlane = documentState.selectedFeatureIds.find((id) =>
     (DEFAULT_PLANE_IDS as readonly string[]).includes(id),
   );
 
   const planeId = selectedPlane ?? DEFAULT_PLANE_IDS[0];
   const featureId = documentState.addFeature("sketch");
-  useSketchStore.getState().beginSketch(featureId, planeId);
+  sketchStore.beginSketch(featureId, planeId);
 }
 
 /**

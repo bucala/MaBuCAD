@@ -31,6 +31,12 @@ interface SketchGeometryProps {
 export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   const selection = useSketchStore((state) => state.selection);
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
+  // Points and entities only intercept clicks for selection while the Select tool is
+  // active. Any drawing tool needs those same clicks to reach the invisible drawing
+  // surface behind them (SketchCanvas), which is what actually creates and snaps
+  // geometry — otherwise clicking an existing point (or the origin) just selects it
+  // instead of extending whatever is being drawn.
+  const isSelectMode = useSketchStore((state) => state.tool === "select");
 
   const baseColor = isDark ? COLORS.geometryDark : COLORS.geometry;
 
@@ -43,6 +49,7 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
           sketch={sketch}
           color={selection.includes(entity.id) ? COLORS.selected : baseColor}
           isSelected={selection.includes(entity.id)}
+          isSelectMode={isSelectMode}
           onSelect={(additive) => toggleSelection(entity.id, additive)}
         />
       ))}
@@ -61,10 +68,21 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
             <mesh
               name={point.id}
               userData={{ sketchPointId: point.id }}
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleSelection(point.id, event.ctrlKey || event.metaKey);
-              }}
+              onClick={
+                isSelectMode
+                  ? (event) => {
+                      event.stopPropagation();
+                      toggleSelection(point.id, event.ctrlKey || event.metaKey);
+                    }
+                  : undefined
+              }
+              // Deliberately not also toggling `raycast` here: react-three-fiber does not
+              // reliably restore a mesh's default raycast method once a prop has set it to
+              // a no-op — a mesh created while a drawing tool was active (so raycast was
+              // disabled) stayed unpickable even after switching back to Select. Leaving
+              // onClick unset is sufficient on its own: with no handler, r3f's raycast
+              // still hits this mesh but has nothing to call, so it continues on to the
+              // canvas plane behind it instead of stopping here.
             >
               <circleGeometry args={[PICK_RADIUS, 12]} />
               <meshBasicMaterial transparent opacity={0} depthWrite={false} />
@@ -89,10 +107,11 @@ interface EntityViewProps {
   sketch: Sketch;
   color: string;
   isSelected: boolean;
+  isSelectMode: boolean;
   onSelect: (additive: boolean) => void;
 }
 
-function EntityView({ entity, sketch, color, isSelected, onSelect }: EntityViewProps) {
+function EntityView({ entity, sketch, color, isSelected, isSelectMode, onSelect }: EntityViewProps) {
   const points = useMemo(() => {
     const resolved = entityPoints(entity)
       .map((id) => pointById(sketch, id))
@@ -134,10 +153,15 @@ function EntityView({ entity, sketch, color, isSelected, onSelect }: EntityViewP
       dashed={entity.construction}
       dashSize={2}
       gapSize={1.5}
-      onClick={(event) => {
-        event.stopPropagation();
-        onSelect(event.ctrlKey || event.metaKey);
-      }}
+      onClick={
+        isSelectMode
+          ? (event) => {
+              event.stopPropagation();
+              onSelect(event.ctrlKey || event.metaKey);
+            }
+          : undefined
+      }
+      // See the point mesh above: not toggling `raycast` deliberately, only `onClick`.
     />
   );
 }

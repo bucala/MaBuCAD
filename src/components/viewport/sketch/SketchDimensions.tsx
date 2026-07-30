@@ -33,6 +33,11 @@ export function SketchDimensions({ sketch }: SketchDimensionsProps) {
 function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sketch }) {
   const selection = useSketchStore((state) => state.selection);
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
+  // Dimension labels are real DOM buttons layered over the canvas via drei's Html, so
+  // they intercept a click before it ever reaches the WebGL raycaster underneath — if one
+  // happens to sit where the user is trying to draw, `pointer-events: none` lets that
+  // click fall through to the canvas instead of selecting the dimension.
+  const isSelectMode = useSketchStore((state) => state.tool === "select");
 
   const isSelected = selection.includes(dimension.id);
   const isOrdinate = dimension.kind === "ordinate-x" || dimension.kind === "ordinate-y";
@@ -123,6 +128,7 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
           className={`${styles.label} ${isOrdinate ? styles.ordinate : ""} ${
             isSelected ? styles.selected : ""
           }`}
+          style={isSelectMode ? undefined : { pointerEvents: "none" }}
           data-dimension-id={dimension.id}
           onClick={(event) => {
             event.stopPropagation();

@@ -5,6 +5,46 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Sketcher interaction bug-fix pass
+
+### Fixed
+- **Points and geometry swallowed clicks meant for the active drawing tool.** Every sketch
+  point (and every line/circle/spline) had an unconditional `onClick` that stopped
+  propagation and selected it, regardless of which tool was active. Since points render
+  slightly in front of the drawing surface, this meant clicking on an existing point while
+  drawing a line — including the origin, and including the endpoint just created a moment
+  earlier — always got treated as a selection instead of reaching the canvas's own
+  line-continuation/snap logic. This was the root cause behind three separate symptoms:
+  a line couldn't be connected to a point shared with another line, a line couldn't start
+  from the origin, and drawing looked like it "only worked once" (chaining a second segment
+  onto the first segment's endpoint hit the same swallow). Point pick-meshes and entity/
+  dimension click handlers in `SketchGeometry.tsx` / `SketchDimensions.tsx` now only
+  intercept the click while the Select tool is active; with a drawing tool active, the
+  click passes through to the canvas plane, which already snaps to nearby points correctly.
+- **An exited sketch had no way back in.** `resumeSketch(featureId)` already existed in
+  `sketchStore.ts` but nothing in the UI called it, so leaving sketch mode looked like the
+  sketch had been deleted (its geometry only renders while it is the active sketch).
+  Double-clicking a sketch in the feature tree now resumes it, matching SolidWorks; the
+  ribbon's Sketch command also resumes an already-selected sketch instead of creating a new
+  empty one on top of it.
+- **No right-click menu in the sketch canvas.** Right-click on empty selection now opens a
+  small context menu (tool switches, Delete, Exit Sketch); right-click while mid-draw keeps
+  finishing/cancelling the in-progress entity, as before.
+
+### Also found and fixed while verifying the above
+- A first attempt at the click-gating fix additionally toggled each mesh's `raycast` prop
+  as a defensive measure. react-three-fiber does not reliably restore a mesh's default
+  raycast method once a prop has set it to a no-op, so any point created while a drawing
+  tool was active became permanently unselectable afterwards, even back in Select mode.
+  Removed — the `onClick` gating alone is sufficient, since r3f already continues the
+  raycast past objects with no handler attached.
+- The context menu's first implementation rendered via `ReactDOM.createPortal` from inside
+  the sketch canvas's `react-three-fiber` tree, which crashed (`R3F: Svg is not part of the
+  THREE namespace!`) the moment it tried to render an SVG icon — `createPortal` does not
+  safely escape r3f's own reconciler. Moved the menu's open/closed state into
+  `sketchStore.ts` and the menu component itself to a plain DOM sibling of `<Canvas>` in
+  `Viewport.tsx`, outside the r3f tree entirely.
+
 ## 2026-07-29 — Import / Export (`9103b15`)
 
 ### Added
