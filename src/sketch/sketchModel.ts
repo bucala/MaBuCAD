@@ -483,3 +483,124 @@ export function hasClosedProfile(sketch: Sketch): boolean {
   const endpoints = [...degree.values()];
   return endpoints.length > 0 && endpoints.every((count) => count >= 2);
 }
+
+/* --------------------------------------------------------------------- mirror */
+
+/** Reflects `p` about the infinite line through `a` and `b`. */
+function reflectPoint(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  p: { x: number; y: number },
+): { x: number; y: number } {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy || 1e-12;
+  const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSquared;
+  const projectionX = a.x + t * dx;
+  const projectionY = a.y + t * dy;
+  return { x: 2 * projectionX - p.x, y: 2 * projectionY - p.y };
+}
+
+/**
+ * Mirrors the given entities about `axisId` (a construction line), adding a new mirrored
+ * copy of each — not linking it back to the original the way SolidWorks's live symmetric
+ * constraint would, which needs a new residual kind of its own; a one-shot copy covers the
+ * common case (finishing a symmetric profile by hand) without that machinery.
+ *
+ * Mirroring reverses orientation, so an arc's start and end are swapped on its copy — the
+ * sketch's fixed "always sweeps counter-clockwise from start to end" convention would
+ * otherwise draw the far side of the circle instead of the true mirror image.
+ */
+export function mirrorEntities(sketch: Sketch, entityIds: string[], axisId: string): Sketch {
+  const axis = entityById(sketch, axisId);
+  if (!axis || axis.kind !== "line") return sketch;
+
+  const axisStart = pointById(sketch, axis.start);
+  const axisEnd = pointById(sketch, axis.end);
+  if (!axisStart || !axisEnd) return sketch;
+
+  let working = sketch;
+  const mirroredPoint = (id: string): string => {
+    const point = pointById(working, id);
+    if (!point) return id;
+    const reflected = reflectPoint(axisStart, axisEnd, point);
+    const result = ensurePoint(working, reflected.x, reflected.y, 0);
+    working = result.sketch;
+    return result.pointId;
+  };
+
+  for (const id of entityIds) {
+    if (id === axisId) continue;
+    const entity = entityById(working, id);
+    if (!entity) continue;
+
+    switch (entity.kind) {
+      case "line": {
+        const mirrored: SketchEntity = {
+          id: uid("line"),
+          kind: "line",
+          start: mirroredPoint(entity.start),
+          end: mirroredPoint(entity.end),
+          construction: entity.construction,
+        };
+        working = { ...working, entities: [...working.entities, mirrored] };
+        break;
+      }
+      case "circle": {
+        const mirrored: SketchEntity = {
+          id: uid("circle"),
+          kind: "circle",
+          center: mirroredPoint(entity.center),
+          radius: entity.radius,
+          construction: entity.construction,
+        };
+        working = { ...working, entities: [...working.entities, mirrored] };
+        break;
+      }
+      case "arc": {
+        const mirrored: SketchEntity = {
+          id: uid("arc"),
+          kind: "arc",
+          center: mirroredPoint(entity.center),
+          // Swapped: see the note above on orientation.
+          start: mirroredPoint(entity.end),
+          end: mirroredPoint(entity.start),
+          radius: entity.radius,
+          construction: entity.construction,
+        };
+        const constraints: GeometricConstraint[] = [
+          { id: uid("con"), kind: "arc-radius", entities: [mirrored.id], points: [mirrored.start] },
+          { id: uid("con"), kind: "arc-radius", entities: [mirrored.id], points: [mirrored.end] },
+        ];
+        working = {
+          ...working,
+          entities: [...working.entities, mirrored],
+          constraints: [...working.constraints, ...constraints],
+        };
+        break;
+      }
+      case "spline": {
+        const mirrored: SketchEntity = {
+          id: uid("spline"),
+          kind: "spline",
+          points: entity.points.map(mirroredPoint),
+          construction: entity.construction,
+        };
+        working = { ...working, entities: [...working.entities, mirrored] };
+        break;
+      }
+      case "point": {
+        const mirrored: SketchEntity = {
+          id: uid("point"),
+          kind: "point",
+          at: mirroredPoint(entity.at),
+          construction: entity.construction,
+        };
+        working = { ...working, entities: [...working.entities, mirrored] };
+        break;
+      }
+    }
+  }
+
+  return working;
+}

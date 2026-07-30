@@ -5,6 +5,26 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Sketch Mirror
+
+### Added
+- **`Mirror` sketch tool.** Select a construction line plus one or more entities and apply
+  it: each selected entity gets a new mirrored copy, added rather than linked back to the
+  original — SolidWorks keeps a live symmetric constraint instead, which would need a new
+  residual kind of its own; a one-shot copy covers the common case (finishing a symmetric
+  profile by hand) without that machinery.
+- `mirrorEntities()` (`sketchModel.ts`) reflects a point about the axis line and reuses it
+  via the same `ensurePoint()` every drawing tool already uses, so mirrored copies of
+  adjacent entities that share a point still share the mirrored point too. Every entity
+  kind is covered (line, circle, arc, spline, standalone point); an arc's start/end are
+  swapped on its mirrored copy, since reflection reverses orientation and the sketch's
+  fixed "always sweeps counter-clockwise from start to end" convention would otherwise
+  draw the far side of the circle instead of the true mirror image — the mirrored arc also
+  gets its own pair of `arc-radius` constraints, exactly like one drawn from scratch.
+- `sketchStore.ts`'s `mirrorSelection()` resolves the axis as whichever selected entity is
+  a construction line, mirroring everything else selected — matching how `applyConstraint`
+  already resolves its own selection shape per constraint kind.
+
 ## 2026-07-30 — Arc sketch entity
 
 ### Added

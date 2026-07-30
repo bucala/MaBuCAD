@@ -15,6 +15,7 @@ import {
   hasClosedProfile,
   inferSmartDimension,
   measure,
+  mirrorEntities,
   originPointId,
   roundDimensionValue,
   pointById,
@@ -89,6 +90,7 @@ interface SketchStore {
   drawArc: (centre: Point2, start: Point2, end: Point2) => void;
 
   applyConstraint: (kind: GeometricConstraintKind) => boolean;
+  mirrorSelection: () => boolean;
   applySmartDimension: () => boolean;
   applyOrdinateDimension: (axis: "both" | "x" | "y") => boolean;
   setDimensionValue: (dimensionId: string, value: number) => void;
@@ -237,6 +239,28 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         }
         return addConstraint(current, kind, entities, points);
       });
+
+      set({ selection: [] });
+      return true;
+    },
+
+    mirrorSelection: () => {
+      const { activeSketchId, sketches, selection } = get();
+      const sketch = activeSketchId ? sketches[activeSketchId] : undefined;
+      if (!sketch) return false;
+
+      // The mirror axis is whichever selected construction line is present; everything
+      // else selected (including a second, non-construction line) is what gets mirrored.
+      const axisId = selection.find((id) => {
+        const entity = entityById(sketch, id);
+        return entity?.kind === "line" && entity.construction;
+      });
+      if (!axisId) return false;
+
+      const targets = selection.filter((id) => id !== axisId && entityById(sketch, id));
+      if (targets.length === 0) return false;
+
+      edit((current) => mirrorEntities(current, targets, axisId));
 
       set({ selection: [] });
       return true;

@@ -180,6 +180,8 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "dimension.horizontal-ordinate": () => useSketchStore.getState().applyOrdinateDimension("x"),
   "dimension.vertical-ordinate": () => useSketchStore.getState().applyOrdinateDimension("y"),
 
+  "sketch.mirror": () => useSketchStore.getState().mirrorSelection(),
+
   ...Object.fromEntries(
     Object.entries(SKETCH_TOOL_COMMANDS).map(([id, tool]) => [
       id,
@@ -199,6 +201,7 @@ const SKETCH_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   "sketch.exit",
   ...Object.keys(SKETCH_TOOL_COMMANDS),
   ...Object.keys(SKETCH_RELATION_COMMANDS),
+  "sketch.mirror",
   "dimension.smart",
   "dimension.ordinate",
   "dimension.horizontal-ordinate",
