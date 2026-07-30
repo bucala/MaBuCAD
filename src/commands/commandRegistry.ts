@@ -187,6 +187,17 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "dimension.vertical-ordinate": () => useSketchStore.getState().applyOrdinateDimension("y"),
 
   "sketch.mirror": () => useSketchStore.getState().mirrorSelection(),
+  "sketch.offset": () => {
+    // No inline numeric-entry UI exists for a one-shot tool like this yet (unlike a
+    // dimension, which is added and then edited afterward) — a prompt is the smallest
+    // way to ask for the one number this needs. Negative flips which side a line offsets
+    // to and shrinks rather than grows a circle or arc; both are explained right there.
+    const input = window.prompt("Offset distance (mm) — negative flips the side/shrinks:", "5");
+    if (input === null) return;
+    const distance = Number(input);
+    if (!Number.isFinite(distance) || distance === 0) return;
+    useSketchStore.getState().offsetSelection(distance);
+  },
 
   "view.zoom-fit": () => useViewportStore.getState().requestZoomFit(),
   "view.display-mode": () => useViewportStore.getState().cycleDisplayMode(),
@@ -212,6 +223,7 @@ const SKETCH_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   ...Object.keys(SKETCH_TOOL_COMMANDS),
   ...Object.keys(SKETCH_RELATION_COMMANDS),
   "sketch.mirror",
+  "sketch.offset",
   "dimension.smart",
   "dimension.ordinate",
   "dimension.horizontal-ordinate",

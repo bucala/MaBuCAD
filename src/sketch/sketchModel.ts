@@ -604,3 +604,103 @@ export function mirrorEntities(sketch: Sketch, entityIds: string[], axisId: stri
 
   return working;
 }
+
+/* --------------------------------------------------------------------- offset */
+
+/**
+ * Offsets the given entities by `distance` (perpendicular to a line, radial for a circle
+ * or arc), adding a new copy of each — a one-shot copy like `mirrorEntities`, not a live
+ * parametric link back to the source. A negative distance flips which side a line offsets
+ * to and shrinks rather than grows a circle or arc.
+ *
+ * Splines and standalone points have no single well-defined offset direction and are
+ * silently skipped, the same way `hasClosedProfile`/`extractLoops` silently skip entity
+ * kinds that don't apply to what they're computing.
+ */
+export function offsetEntities(sketch: Sketch, entityIds: string[], distance: number): Sketch {
+  let working = sketch;
+
+  for (const id of entityIds) {
+    const entity = entityById(working, id);
+    if (!entity) continue;
+
+    if (entity.kind === "line") {
+      const start = pointById(working, entity.start);
+      const end = pointById(working, entity.end);
+      if (!start || !end) continue;
+
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = Math.hypot(dx, dy) || 1e-9;
+      // The direction rotated 90° counter-clockwise: a positive distance offsets to the
+      // left of the line's own start->end direction, negative to the right.
+      const nx = (-dy / length) * distance;
+      const ny = (dx / length) * distance;
+
+      const newStart = ensurePoint(working, start.x + nx, start.y + ny, 0);
+      const newEnd = ensurePoint(newStart.sketch, end.x + nx, end.y + ny, 0);
+
+      const offset: SketchEntity = {
+        id: uid("line"),
+        kind: "line",
+        start: newStart.pointId,
+        end: newEnd.pointId,
+        construction: entity.construction,
+      };
+      working = { ...newEnd.sketch, entities: [...newEnd.sketch.entities, offset] };
+    } else if (entity.kind === "circle") {
+      const offset: SketchEntity = {
+        id: uid("circle"),
+        kind: "circle",
+        center: entity.center,
+        radius: Math.max(entity.radius + distance, 1e-3),
+        construction: entity.construction,
+      };
+      working = { ...working, entities: [...working.entities, offset] };
+    } else if (entity.kind === "arc") {
+      const centre = pointById(working, entity.center);
+      const start = pointById(working, entity.start);
+      const end = pointById(working, entity.end);
+      if (!centre || !start || !end) continue;
+
+      const newRadius = Math.max(entity.radius + distance, 1e-3);
+      const angleOf = (p: { x: number; y: number }) => Math.atan2(p.y - centre.y, p.x - centre.x);
+      const startAngle = angleOf(start);
+      const endAngle = angleOf(end);
+
+      const newStart = ensurePoint(
+        working,
+        centre.x + newRadius * Math.cos(startAngle),
+        centre.y + newRadius * Math.sin(startAngle),
+        0,
+      );
+      const newEnd = ensurePoint(
+        newStart.sketch,
+        centre.x + newRadius * Math.cos(endAngle),
+        centre.y + newRadius * Math.sin(endAngle),
+        0,
+      );
+
+      const offset: SketchEntity = {
+        id: uid("arc"),
+        kind: "arc",
+        center: entity.center,
+        start: newStart.pointId,
+        end: newEnd.pointId,
+        radius: newRadius,
+        construction: entity.construction,
+      };
+      const constraints: GeometricConstraint[] = [
+        { id: uid("con"), kind: "arc-radius", entities: [offset.id], points: [offset.start] },
+        { id: uid("con"), kind: "arc-radius", entities: [offset.id], points: [offset.end] },
+      ];
+      working = {
+        ...newEnd.sketch,
+        entities: [...newEnd.sketch.entities, offset],
+        constraints: [...newEnd.sketch.constraints, ...constraints],
+      };
+    }
+  }
+
+  return working;
+}

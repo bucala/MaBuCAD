@@ -5,6 +5,31 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Sketch Offset
+
+### Added
+- **`Offset`** creates a parallel copy of a selected line, circle, or arc at a distance
+  the user types into a `window.prompt()` — the smallest UI a one-shot numeric tool like
+  this needs, matching how `Mirror`'s axis-and-selection interaction was kept purely
+  selection-driven rather than growing new inline chrome. A negative distance flips which
+  side a line offsets to, and shrinks rather than grows a circle or arc; both are stated
+  right there in the prompt, since there is no live preview to show it instead.
+- `sketchModel.ts` gained `offsetEntities()`: a line offsets along its own outward normal
+  (`(-dy, dx)/length`, scaled by the distance), a circle offsets by growing or shrinking
+  its radius (`Math.max(radius + distance, 1e-3)` to keep it from collapsing through
+  zero), and an arc offsets the same way a circle does — same centre and swept angles,
+  new radius — with fresh `arc-radius` constraints added for the copy exactly as
+  `mirrorEntities()` already does for a mirrored arc, since every arc needs its own pair
+  regardless of how it was created.
+- Like `Mirror`, this produces an independent copy, not a live offset relationship: the
+  new entity has no reference back to the source, so editing the source afterward leaves
+  the offset copy where it was. A true parametric offset relation is a larger feature
+  (tracking the source entity and re-deriving the copy on every solve) that nothing here
+  forecloses adding later.
+- `sketchStore.ts` gained `offsetSelection(distance)`, filtering the current selection
+  down to line/circle/arc entities (points and constraints aren't offsettable) before
+  calling into `offsetEntities()`.
+
 ## 2026-07-30 — Document New / Open / Save
 
 ### Added

@@ -16,6 +16,7 @@ import {
   inferSmartDimension,
   measure,
   mirrorEntities,
+  offsetEntities,
   originPointId,
   roundDimensionValue,
   pointById,
@@ -96,6 +97,7 @@ interface SketchStore {
 
   applyConstraint: (kind: GeometricConstraintKind) => boolean;
   mirrorSelection: () => boolean;
+  offsetSelection: (distance: number) => boolean;
   applySmartDimension: () => boolean;
   applyOrdinateDimension: (axis: "both" | "x" | "y") => boolean;
   setDimensionValue: (dimensionId: string, value: number) => void;
@@ -276,6 +278,23 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       if (targets.length === 0) return false;
 
       edit((current) => mirrorEntities(current, targets, axisId));
+
+      set({ selection: [] });
+      return true;
+    },
+
+    offsetSelection: (distance) => {
+      const { activeSketchId, sketches, selection } = get();
+      const sketch = activeSketchId ? sketches[activeSketchId] : undefined;
+      if (!sketch || !Number.isFinite(distance) || distance === 0) return false;
+
+      const targets = selection.filter((id) => {
+        const entity = entityById(sketch, id);
+        return entity?.kind === "line" || entity?.kind === "circle" || entity?.kind === "arc";
+      });
+      if (targets.length === 0) return false;
+
+      edit((current) => offsetEntities(current, targets, distance));
 
       set({ selection: [] });
       return true;
