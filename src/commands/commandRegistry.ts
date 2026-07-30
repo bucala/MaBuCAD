@@ -1,4 +1,4 @@
-import type { FeatureKind } from "@/types/document";
+import type { Feature, FeatureKind } from "@/types/document";
 import type { GeometricConstraintKind } from "@/sketch/types";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useSketchStore, type SketchTool } from "@/state/sketchStore";
@@ -24,10 +24,6 @@ const FEATURE_COMMANDS: Record<string, FeatureKind> = {
   "feature.shell": "shell",
   "feature.draft": "draft",
   "feature.rib": "rib",
-
-  "feature.linear-pattern": "linear-pattern",
-  "feature.circular-pattern": "circular-pattern",
-  "feature.mirror": "mirror",
 
   "reference.plane": "reference-plane",
   "reference.axis": "reference-axis",
@@ -113,12 +109,46 @@ function addSketchFeature(kind: "extrude" | "cut-extrude" | "revolve" | "cut-rev
   documentState.addFeature(kind, undefined, sketchId ? [sketchId] : []);
 }
 
+/** Feature kinds the kernel builds real geometry for — what a pattern or mirror can target. */
+const MODELLING_KINDS: ReadonlySet<Feature["kind"]> = new Set([
+  "extrude",
+  "cut-extrude",
+  "revolve",
+  "cut-revolve",
+  "imported",
+]);
+
+/**
+ * Creates a linear pattern, circular pattern, or mirror feature from an existing modelling
+ * feature, resolved the same way `addSketchFeature` resolves a sketch: prefer the current
+ * selection, otherwise fall back to the most recent modelling feature above the rollback bar.
+ */
+function addPatternFeature(kind: "linear-pattern" | "circular-pattern" | "mirror") {
+  const documentState = useDocumentStore.getState();
+  const { features, rollbackIndex } = documentState.document;
+
+  const selectedSource = documentState.selectedFeatureIds.find((id) =>
+    features.some((feature) => feature.id === id && MODELLING_KINDS.has(feature.kind)),
+  );
+
+  const lastModelling = [...features.slice(0, rollbackIndex)]
+    .reverse()
+    .find((feature) => MODELLING_KINDS.has(feature.kind))?.id;
+
+  const sourceId = selectedSource ?? lastModelling;
+  documentState.addFeature(kind, undefined, sourceId ? [sourceId] : []);
+}
+
 /** Commands handled directly rather than by creating a feature. */
 const DIRECT_COMMANDS: Record<string, () => void> = {
   "feature.extrude": () => addSketchFeature("extrude"),
   "feature.cut-extrude": () => addSketchFeature("cut-extrude"),
   "feature.revolve": () => addSketchFeature("revolve"),
   "feature.cut-revolve": () => addSketchFeature("cut-revolve"),
+
+  "feature.linear-pattern": () => addPatternFeature("linear-pattern"),
+  "feature.circular-pattern": () => addPatternFeature("circular-pattern"),
+  "feature.mirror": () => addPatternFeature("mirror"),
 
   // `file.export-iges` is deliberately absent: the bundled OpenCASCADE build contains no
   // IGES support, so the ribbon button stays disabled and says why in its tooltip rather

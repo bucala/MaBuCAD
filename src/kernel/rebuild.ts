@@ -160,6 +160,85 @@ function buildRevolveSolid(sketch: Sketch, feature: Feature): Solid | null {
   return solid;
 }
 
+const AXIS_VECTORS: Record<"x" | "y" | "z", [number, number, number]> = {
+  x: [1, 0, 0],
+  y: [0, 1, 0],
+  z: [0, 0, 1],
+};
+
+/** The plane whose normal is the given axis — what a mirror across that axis reflects through. */
+const MIRROR_PLANES: Record<"x" | "y" | "z", "YZ" | "XZ" | "XY"> = {
+  x: "YZ",
+  y: "XZ",
+  z: "XY",
+};
+
+function asTransformable(solid: Solid) {
+  return solid as unknown as {
+    clone: () => Solid;
+    translate: (vector: [number, number, number]) => Solid;
+    rotate: (angle: number, position: [number, number, number], direction: [number, number, number]) => Solid;
+    mirror: (plane: "XY" | "YZ" | "XZ", origin?: [number, number, number]) => Solid;
+  };
+}
+
+function asBoolean(solid: Solid) {
+  return solid as unknown as { fuse: (other: Solid) => Solid; cut: (other: Solid) => Solid };
+}
+
+/**
+ * Builds the union of the *additional* copies a pattern contributes — the seed instance is
+ * already part of `current` from its own turn through the rebuild loop, so a pattern only
+ * ever adds instances 1..count-1, transformed by `transformAt`.
+ *
+ * `translate`/`rotate`/`mirror` each free the shape they're called on and return a new one
+ * (replicad's shapes are WASM-backed, not garbage collected), so every copy starts from its
+ * own `clone()` of the source rather than reusing it directly.
+ */
+function buildCopies(
+  source: Solid,
+  count: number,
+  transformAt: (index: number, copy: Solid) => Solid,
+): Solid | null {
+  const instances = Math.max(1, Math.round(count));
+  let copies: Solid | null = null;
+
+  for (let index = 1; index < instances; index += 1) {
+    const copy = transformAt(index, asTransformable(source).clone());
+    copies = copies ? asBoolean(copies).fuse(copy) : copy;
+  }
+
+  return copies;
+}
+
+function buildLinearPatternSolid(source: Solid, feature: Feature): Solid | null {
+  const direction = AXIS_VECTORS[feature.parameters.axis ?? "x"];
+  const spacing = feature.parameters.distance ?? 20;
+
+  return buildCopies(source, feature.parameters.count ?? 1, (index, copy) =>
+    asTransformable(copy).translate([
+      direction[0] * spacing * index,
+      direction[1] * spacing * index,
+      direction[2] * spacing * index,
+    ]),
+  );
+}
+
+function buildCircularPatternSolid(source: Solid, feature: Feature): Solid | null {
+  const direction = AXIS_VECTORS[feature.parameters.axis ?? "z"];
+  const count = Math.max(1, Math.round(feature.parameters.count ?? 1));
+  const step = (feature.parameters.angle ?? 360) / count;
+
+  return buildCopies(source, count, (index, copy) =>
+    asTransformable(copy).rotate(step * index, [0, 0, 0], direction),
+  );
+}
+
+function buildMirrorSolid(source: Solid, feature: Feature): Solid {
+  const plane = MIRROR_PLANES[feature.parameters.axis ?? "x"];
+  return asTransformable(asTransformable(source).clone()).mirror(plane, [0, 0, 0]);
+}
+
 function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
   const regions = profileRegions(sketch);
   if (!regions) return null;
@@ -208,6 +287,11 @@ export async function rebuildDocument(
   let current: Solid | null = null;
   let rotation: [number, number, number] = [0, 0, 0];
 
+  // Each modelling feature's own contribution, keyed by feature id, so a pattern or mirror
+  // referencing an earlier feature can transform and re-fuse just that feature's shape
+  // rather than the whole cumulative body built up to that point.
+  const featureSolids = new Map<string, { solid: Solid; isCut: boolean }>();
+
   for (const feature of features) {
     if (feature.suppressed) continue;
 
@@ -221,12 +305,50 @@ export async function rebuildDocument(
       current = current
         ? (current as unknown as { fuse: (other: Solid) => Solid }).fuse(imported as Solid)
         : (imported as Solid);
+      featureSolids.set(feature.id, { solid: imported as Solid, isCut: false });
       rotation = [0, 0, 0];
       continue;
     }
 
     const isExtrudeKind = feature.kind === "extrude" || feature.kind === "cut-extrude";
     const isRevolveKind = feature.kind === "revolve" || feature.kind === "cut-revolve";
+    const isPatternKind =
+      feature.kind === "linear-pattern" || feature.kind === "circular-pattern" || feature.kind === "mirror";
+
+    if (isPatternKind) {
+      const sourceId = feature.parents.find((parent) => featureSolids.has(parent));
+      const source = sourceId ? featureSolids.get(sourceId) : undefined;
+      if (!source) {
+        errors[feature.id] = "No feature selected to pattern";
+        continue;
+      }
+      if (!current) {
+        errors[feature.id] = "Nothing to pattern: add a boss feature first";
+        continue;
+      }
+
+      try {
+        const patterned =
+          feature.kind === "linear-pattern"
+            ? buildLinearPatternSolid(source.solid, feature)
+            : feature.kind === "circular-pattern"
+              ? buildCircularPatternSolid(source.solid, feature)
+              : buildMirrorSolid(source.solid, feature);
+
+        if (!patterned) {
+          errors[feature.id] = "Increase the instance count to add copies";
+          continue;
+        }
+
+        current = source.isCut
+          ? (current as unknown as { cut: (other: Solid) => Solid }).cut(patterned)
+          : (current as unknown as { fuse: (other: Solid) => Solid }).fuse(patterned);
+      } catch (error) {
+        errors[feature.id] = error instanceof Error ? error.message : "Pattern failed";
+      }
+      continue;
+    }
+
     if (!isExtrudeKind && !isRevolveKind) continue;
 
     const sketchId = feature.parents.find((parent) => sketches[parent]);
@@ -251,6 +373,7 @@ export async function rebuildDocument(
       rotation = planeBasis(sketch.planeId).rotation as [number, number, number];
 
       const isCut = feature.kind === "cut-extrude" || feature.kind === "cut-revolve";
+      featureSolids.set(feature.id, { solid, isCut });
       if (isCut) {
         if (!current) {
           errors[feature.id] = "Nothing to cut: add a boss feature first";

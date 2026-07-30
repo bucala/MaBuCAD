@@ -53,6 +53,11 @@ export interface FeatureParameters {
   endCondition?: EndCondition;
   reversed?: boolean;
   count?: number;
+  /**
+   * World axis a pattern repeats along/around, or a mirror reflects across. Stands in for
+   * picking a reference edge/axis/face in the viewport, which the app has no UI for yet.
+   */
+  axis?: "x" | "y" | "z";
 }
 
 export interface Feature {

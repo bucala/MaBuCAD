@@ -103,6 +103,27 @@ export function PropertyManager() {
           </label>
         )}
 
+        {feature.parameters.axis !== undefined && (
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>
+              {feature.kind === "mirror" ? "Mirror plane" : "Direction"}
+            </span>
+            <select
+              className={styles.input}
+              value={feature.parameters.axis}
+              onChange={(event) =>
+                updateParameters(feature.id, {
+                  axis: event.target.value as FeatureParameters["axis"],
+                })
+              }
+            >
+              <option value="x">X</option>
+              <option value="y">Y</option>
+              <option value="z">Z</option>
+            </select>
+          </label>
+        )}
+
         {feature.parameters.reversed !== undefined && (
           <label className={styles.checkboxField}>
             <input

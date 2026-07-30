@@ -5,6 +5,41 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Linear Pattern, Circular Pattern and Mirror
+
+### Added
+- **Real kernel-backed geometry for Linear Pattern, Circular Pattern and Mirror.** All
+  three existed in the ribbon and property manager already but built nothing. Unlike
+  Extrude/Revolve, these features repeat or reflect an *existing modelling feature*
+  rather than a sketch, so `rebuild.ts`'s main loop now keeps a `featureSolids` map of
+  each modelling feature's own contributed solid (and whether it was a cut), keyed by
+  feature id — the same shape `buildFeatureSolid`/`buildRevolveSolid` already produced,
+  kept around instead of being discarded once fused into the cumulative body. A pattern
+  or mirror looks its source up in that map and transforms/re-fuses (or re-cuts) just that
+  contribution.
+- **`buildLinearPatternSolid`/`buildCircularPatternSolid`/`buildMirrorSolid`** share a
+  `buildCopies()` helper: since replicad's `translate`/`rotate`/`mirror` each free the
+  shape they're called on and return a new one, every copy starts from its own `clone()`
+  of the source. A pattern only builds instances `1..count-1` — the seed instance is
+  already part of the model from the source feature's own turn through the rebuild loop.
+- **No face/edge-picking UI exists yet** (that's Fillet/Chamfer/Shell's problem too), so
+  direction/axis is a new `axis?: "x" | "y" | "z"` parameter instead of a picked
+  reference: the translation direction for a linear pattern, the rotation axis (through
+  the origin) for a circular pattern, and the axis whose normal plane a mirror reflects
+  across. Exposed in the property manager as a dropdown next to the existing End
+  Condition one.
+- Clicking "Linear Pattern"/"Circular Pattern"/"Mirror" auto-attaches a source feature
+  the same way Extrude/Revolve auto-attach a sketch: the selected feature if it's a
+  modelling kind (extrude/cut-extrude/revolve/cut-revolve/imported), else the most recent
+  one above the rollback bar. `commandRegistry.ts` gained `addPatternFeature()` and moved
+  the three commands from the plain `addFeature`-only path into it.
+
+### Fixed
+- The same `GEOMETRY_FEATURE_KINDS` gap fixed for `imported` and then `revolve`/
+  `cut-revolve`: `geometryStore.ts`'s whitelist now also lists `linear-pattern`/
+  `circular-pattern`/`mirror`, so a document whose newest modelling feature is one of
+  these actually reaches the kernel instead of sitting at `empty`.
+
 ## 2026-07-30 — Revolve and Cut-Revolve
 
 ### Added

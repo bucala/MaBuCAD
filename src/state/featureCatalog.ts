@@ -135,19 +135,19 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
     namePrefix: "LPattern",
     icon: Grid3x3,
     description: "Repeats features along a direction",
-    defaultParameters: { count: 4, distance: 20 },
+    defaultParameters: { count: 4, distance: 20, axis: "x" },
   },
   "circular-pattern": {
     namePrefix: "CirPattern",
     icon: Rotate3d,
     description: "Repeats features about an axis",
-    defaultParameters: { count: 6, angle: 360 },
+    defaultParameters: { count: 6, angle: 360, axis: "z" },
   },
   mirror: {
     namePrefix: "Mirror",
     icon: Blend,
     description: "Mirrors features about a plane",
-    defaultParameters: {},
+    defaultParameters: { axis: "x" },
   },
 
   imported: {
