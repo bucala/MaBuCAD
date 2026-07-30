@@ -5,6 +5,19 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — MSI build script
+
+### Added
+- **`scripts/build-msi.ps1`** wraps the `npm install` / `npm run typecheck` /
+  `npm run tauri build` sequence README.md already documents into a single command,
+  with `-SkipInstall`/`-SkipChecks` for a faster rebuild once dependencies and types are
+  already known-good, `-Target msi|nsis|all` to build just one installer instead of both
+  (omitting `--bundles` entirely for `all`, which falls back to `tauri.conf.json`'s own
+  `bundle.targets` rather than duplicating that list here), and `-Open` to open the
+  bundle output folder afterward. Resolves the repo root from the script's own location
+  (`$PSScriptRoot`) rather than the caller's current directory, so it runs the same way
+  regardless of where it's invoked from.
+
 ## 2026-07-30 — Sketch Trim
 
 ### Added

@@ -97,6 +97,15 @@ npm run build          # typecheck + production frontend build
 npm run tauri build    # MSI and NSIS installers in src-tauri/target/release/bundle/
 ```
 
+`scripts\build-msi.ps1` wraps that last sequence (install, typecheck, then `tauri build`)
+into one command:
+
+```powershell
+.\scripts\build-msi.ps1                          # full build: install + typecheck + both installers
+.\scripts\build-msi.ps1 -SkipChecks -SkipInstall  # fastest rebuild once deps/types are known-good
+.\scripts\build-msi.ps1 -Target msi -Open         # just the MSI, then open the output folder
+```
+
 ## Project layout
 
 ```
@@ -137,6 +146,7 @@ src-tauri/
   src/fileio.rs               Scoped read/write commands for interchange
   tauri.conf.json            Window, Mica effect, CSP and bundle configuration
   capabilities/default.json  Permissions granted to the main window
+scripts/build-msi.ps1        Wraps install + typecheck + `tauri build` into one command
 ```
 
 ## Geometric kernel
