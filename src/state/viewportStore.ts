@@ -14,9 +14,15 @@ const DISPLAY_MODE_CYCLE: readonly DisplayMode[] = ["shaded", "shaded-edges", "w
 
 interface ViewportStore {
   displayMode: DisplayMode;
-  /** Reference planes and the origin triad; there is no per-body visibility yet since a
-   * document only ever has the one modelled body. */
-  referenceGeometryVisible: boolean;
+  /**
+   * Feature ids individually hidden — a reference plane, the origin, or (see
+   * `SolidModel.tsx`) any modelling feature, which hides the whole solid: the kernel
+   * fuses every modelling feature into one combined mesh, so there is no per-feature
+   * partial geometry to hide independently yet, only the body as a whole. Hiding any one
+   * contributing feature hides that whole body, which is the closest honest approximation
+   * of "hide this feature's contribution" the current single-mesh pipeline can offer.
+   */
+  hiddenFeatureIds: string[];
   /** Incremented, never read for its own value — components that can fit the camera
    * watch this to know a fresh request came in, since two identical requests in a row
    * (re-fitting the same model) still need to trigger the effect both times. */
@@ -30,7 +36,7 @@ interface ViewportStore {
   constraintsVisible: boolean;
 
   cycleDisplayMode: () => void;
-  toggleReferenceGeometry: () => void;
+  toggleFeatureVisibility: (id: string) => void;
   requestZoomFit: () => void;
   setProjection: (mode: ProjectionMode) => void;
   toggleConstraintsVisible: () => void;
@@ -38,7 +44,7 @@ interface ViewportStore {
 
 export const useViewportStore = create<ViewportStore>((set) => ({
   displayMode: "shaded-edges",
-  referenceGeometryVisible: true,
+  hiddenFeatureIds: [],
   zoomFitRequest: 0,
   projection: "orthographic",
   constraintsVisible: true,
@@ -49,8 +55,12 @@ export const useViewportStore = create<ViewportStore>((set) => ({
       return { displayMode: DISPLAY_MODE_CYCLE[(index + 1) % DISPLAY_MODE_CYCLE.length] };
     }),
 
-  toggleReferenceGeometry: () =>
-    set((state) => ({ referenceGeometryVisible: !state.referenceGeometryVisible })),
+  toggleFeatureVisibility: (id) =>
+    set((state) => ({
+      hiddenFeatureIds: state.hiddenFeatureIds.includes(id)
+        ? state.hiddenFeatureIds.filter((hiddenId) => hiddenId !== id)
+        : [...state.hiddenFeatureIds, id],
+    })),
 
   requestZoomFit: () => set((state) => ({ zoomFitRequest: state.zoomFitRequest + 1 })),
 

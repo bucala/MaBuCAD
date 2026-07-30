@@ -363,6 +363,18 @@ export function inferSmartDimension(
     if (entity?.kind === "line") {
       return { kind: "distance", points: [entity.start, entity.end], entities: [] };
     }
+    if (entity?.kind === "spline" && entity.points.length >= 2) {
+      // The chord between the spline's own endpoints — there's no dedicated "arc length"
+      // dimension kind (or a way to solve toward one: a target length has no unique
+      // relationship back to a spline's several control points), so this reuses the same
+      // point-to-point `distance` a line's own length already is. Documented as an
+      // approximation, not the true integrated curve length.
+      return {
+        kind: "distance",
+        points: [entity.points[0], entity.points[entity.points.length - 1]],
+        entities: [],
+      };
+    }
   }
 
   if (selectedEntities.length === 2) {

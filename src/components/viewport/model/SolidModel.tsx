@@ -25,6 +25,22 @@ export function SolidModel() {
   const selectFeature = useDocumentStore((state) => state.selectFeature);
   const openContextMenu = useDocumentStore((state) => state.openContextMenu);
   const displayMode = useViewportStore((state) => state.displayMode);
+  const hiddenFeatureIds = useViewportStore((state) => state.hiddenFeatureIds);
+  const features = useDocumentStore((state) => state.document.features);
+  const rollbackIndex = useDocumentStore((state) => state.document.rollbackIndex);
+
+  /**
+   * There is no per-feature partial geometry — every modelling feature fuses into one
+   * mesh — so "hide this feature" for any of them is the closest honest approximation of
+   * hiding *the body*: hiding any one that actually contributed geometry hides the whole
+   * thing, same as `hiddenFeatureIds`'s own doc comment in `viewportStore.ts` explains.
+   */
+  const isBodyHidden = features
+    .slice(0, rollbackIndex)
+    .some(
+      (feature) =>
+        !feature.suppressed && GEOMETRY_FEATURE_KINDS.has(feature.kind) && hiddenFeatureIds.includes(feature.id),
+    );
 
   /**
    * The renderer combines every modelling feature into one mesh, so there is no per-face
@@ -77,7 +93,7 @@ export function SolidModel() {
   // has to ask for a frame explicitly.
   useEffect(() => {
     invalidate();
-  }, [geometry, edgeGeometry, displayMode, invalidate]);
+  }, [geometry, edgeGeometry, displayMode, isBodyHidden, invalidate]);
 
   // Geometry is owned by this component; release the GPU buffers when it is replaced.
   useEffect(() => {
@@ -87,7 +103,7 @@ export function SolidModel() {
     };
   }, [geometry, edgeGeometry]);
 
-  if (!mesh || !geometry) return null;
+  if (!mesh || !geometry || isBodyHidden) return null;
 
   // Wireframe drops the shaded material but keeps the mesh itself in the tree — an
   // invisible-but-present material rather than hiding the mesh (`visible={false}`) or

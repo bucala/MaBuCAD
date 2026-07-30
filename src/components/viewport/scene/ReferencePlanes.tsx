@@ -55,10 +55,10 @@ export function ReferencePlanes() {
    */
   const hasSolid = useGeometryStore((state) => state.mesh !== null);
 
-  /** Hide/Show on the ribbon; a selected plane still shows even when toggled off, same
-   * as it does when dimmed for having a solid — the selection needs something to point
-   * at. */
-  const referenceGeometryVisible = useViewportStore((state) => state.referenceGeometryVisible);
+  /** Hide/Show on the ribbon or a right-click, per plane; a selected plane still shows
+   * even when hidden, same as it does when dimmed for having a solid — the selection
+   * needs something to point at. */
+  const hiddenFeatureIds = useViewportStore((state) => state.hiddenFeatureIds);
 
   return (
     <group
@@ -73,7 +73,8 @@ export function ReferencePlanes() {
       {REFERENCE_PLANES.map((plane) => {
         const isSelected = selectedId === plane.id;
         const isHovered = hoveredId === plane.id;
-        const isDimmed = (hasSolid || !referenceGeometryVisible) && !isSketchMode && !isSelected;
+        const isDimmed =
+          (hasSolid || hiddenFeatureIds.includes(plane.id)) && !isSketchMode && !isSelected;
 
         /**
          * A plane faded to full invisibility still sits exactly where it was drawn on —

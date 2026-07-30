@@ -21,8 +21,8 @@ const AXES = [
  * coordinate system.
  */
 export function Origin() {
-  const visible = useViewportStore((state) => state.referenceGeometryVisible);
-  if (!visible) return null;
+  const isHidden = useViewportStore((state) => state.hiddenFeatureIds.includes("origin"));
+  if (isHidden) return null;
 
   return (
     <group>

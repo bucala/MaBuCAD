@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Box,
   ChevronDown,
@@ -11,6 +11,7 @@ import {
 
 import { useDocumentStore } from "@/state/documentStore";
 import { useSketchStore } from "@/state/sketchStore";
+import { useViewportStore } from "@/state/viewportStore";
 
 import { FeatureRow } from "./FeatureRow";
 import styles from "./FeatureTree.module.css";
@@ -36,11 +37,27 @@ export function FeatureTree() {
   const rollBackOne = useDocumentStore((state) => state.rollBackOne);
   const rollForwardOne = useDocumentStore((state) => state.rollForwardOne);
   const rollToEnd = useDocumentStore((state) => state.rollToEnd);
+  const setRollbackIndex = useDocumentStore((state) => state.setRollbackIndex);
   const undo = useDocumentStore((state) => state.undo);
   const redo = useDocumentStore((state) => state.redo);
+  const openContextMenu = useDocumentStore((state) => state.openContextMenu);
   const resumeSketch = useSketchStore((state) => state.resumeSketch);
+  const hiddenFeatureIds = useViewportStore((state) => state.hiddenFeatureIds);
+  const toggleFeatureVisibility = useViewportStore((state) => state.toggleFeatureVisibility);
 
   const [isRootExpanded, setIsRootExpanded] = useState(true);
+
+  /** Row DOM nodes keyed by feature index, so a rollback-bar drag can find which gap
+   * between rows the pointer is over — see `RollbackBar`'s own doc comment. */
+  const rowRefs = useRef(new Map<number, HTMLDivElement>());
+
+  const rollbackIndexForClientY = (clientY: number): number => {
+    for (let index = 0; index < document.features.length; index += 1) {
+      const rect = rowRefs.current.get(index)?.getBoundingClientRect();
+      if (rect && clientY < rect.top + rect.height / 2) return index;
+    }
+    return document.features.length;
+  };
 
   const rolledBackCount = document.features.length - document.rollbackIndex;
   const isRootSelected = selectedFeatureIds.includes(document.id);
@@ -141,24 +158,37 @@ export function FeatureTree() {
         {isRootExpanded && (
           <div role="group">
             {document.features.map((feature, index) => (
-              <div key={feature.id}>
-                {index === document.rollbackIndex && <RollbackBar />}
+              <div
+                key={feature.id}
+                ref={(node) => {
+                  if (node) rowRefs.current.set(index, node);
+                  else rowRefs.current.delete(index);
+                }}
+              >
+                {index === document.rollbackIndex && (
+                  <RollbackBar onDrag={(clientY) => setRollbackIndex(rollbackIndexForClientY(clientY))} />
+                )}
                 <FeatureRow
                   feature={feature}
                   depth={1}
                   isSelected={selectedFeatureIds.includes(feature.id)}
                   isRolledBack={index >= document.rollbackIndex}
+                  isHidden={hiddenFeatureIds.includes(feature.id)}
                   onSelect={selectFeature}
                   onRename={renameFeature}
                   onDelete={deleteFeature}
                   onToggleSuppressed={toggleSuppressed}
+                  onToggleVisibility={toggleFeatureVisibility}
                   onRollbackToBefore={rollbackToBefore}
                   onEditSketch={resumeSketch}
+                  onContextMenu={(x, y) => openContextMenu(x, y)}
                 />
               </div>
             ))}
 
-            {document.rollbackIndex >= document.features.length && <RollbackBar />}
+            {document.rollbackIndex >= document.features.length && (
+              <RollbackBar onDrag={(clientY) => setRollbackIndex(rollbackIndexForClientY(clientY))} />
+            )}
           </div>
         )}
 
@@ -173,8 +203,37 @@ export function FeatureTree() {
   );
 }
 
-/** Visual marker for the current rebuild position. */
-function RollbackBar() {
+/**
+ * Marks the current rebuild position, and can be dragged up or down through the feature
+ * list to roll back or forward — the same gesture every history-based modeller offers as
+ * an alternative to the toolbar's one-feature-at-a-time buttons.
+ *
+ * The grip only needs `pointermove`/`pointerup` on `window` while actively dragging, not a
+ * measured drag-and-drop library: the bar's own new position falls out of wherever
+ * `document.rollbackIndex` lands after each `onDrag` call re-renders the tree, since it is
+ * rendered inline between rows at exactly that index — no separate "ghost" element to
+ * track.
+ */
+function RollbackBar({ onDrag }: { onDrag: (clientY: number) => void }) {
+  const isDraggingRef = useRef(false);
+
+  const handlePointerDown = (event: React.PointerEvent) => {
+    event.preventDefault();
+    isDraggingRef.current = true;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (isDraggingRef.current) onDrag(moveEvent.clientY);
+    };
+    const handlePointerUp = () => {
+      isDraggingRef.current = false;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  };
+
   return (
     <div
       className={styles.rollbackBar}
@@ -182,7 +241,9 @@ function RollbackBar() {
       aria-label="Rollback bar"
       data-testid="rollback-bar"
     >
-      <span className={styles.rollbackGrip}>Rollback</span>
+      <span className={styles.rollbackGrip} onPointerDown={handlePointerDown}>
+        Rollback
+      </span>
       <span className={styles.rollbackLine} />
     </div>
   );

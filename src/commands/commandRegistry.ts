@@ -235,7 +235,14 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
 
   "view.zoom-fit": () => useViewportStore.getState().requestZoomFit(),
   "view.display-mode": () => useViewportStore.getState().cycleDisplayMode(),
-  "view.hide-show": () => useViewportStore.getState().toggleReferenceGeometry(),
+  // Toggles visibility for whatever is selected — a plane, the origin, or (since the
+  // kernel fuses every modelling feature into one mesh) any feature that contributed to
+  // the solid, which hides the whole body. See hiddenFeatureIds's own doc comment.
+  "view.hide-show": () => {
+    const { selectedFeatureIds } = useDocumentStore.getState();
+    const { toggleFeatureVisibility } = useViewportStore.getState();
+    selectedFeatureIds.forEach(toggleFeatureVisibility);
+  },
   "view.constraints": () => useViewportStore.getState().toggleConstraintsVisible(),
 
   ...Object.fromEntries(

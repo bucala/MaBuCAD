@@ -1,31 +1,37 @@
 import { useEffect, useRef } from "react";
-import { Circle, EyeOff, Eye, Trash2, Undo2 } from "lucide-react";
+import { Circle, Eye, EyeOff, Trash2, Undo2 } from "lucide-react";
 
 import { runCommand } from "@/commands/commandRegistry";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useSketchStore } from "@/state/sketchStore";
+import { useViewportStore } from "@/state/viewportStore";
 
-import styles from "./ContextMenu.module.css";
+import styles from "./viewport/ContextMenu.module.css";
 
 /** Rough menu footprint, used to keep it fully on screen without a measure-then-reposition pass. */
 const MENU_WIDTH = 190;
-const MENU_HEIGHT = 180;
+const MENU_HEIGHT = 210;
 
 /**
- * Right-click menu for the 3D viewport — a reference plane or the modelled solid.
+ * Right-click menu for a feature: a reference plane, a sketch, or a modelling feature —
+ * from either the 3D viewport (a plane or the modelled solid) or the Feature Manager tree.
  *
- * Rendered as a plain sibling of the react-three-fiber `<Canvas>` in `Viewport.tsx`, for the
- * same reason as the sketch canvas's own context menu (`sketch/SketchContextMenu.tsx`):
- * `ReactDOM.createPortal` does not safely escape r3f's reconciler, so the opener
- * (`ReferencePlanes.tsx` / `SolidModel.tsx`, both inside the Canvas) sets state in
- * `documentStore` instead of rendering this component itself.
+ * Rendered once at the app's top level (`AppShell.tsx`) rather than nested under the
+ * viewport or the tree, since `documentStore.contextMenu`/`selectedFeatureIds` are already
+ * global state either opener can drive the same way — a plane or solid clicked in the 3D
+ * scene, or a row right-clicked in the tree (`FeatureRow.tsx`). `ReactDOM.createPortal`
+ * does not safely escape react-three-fiber's own reconciler, which is what forces the
+ * *viewport* opener through the store instead of rendering this directly; the tree opener
+ * has no such constraint but uses the same store for one shared implementation instead of
+ * a second, near-identical menu.
  *
  * The renderer combines every modelling feature into a single mesh, so there is no
- * per-face feature id to right-click — the opener resolves a *target* feature (the plane
- * itself, or the most recent feature that contributed geometry to the solid) and selects
- * it before opening the menu; this component just acts on whatever is selected.
+ * per-face feature id to right-click in the viewport — that opener resolves a *target*
+ * feature (the plane itself, or the most recent feature that contributed geometry to the
+ * solid) and selects it before opening the menu; this component just acts on whatever is
+ * selected, which is exactly what a tree row's opener already has to hand directly.
  */
-export function ViewportContextMenu() {
+export function FeatureContextMenu() {
   const contextMenu = useDocumentStore((state) => state.contextMenu);
   const closeContextMenu = useDocumentStore((state) => state.closeContextMenu);
   const selectedFeatureIds = useDocumentStore((state) => state.selectedFeatureIds);
@@ -34,6 +40,8 @@ export function ViewportContextMenu() {
   const deleteFeature = useDocumentStore((state) => state.deleteFeature);
   const rollbackToBefore = useDocumentStore((state) => state.rollbackToBefore);
   const resumeSketch = useSketchStore((state) => state.resumeSketch);
+  const hiddenFeatureIds = useViewportStore((state) => state.hiddenFeatureIds);
+  const toggleFeatureVisibility = useViewportStore((state) => state.toggleFeatureVisibility);
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -73,6 +81,7 @@ export function ViewportContextMenu() {
   const top = Math.min(contextMenu.y, window.innerHeight - MENU_HEIGHT - 8);
 
   const close = () => closeContextMenu();
+  const isHidden = selectedId ? hiddenFeatureIds.includes(selectedId) : false;
 
   return (
     <div ref={menuRef} className={styles.menu} style={{ left, top }} role="menu">
@@ -88,6 +97,21 @@ export function ViewportContextMenu() {
         >
           <Circle size={14} strokeWidth={1.75} />
           New Sketch
+        </button>
+      )}
+
+      {selectedId && (isPlane || feature) && (
+        <button
+          type="button"
+          role="menuitem"
+          className={styles.item}
+          onClick={() => {
+            toggleFeatureVisibility(selectedId);
+            close();
+          }}
+        >
+          {isHidden ? <Eye size={14} strokeWidth={1.75} /> : <EyeOff size={14} strokeWidth={1.75} />}
+          {isHidden ? "Show" : "Hide"}
         </button>
       )}
 
@@ -108,46 +132,50 @@ export function ViewportContextMenu() {
             </button>
           )}
 
-          <button
-            type="button"
-            role="menuitem"
-            className={styles.item}
-            onClick={() => {
-              toggleSuppressed(feature.id);
-              close();
-            }}
-          >
-            {feature.suppressed ? <Eye size={14} strokeWidth={1.75} /> : <EyeOff size={14} strokeWidth={1.75} />}
-            {feature.suppressed ? "Unsuppress" : "Suppress"}
-          </button>
+          {!feature.isDefault && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={() => {
+                  toggleSuppressed(feature.id);
+                  close();
+                }}
+              >
+                {feature.suppressed ? <Eye size={14} strokeWidth={1.75} /> : <EyeOff size={14} strokeWidth={1.75} />}
+                {feature.suppressed ? "Unsuppress" : "Suppress"}
+              </button>
 
-          <button
-            type="button"
-            role="menuitem"
-            className={styles.item}
-            onClick={() => {
-              rollbackToBefore(feature.id);
-              close();
-            }}
-          >
-            <Undo2 size={14} strokeWidth={1.75} />
-            Roll Back to Before
-          </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={() => {
+                  rollbackToBefore(feature.id);
+                  close();
+                }}
+              >
+                <Undo2 size={14} strokeWidth={1.75} />
+                Roll Back to Before
+              </button>
 
-          <div className={styles.divider} />
+              <div className={styles.divider} />
 
-          <button
-            type="button"
-            role="menuitem"
-            className={`${styles.item} ${styles.danger}`}
-            onClick={() => {
-              deleteFeature(feature.id);
-              close();
-            }}
-          >
-            <Trash2 size={14} strokeWidth={1.75} />
-            Delete
-          </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={`${styles.item} ${styles.danger}`}
+                onClick={() => {
+                  deleteFeature(feature.id);
+                  close();
+                }}
+              >
+                <Trash2 size={14} strokeWidth={1.75} />
+                Delete
+              </button>
+            </>
+          )}
         </>
       )}
     </div>

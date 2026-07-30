@@ -5,6 +5,48 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Feature tree context menu, draggable rollback, per-feature visibility
+
+Another round of real-world feedback: right-clicking the Feature Manager tree showed the
+raw browser context menu (Back/Reload/Save As/Print/...) instead of anything the app
+offers, Suppress had no reachable entry point that read as "working," the rollback bar
+was purely decorative, and there was no way to hide one specific plane, the origin, or
+the body — only every reference plane at once.
+
+### Added
+- **`FeatureContextMenu.tsx`** (renamed from `ViewportContextMenu.tsx` and mounted once
+  at the app's top level in `AppShell.tsx`, not nested under the viewport) now opens from
+  a right-click on a Feature Manager row as well as a plane or the solid in the 3D view —
+  both openers already drove the same `documentStore.contextMenu`/`selectedFeatureIds`
+  state, so this is one menu serving two openers rather than a second implementation.
+  `FeatureRow.tsx` selects the row (if not already selected) and opens it exactly the way
+  `ReferencePlanes.tsx`/`SolidModel.tsx` already did for the viewport.
+- **`hooks/useDisableNativeContextMenu.ts`** suppresses the browser/WebView's own
+  right-click menu everywhere except inside an editable field (where Cut/Copy/Paste is
+  still useful) — a desktop CAD app never shows that menu; every right-click either opens
+  one of this app's own menus or does nothing.
+- **The rollback bar can be dragged.** Its grip (`FeatureTree.tsx`) takes a pointer down,
+  tracks `pointermove` against each row's own measured position, and calls the store's
+  already-existing `setRollbackIndex()` in real time — the toolbar's one-feature-at-a-time
+  buttons (`rollBackOne`/`rollForwardOne`/`rollToEnd`) still work exactly as before, this
+  is an additional way to get there, the same as SolidWorks offers both.
+- **Per-feature visibility.** `viewportStore.ts`'s single `referenceGeometryVisible`
+  boolean is now `hiddenFeatureIds: string[]` plus `toggleFeatureVisibility(id)`, so a
+  plane, the origin, or (since the kernel still fuses every modelling feature into one
+  mesh — there is no per-feature partial geometry to hide independently yet) any feature
+  that contributed to the solid can be hidden on its own instead of only all reference
+  geometry at once. Reachable from a new eye icon on every tree row (`FeatureRow.tsx`,
+  including default reference geometry, which previously had no row actions at all) and
+  from the ribbon's `Hide / Show`, which now toggles whatever is currently selected
+  instead of a single global on/off.
+- **Smart Dimension now covers a spline.** Selected alone, it infers `distance` between
+  the spline's own first and last points — the chord between its endpoints, not the true
+  integrated curve length, since there is no dimension kind (or a way to *solve* toward
+  one — a target length has no unique relationship back to several control points) for
+  actual arc length yet. Diameter (added last entry) and this both close gaps in
+  `inferSmartDimension()` where the underlying dimension kind already existed but nothing
+  could ever select it.
+
 ## 2026-07-30 — Interaction fixes: menus, Settings, Escape, click precision, dimension editing
 
 A batch of real-world usability bugs found by actually using a build on Windows rather

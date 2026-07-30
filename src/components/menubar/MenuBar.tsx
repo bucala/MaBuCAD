@@ -115,7 +115,7 @@ function useDismiss(open: boolean, ref: React.RefObject<HTMLElement | null>, onD
     };
     // Deferred by a tick so the click that opened the menu (still bubbling to `window`
     // at the moment this effect runs) isn't immediately read as the outside click that
-    // closes it again — the same guard `ViewportContextMenu`/`SketchContextMenu` use.
+    // closes it again — the same guard `FeatureContextMenu`/`SketchContextMenu` use.
     const timer = window.setTimeout(() => {
       window.addEventListener("pointerdown", handlePointerDown, true);
     }, 0);

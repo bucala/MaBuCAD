@@ -1,5 +1,6 @@
 import { Group, Panel, Separator } from "react-resizable-panels";
 
+import { FeatureContextMenu } from "@/components/FeatureContextMenu";
 import { MenuBar } from "@/components/menubar/MenuBar";
 import { Ribbon } from "@/components/ribbon/Ribbon";
 import { ManagerPanel } from "@/components/manager/ManagerPanel";
@@ -42,6 +43,10 @@ export function AppShell() {
       </div>
 
       <StatusBar />
+
+      {/* Opened from either the 3D viewport (a plane or the modelled solid) or a
+          right-clicked row in the Feature Manager tree — see its own doc comment. */}
+      <FeatureContextMenu />
     </div>
   );
 }

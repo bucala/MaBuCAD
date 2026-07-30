@@ -4,7 +4,6 @@ import { useViewportStore } from "@/state/viewportStore";
 
 import { Scene } from "./scene/Scene";
 import { SketchContextMenu } from "./sketch/SketchContextMenu";
-import { ViewportContextMenu } from "./ViewportContextMenu";
 import styles from "./Viewport.module.css";
 
 /**
@@ -61,9 +60,10 @@ export function Viewport() {
           inside the Canvas tree; see SketchContextMenu's own doc comment for why. */}
       <SketchContextMenu />
 
-      {/* Same reasoning as SketchContextMenu, opened instead by ReferencePlanes/SolidModel
-          for a right-click on a plane or the modelled solid. */}
-      <ViewportContextMenu />
+      {/* FeatureContextMenu (opened by ReferencePlanes/SolidModel for a right-click on a
+          plane or the modelled solid) is mounted once at the app's top level, not here —
+          see its own doc comment for why: the same global store this viewport uses to
+          open it is also what the Feature Manager tree opens it from. */}
     </div>
   );
 }

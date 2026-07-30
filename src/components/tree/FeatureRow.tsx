@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { CircleAlert, EyeOff, Pencil, Trash2, Undo2 } from "lucide-react";
+import { CircleAlert, Eye, EyeOff, Pencil, Power, PowerOff, Trash2, Undo2 } from "lucide-react";
 
 import { featureIcon } from "@/state/featureCatalog";
 import type { Feature } from "@/types/document";
@@ -11,12 +11,15 @@ interface FeatureRowProps {
   depth: number;
   isSelected: boolean;
   isRolledBack: boolean;
+  isHidden: boolean;
   onSelect: (id: string, additive: boolean) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onToggleSuppressed: (id: string) => void;
+  onToggleVisibility: (id: string) => void;
   onRollbackToBefore: (id: string) => void;
   onEditSketch: (id: string) => void;
+  onContextMenu: (clientX: number, clientY: number) => void;
 }
 
 export function FeatureRow({
@@ -24,12 +27,15 @@ export function FeatureRow({
   depth,
   isSelected,
   isRolledBack,
+  isHidden,
   onSelect,
   onRename,
   onDelete,
   onToggleSuppressed,
+  onToggleVisibility,
   onRollbackToBefore,
   onEditSketch,
+  onContextMenu,
 }: FeatureRowProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [draftName, setDraftName] = useState(feature.name);
@@ -65,6 +71,7 @@ export function FeatureRow({
       data-selected={isSelected}
       data-rolled-back={isRolledBack}
       data-suppressed={feature.suppressed}
+      data-hidden={isHidden}
       data-feature-id={feature.id}
       style={{ paddingLeft: `${depth * 14 + 6}px` }}
       // F2 renames, matching Windows list conventions.
@@ -73,6 +80,14 @@ export function FeatureRow({
           event.preventDefault();
           beginRename();
         }
+      }}
+      // Right-clicking a row that isn't already selected selects it first — otherwise a
+      // right-click while a *different* row is selected would open a menu acting on the
+      // wrong feature, since the menu itself just reads the current selection.
+      onContextMenu={(event) => {
+        event.preventDefault();
+        if (!isSelected) onSelect(feature.id, false);
+        onContextMenu(event.clientX, event.clientY);
       }}
     >
       <span className={styles.chevronPlaceholder} />
@@ -127,44 +142,62 @@ export function FeatureRow({
         </span>
       )}
 
-      {!isRenaming && !feature.isDefault && (
+      {!isRenaming && (
         <span className={styles.rowActions}>
+          {/* Available on every row, including default reference geometry — a plane or
+              the origin has nothing to rename/suppress/roll back/delete, but hiding it
+              individually (rather than only all-at-once) is exactly what's missing
+              without this. */}
           <button
             type="button"
             className={styles.rowAction}
-            title="Rename (F2)"
-            aria-label={`Rename ${feature.name}`}
-            onClick={beginRename}
+            title={isHidden ? "Show" : "Hide"}
+            aria-label={`${isHidden ? "Show" : "Hide"} ${feature.name}`}
+            onClick={() => onToggleVisibility(feature.id)}
           >
-            <Pencil size={12} />
+            {isHidden ? <EyeOff size={12} /> : <Eye size={12} />}
           </button>
-          <button
-            type="button"
-            className={styles.rowAction}
-            title={feature.suppressed ? "Unsuppress" : "Suppress"}
-            aria-label={`${feature.suppressed ? "Unsuppress" : "Suppress"} ${feature.name}`}
-            onClick={() => onToggleSuppressed(feature.id)}
-          >
-            <EyeOff size={12} />
-          </button>
-          <button
-            type="button"
-            className={styles.rowAction}
-            title="Roll back to before this feature"
-            aria-label={`Roll back to before ${feature.name}`}
-            onClick={() => onRollbackToBefore(feature.id)}
-          >
-            <Undo2 size={12} />
-          </button>
-          <button
-            type="button"
-            className={styles.rowAction}
-            title="Delete"
-            aria-label={`Delete ${feature.name}`}
-            onClick={() => onDelete(feature.id)}
-          >
-            <Trash2 size={12} />
-          </button>
+
+          {!feature.isDefault && (
+            <>
+              <button
+                type="button"
+                className={styles.rowAction}
+                title="Rename (F2)"
+                aria-label={`Rename ${feature.name}`}
+                onClick={beginRename}
+              >
+                <Pencil size={12} />
+              </button>
+              <button
+                type="button"
+                className={styles.rowAction}
+                title={feature.suppressed ? "Unsuppress" : "Suppress"}
+                aria-label={`${feature.suppressed ? "Unsuppress" : "Suppress"} ${feature.name}`}
+                onClick={() => onToggleSuppressed(feature.id)}
+              >
+                {feature.suppressed ? <Power size={12} /> : <PowerOff size={12} />}
+              </button>
+              <button
+                type="button"
+                className={styles.rowAction}
+                title="Roll back to before this feature"
+                aria-label={`Roll back to before ${feature.name}`}
+                onClick={() => onRollbackToBefore(feature.id)}
+              >
+                <Undo2 size={12} />
+              </button>
+              <button
+                type="button"
+                className={styles.rowAction}
+                title="Delete"
+                aria-label={`Delete ${feature.name}`}
+                onClick={() => onDelete(feature.id)}
+              >
+                <Trash2 size={12} />
+              </button>
+            </>
+          )}
         </span>
       )}
     </div>
