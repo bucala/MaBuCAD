@@ -5,6 +5,33 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Revolve and Cut-Revolve
+
+### Added
+- **Real kernel-backed geometry for Revolved Boss and Revolved Cut.** Both existed in the
+  ribbon, feature tree and property manager already but silently built nothing — the
+  rebuild loop only recognised `extrude`/`cut-extrude`. `kernel/rebuild.ts` gained
+  `buildRevolveSolid()`, parallel to the existing `buildFeatureSolid()` and reusing its
+  `profileRegions()`/`drawRegion()` helpers verbatim, calling replicad's `.revolve(axis,
+  { origin, angle })` instead of `.extrude(distance)`.
+- **Revolve axis**: the first construction line drawn in the sketch, or the sketch's local
+  Y axis through the origin when none exists. The fallback isn't cosmetic — replicad
+  defaults an omitted axis to the sketch plane's own normal, which is coplanar with a flat
+  XY profile and produces a degenerate result, not a safe no-op the way extrude's own
+  all-defaults call is.
+- Clicking "Revolved Boss"/"Revolved Cut" now auto-attaches a sketch the same way
+  Extrude/Cut-Extrude do (the selected sketch, else the most recent one above the rollback
+  bar) — `commandRegistry.ts`'s `addExtrudedFeature` was generalised to
+  `addSketchFeature` and both commands moved from the plain `addFeature`-only path into it.
+
+### Fixed
+- A gap the rebuild-loop fix alone wouldn't have caught: `geometryStore.ts`'s own
+  `GEOMETRY_FEATURE_KINDS` whitelist (separate from `rebuild.ts`, gating whether the kernel
+  is even invoked) still only listed `extrude`/`cut-extrude`/`imported`. A document whose
+  only modelling feature was a revolve would hit `modelling.length === 0` and never reach
+  the kernel at all — the same bug already fixed once for `imported` bodies, now fixed the
+  same way for `revolve`/`cut-revolve`.
+
 ## 2026-07-30 — Sketcher interaction bug-fix pass
 
 ### Added

@@ -1,7 +1,8 @@
 import { draw, drawCircle } from "replicad";
 
 import { planeBasis } from "@/sketch/planeBasis";
-import type { Sketch } from "@/sketch/types";
+import { pointById } from "@/sketch/sketchModel";
+import type { LineEntity, Sketch } from "@/sketch/types";
 import type { EndCondition, Feature } from "@/types/document";
 
 import { getImportedShape } from "./importedShapes";
@@ -102,6 +103,63 @@ function extrusionRange(
   }
 }
 
+interface RevolveAxis {
+  origin: [number, number, number];
+  direction: [number, number, number];
+}
+
+/**
+ * Finds the revolve axis for a sketch: the first construction line's endpoints, or the
+ * sketch's local Y axis through the origin when none exists.
+ *
+ * The fallback matters more than it looks: replicad defaults an omitted revolve axis to
+ * the sketch plane's own normal, which is coplanar with (not swept around by) a profile
+ * drawn flat in local XY, producing a degenerate result rather than a safe no-op — so an
+ * explicit in-plane axis must always be supplied.
+ */
+function revolveAxis(sketch: Sketch): RevolveAxis {
+  const axisLine = sketch.entities.find(
+    (entity): entity is LineEntity => entity.kind === "line" && entity.construction,
+  );
+
+  if (axisLine) {
+    const start = pointById(sketch, axisLine.start);
+    const end = pointById(sketch, axisLine.end);
+    if (start && end) {
+      return {
+        origin: [start.x, start.y, 0],
+        direction: [end.x - start.x, end.y - start.y, 0],
+      };
+    }
+  }
+
+  return { origin: [0, 0, 0], direction: [0, 1, 0] };
+}
+
+function buildRevolveSolid(sketch: Sketch, feature: Feature): Solid | null {
+  const regions = profileRegions(sketch);
+  if (!regions) return null;
+
+  const angle = feature.parameters.angle ?? 360;
+  const axis = revolveAxis(sketch);
+
+  let solid = drawRegion(regions.outer)
+    .sketchOnPlane("XY")
+    .revolve(axis.direction, { origin: axis.origin, angle }) as Solid;
+
+  // Outer and inner regions sweep the identical axis/angle, so subtracting the swept hole
+  // from the swept body is exact — unlike extrude's inner-hole handling, no offset or
+  // over-length trick is needed to guarantee the cut fully passes through.
+  for (const inner of regions.inner) {
+    const tool = drawRegion(inner)
+      .sketchOnPlane("XY")
+      .revolve(axis.direction, { origin: axis.origin, angle }) as Solid;
+    solid = (solid as unknown as { cut: (other: Solid) => Solid }).cut(tool);
+  }
+
+  return solid;
+}
+
 function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
   const regions = profileRegions(sketch);
   if (!regions) return null;
@@ -167,7 +225,9 @@ export async function rebuildDocument(
       continue;
     }
 
-    if (feature.kind !== "extrude" && feature.kind !== "cut-extrude") continue;
+    const isExtrudeKind = feature.kind === "extrude" || feature.kind === "cut-extrude";
+    const isRevolveKind = feature.kind === "revolve" || feature.kind === "cut-revolve";
+    if (!isExtrudeKind && !isRevolveKind) continue;
 
     const sketchId = feature.parents.find((parent) => sketches[parent]);
     if (!sketchId) {
@@ -178,15 +238,20 @@ export async function rebuildDocument(
     const sketch = sketches[sketchId];
 
     try {
-      const solid = buildFeatureSolid(sketch, feature);
+      const solid = isRevolveKind
+        ? buildRevolveSolid(sketch, feature)
+        : buildFeatureSolid(sketch, feature);
       if (!solid) {
-        errors[feature.id] = "The sketch has no closed profile to extrude";
+        errors[feature.id] = isRevolveKind
+          ? "The sketch has no closed profile to revolve"
+          : "The sketch has no closed profile to extrude";
         continue;
       }
 
       rotation = planeBasis(sketch.planeId).rotation as [number, number, number];
 
-      if (feature.kind === "cut-extrude") {
+      const isCut = feature.kind === "cut-extrude" || feature.kind === "cut-revolve";
+      if (isCut) {
         if (!current) {
           errors[feature.id] = "Nothing to cut: add a boss feature first";
           continue;

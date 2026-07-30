@@ -13,11 +13,9 @@ import { runExport, runImport } from "./interchange";
  * a command up is a one-line entry here.
  */
 const FEATURE_COMMANDS: Record<string, FeatureKind> = {
-  "feature.revolve": "revolve",
   "feature.sweep": "sweep",
   "feature.loft": "loft",
 
-  "feature.cut-revolve": "cut-revolve",
   "feature.cut-sweep": "cut-sweep",
   "feature.hole-wizard": "hole",
 
@@ -92,13 +90,13 @@ function beginSketch() {
 }
 
 /**
- * Creates an extruded feature from a sketch.
+ * Creates an extrude or revolve feature from a sketch.
  *
- * An extrude consumes a profile, so the command resolves one from the selection and falls
- * back to the most recent sketch above the rollback bar — the sketch you just finished is
- * almost always the one you mean.
+ * Both consume a profile, so the command resolves one from the selection and falls back to
+ * the most recent sketch above the rollback bar — the sketch you just finished is almost
+ * always the one you mean.
  */
-function addExtrudedFeature(kind: "extrude" | "cut-extrude") {
+function addSketchFeature(kind: "extrude" | "cut-extrude" | "revolve" | "cut-revolve") {
   const documentState = useDocumentStore.getState();
   const { sketches } = useSketchStore.getState();
   const { features, rollbackIndex } = documentState.document;
@@ -117,8 +115,10 @@ function addExtrudedFeature(kind: "extrude" | "cut-extrude") {
 
 /** Commands handled directly rather than by creating a feature. */
 const DIRECT_COMMANDS: Record<string, () => void> = {
-  "feature.extrude": () => addExtrudedFeature("extrude"),
-  "feature.cut-extrude": () => addExtrudedFeature("cut-extrude"),
+  "feature.extrude": () => addSketchFeature("extrude"),
+  "feature.cut-extrude": () => addSketchFeature("cut-extrude"),
+  "feature.revolve": () => addSketchFeature("revolve"),
+  "feature.cut-revolve": () => addSketchFeature("cut-revolve"),
 
   // `file.export-iges` is deliberately absent: the bundled OpenCASCADE build contains no
   // IGES support, so the ribbon button stays disabled and says why in its tooltip rather
