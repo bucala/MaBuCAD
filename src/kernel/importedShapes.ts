@@ -29,3 +29,14 @@ export function releaseImportedShape(featureId: string): void {
   }
   importedShapes.delete(featureId);
 }
+
+/**
+ * Releases every imported shape at once — for replacing the whole document (New, Open),
+ * where every imported feature the old document had is about to stop existing rather
+ * than being individually deleted through `deleteFeature`.
+ */
+export function releaseAllImportedShapes(): void {
+  for (const featureId of [...importedShapes.keys()]) {
+    releaseImportedShape(featureId);
+  }
+}

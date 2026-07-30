@@ -77,6 +77,11 @@ interface SketchStore {
   openContextMenu: (x: number, y: number) => void;
   closeContextMenu: () => void;
 
+  /** Replaces every sketch — Open, New, loading a document that isn't the one whose
+   * sketches are currently in memory. Also leaves sketch mode, since whatever sketch was
+   * active belonged to the document being replaced. */
+  loadSketches: (sketches: Record<string, Sketch>) => void;
+
   setTool: (tool: SketchTool) => void;
   setSelection: (ids: string[]) => void;
   toggleSelection: (id: string, additive: boolean) => void;
@@ -168,6 +173,16 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
     exitSketch: () =>
       set({
+        activeSketchId: null,
+        tool: "select",
+        selection: [],
+        diagnostics: IDLE_DIAGNOSTICS,
+        contextMenu: null,
+      }),
+
+    loadSketches: (sketches) =>
+      set({
+        sketches,
         activeSketchId: null,
         tool: "select",
         selection: [],

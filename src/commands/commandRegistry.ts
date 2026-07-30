@@ -4,6 +4,7 @@ import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
+import { runNewDocument, runOpenDocument, runSaveDocument } from "./documentIO";
 import { runExport, runImport } from "./interchange";
 
 /**
@@ -160,6 +161,10 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "file.import": () => void runImport(),
   "file.export-step": () => void runExport("step"),
   "file.export-stl": () => void runExport("stl-binary"),
+
+  "doc.new": runNewDocument,
+  "doc.open": () => void runOpenDocument(),
+  "doc.save": () => void runSaveDocument(),
 
   "edit.undo": () => useDocumentStore.getState().undo(),
   "edit.redo": () => useDocumentStore.getState().redo(),

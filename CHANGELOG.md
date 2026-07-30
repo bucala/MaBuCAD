@@ -5,6 +5,35 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Document New / Open / Save
+
+### Added
+- **Whole-document persistence.** Until now the only way to save anything was STEP/STL
+  export (`interchange.ts`), which round-trips a solid's B-Rep, not the parametric history
+  that produced it — a `.step` re-import enters the document as an opaque imported body
+  with no sketches or feature parameters left to edit. New `commands/documentIO.ts` saves
+  the actual feature history and every sketch as JSON (`.mabucad`), so a reopened document
+  is exactly as editable as it was before closing it.
+- `runSaveDocument()`/`runOpenDocument()`/`runNewDocument()` reuse the same `saveBlob()`/
+  `openFile()` native-dialog-or-browser-fallback helpers `interchange.ts` already
+  established, and report through the same toast.
+- `documentStore.ts` gained `loadDocument()`/`newDocument()` and `sketchStore.ts` gained
+  `loadSketches()` — replacing state wholesale rather than going through `commit()`/`edit()`,
+  since loading a different document is a fresh start, not an edit to the one that was open
+  before it: the previous document's undo history would be meaningless applied to a
+  different document anyway, and undoing "Open" back into an unrelated document makes no
+  sense to offer.
+- New/Open ask via `window.confirm()` before discarding a document with unsaved edits
+  (`past.length > 0`, the same signal `MenuBar.tsx`'s own "Untitled *" indicator already
+  uses) — Save never needs to ask, it only ever adds a file, never removes one.
+- `kernel/importedShapes.ts` gained `releaseAllImportedShapes()`: New/Open release every
+  imported shape the outgoing document held, since those are WebAssembly-backed kernel
+  objects the JS garbage collector cannot reclaim on its own — the existing per-feature
+  `releaseImportedShape()` has no reason to run once whole-document replacement is doing
+  the work, but the shapes still need releasing somewhere.
+- An imported feature's own geometry is deliberately not part of the saved file — see
+  `documentIO.ts`'s own doc comment for why, and what happens on reopening one.
+
 ## 2026-07-30 — Zoom to Fit, Display Style, Hide/Show
 
 ### Added

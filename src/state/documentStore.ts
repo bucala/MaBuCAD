@@ -102,6 +102,16 @@ interface DocumentStore {
   renameDocument: (name: string) => void;
   setUnitSystem: (unitSystem: UnitSystemId) => void;
 
+  /**
+   * Replaces the whole document — Open, loading a saved file. Bypasses `commit()`
+   * deliberately: this is a fresh start, not an edit to the document that was open before
+   * it, so undoing it should not be possible, and the previous document's own undo history
+   * would be meaningless applied to a different one anyway.
+   */
+  loadDocument: (document: CadDocument) => void;
+  /** New. Same reasoning as `loadDocument` — a blank document loaded the same way. */
+  newDocument: () => void;
+
   undo: () => void;
   redo: () => void;
 }
@@ -311,6 +321,19 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     },
 
     setUnitSystem: (unitSystem) => set({ unitSystem }),
+
+    loadDocument: (document) =>
+      set({ document, past: [], future: [], selectedFeatureIds: [], contextMenu: null }),
+
+    newDocument: () =>
+      set({
+        document: createDocument(),
+        past: [],
+        future: [],
+        selectedFeatureIds: [],
+        contextMenu: null,
+        unitSystem: "MMGS",
+      }),
 
     undo: () => {
       const { past, document, future } = get();
