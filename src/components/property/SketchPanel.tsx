@@ -1,6 +1,7 @@
 import {
   Anchor,
   Circle,
+  CircleDot,
   Columns3,
   Diameter,
   Grid2x2,
@@ -34,6 +35,7 @@ const TOOLS: { id: SketchTool; label: string; icon: LucideIcon }[] = [
   { id: "circle", label: "Circle", icon: Circle },
   { id: "spline", label: "Spline", icon: Spline },
   { id: "construction-line", label: "Construction", icon: Route },
+  { id: "point", label: "Point", icon: CircleDot },
 ];
 
 const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideIcon; hint: string }[] = [
@@ -202,7 +204,7 @@ export function SketchPanel() {
             <dt>Degrees of freedom</dt>
             <dd data-testid="sketch-dof">{diagnostics.dof}</dd>
             <dt>Entities</dt>
-            <dd>{sketch.entities.length}</dd>
+            <dd data-testid="sketch-entity-count">{sketch.entities.length}</dd>
             <dt>Relations</dt>
             <dd>{sketch.constraints.length}</dd>
             <dt>Profile</dt>

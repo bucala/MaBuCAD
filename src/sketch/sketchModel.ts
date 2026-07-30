@@ -212,6 +212,29 @@ export function addSpline(
   };
 }
 
+/**
+ * Adds a standalone reference point.
+ *
+ * Wrapping the point in its own entity (rather than leaving it a bare pool point) is what
+ * makes it durable: `deleteSelection` recomputes surviving points from `entityPoints()` of
+ * the entities that survive a delete, so an unwrapped point would vanish the next time
+ * anything else in the sketch was deleted, whether or not the point itself was selected.
+ */
+export function addPoint(
+  sketch: Sketch,
+  position: { x: number; y: number },
+  options: { tolerance?: number } = {},
+): { sketch: Sketch; entityId: string } {
+  const anchor = ensurePoint(sketch, position.x, position.y, options.tolerance ?? 0);
+
+  const entity: SketchEntity = { id: uid("point"), kind: "point", at: anchor.pointId, construction: false };
+
+  return {
+    sketch: { ...anchor.sketch, entities: [...anchor.sketch.entities, entity] },
+    entityId: entity.id,
+  };
+}
+
 /* --------------------------------------------------------------- constraints */
 
 export function addConstraint(
@@ -355,6 +378,8 @@ export function entityPoints(entity: SketchEntity): string[] {
       return [entity.center];
     case "spline":
       return entity.points;
+    case "point":
+      return [entity.at];
   }
 }
 

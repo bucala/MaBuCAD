@@ -32,6 +32,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const drawRectangle = useSketchStore((state) => state.drawRectangle);
   const drawCircle = useSketchStore((state) => state.drawCircle);
   const drawSpline = useSketchStore((state) => state.drawSpline);
+  const drawPoint = useSketchStore((state) => state.drawPoint);
   const clearSelection = useSketchStore((state) => state.clearSelection);
   const dragPoint = useSketchStore((state) => state.dragPoint);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
@@ -46,7 +47,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
 
   const isDrawingTool =
     tool === "line" || tool === "rectangle" || tool === "circle" ||
-    tool === "spline" || tool === "construction-line";
+    tool === "spline" || tool === "construction-line" || tool === "point";
 
   /** Converts an event to sketch coordinates, snapping to a nearby existing point. */
   const toSketch = (event: ThreeEvent<PointerEvent | MouseEvent>): Point2 => {
@@ -93,6 +94,13 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
 
     if (tool === "spline") {
       setSplinePoints((current) => [...current, position]);
+      return;
+    }
+
+    // A point is placed with a single click, unlike every other tool here, which pairs
+    // an anchor click with a second click to finish.
+    if (tool === "point") {
+      drawPoint(position);
       return;
     }
 

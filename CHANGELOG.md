@@ -5,6 +5,29 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Point sketch entity
+
+### Added
+- **`Point` sketch tool.** Places a standalone reference point with a single click,
+  unlike every other sketch tool (line/rectangle/circle/spline), which pairs an anchor
+  click with a second click to finish — `SketchCanvas.tsx` special-cases it ahead of the
+  shared anchor logic. New `PointEntity` in `types.ts` and `addPoint()` in
+  `sketchModel.ts`, mirroring `addCircle()`'s shape.
+- Wrapping the point in its own entity (rather than leaving a bare pool point) is what
+  makes it durable rather than cosmetic: `deleteSelection` recomputes which points
+  survive a delete from `entityPoints()` of the entities that survive, so an unwrapped
+  point would have been silently pruned the next time *anything else* in the sketch was
+  deleted, whether or not the point itself was ever selected.
+
+### Fixed
+- A gap that only this feature could expose: a standalone point entity renders as
+  nothing but its own anchor dot (see `SketchGeometry.tsx`), so clicking it only ever
+  selects the raw point id, never the wrapping entity's id. Left alone, that meant the
+  entity would always survive `deleteSelection`'s filter and keep its point alive via
+  `entityPoints()` regardless of what was selected — deleting a point would silently do
+  nothing. Fixed by having `deleteSelection` treat a selected point id as also selecting
+  any point-entity anchored there.
+
 ## 2026-07-30 — Concentric geometric relation
 
 ### Added

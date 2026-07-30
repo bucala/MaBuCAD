@@ -39,7 +39,15 @@ export interface SplineEntity {
   construction: boolean;
 }
 
-export type SketchEntity = LineEntity | CircleEntity | SplineEntity;
+export interface PointEntity {
+  id: string;
+  kind: "point";
+  /** The point this entity anchors, in the shared point pool. */
+  at: string;
+  construction: boolean;
+}
+
+export type SketchEntity = LineEntity | CircleEntity | SplineEntity | PointEntity;
 
 export type GeometricConstraintKind =
   | "coincident"

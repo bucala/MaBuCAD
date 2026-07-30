@@ -5,6 +5,7 @@ import {
   addConstraint,
   addDimension,
   addLine,
+  addPoint,
   addRectangle,
   addSpline,
   createSketch,
@@ -34,6 +35,7 @@ export type SketchTool =
   | "circle"
   | "spline"
   | "construction-line"
+  | "point"
   | "smart-dimension"
   | "ordinate"
   | "ordinate-horizontal"
@@ -81,6 +83,7 @@ interface SketchStore {
   drawRectangle: (corner: Point2, opposite: Point2) => void;
   drawCircle: (centre: Point2, radius: number) => void;
   drawSpline: (positions: Point2[]) => void;
+  drawPoint: (position: Point2) => void;
 
   applyConstraint: (kind: GeometricConstraintKind) => boolean;
   applySmartDimension: () => boolean;
@@ -192,6 +195,9 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
     drawSpline: (positions) =>
       edit((sketch) => addSpline(sketch, positions, { tolerance: SNAP_TOLERANCE }).sketch),
+
+    drawPoint: (position) =>
+      edit((sketch) => addPoint(sketch, position, { tolerance: SNAP_TOLERANCE }).sketch),
 
     applyConstraint: (kind) => {
       const { activeSketchId, sketches } = get();
@@ -350,6 +356,16 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
       edit((sketch) => {
         const removed = new Set(selection);
+
+        // A standalone point entity renders as nothing but its own anchor point (see
+        // SketchGeometry), so clicking it only ever selects the raw point id, never the
+        // entity's own id. Without this, the entity would survive the filter below and
+        // keep its point alive via entityPoints() regardless of the selection — deleting
+        // a bare point would silently do nothing.
+        for (const entity of sketch.entities) {
+          if (entity.kind === "point" && removed.has(entity.at)) removed.add(entity.id);
+        }
+
         const entities = sketch.entities.filter((entity) => !removed.has(entity.id));
         const survivingPoints = new Set(entities.flatMap(entityPoints));
         survivingPoints.add(originPointId(sketch.id));
