@@ -48,6 +48,7 @@ export type GeometricConstraintKind =
   | "parallel"
   | "perpendicular"
   | "tangent"
+  | "concentric"
   | "equal"
   | "point-on-line"
   | "fix";

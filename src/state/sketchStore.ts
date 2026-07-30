@@ -202,7 +202,9 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
       // Each constraint kind needs a specific selection shape; refusing an ill-formed
       // selection is better than silently adding a constraint that does nothing.
-      const needsTwoEntities = ["parallel", "perpendicular", "equal", "tangent"].includes(kind);
+      const needsTwoEntities = ["parallel", "perpendicular", "equal", "tangent", "concentric"].includes(
+        kind,
+      );
       const needsOneEntity = ["horizontal", "vertical"].includes(kind);
       const needsTwoPoints = kind === "coincident";
       const needsOnePoint = kind === "fix";

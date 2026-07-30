@@ -2,6 +2,7 @@ import {
   Anchor,
   Circle,
   Columns3,
+  Diameter,
   Grid2x2,
   Grid3x3,
   Minus,
@@ -41,6 +42,7 @@ const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideI
   { kind: "parallel", label: "Parallel", icon: Columns3, hint: "Select two lines" },
   { kind: "perpendicular", label: "Perpendicular", icon: Grid2x2, hint: "Select two lines" },
   { kind: "tangent", label: "Tangent", icon: Tangent, hint: "Select a line and a circle" },
+  { kind: "concentric", label: "Concentric", icon: Diameter, hint: "Select two circles" },
   { kind: "coincident", label: "Coincident", icon: Anchor, hint: "Select two points" },
 ];
 

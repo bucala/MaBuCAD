@@ -173,6 +173,17 @@ function geometricResiduals(
       return [length(direction(first.a, first.b)) - length(direction(second.a, second.b))];
     }
 
+    case "concentric": {
+      const [firstId, secondId] = constraint.entities;
+      const first = entities.get(firstId);
+      const second = entities.get(secondId);
+      if (!first || !second || first.kind !== "circle" || second.kind !== "circle") return [];
+
+      const p = readPoint(values, layout, first.center);
+      const q = readPoint(values, layout, second.center);
+      return [p.x - q.x, p.y - q.y];
+    }
+
     case "tangent": {
       // Line tangent to a circle: the perpendicular distance from the centre equals r.
       const lineId = constraint.entities.find((id) => entities.get(id)?.kind === "line");

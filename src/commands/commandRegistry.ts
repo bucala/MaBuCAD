@@ -47,6 +47,7 @@ const SKETCH_RELATION_COMMANDS: Record<string, GeometricConstraintKind> = {
   "relation.perpendicular": "perpendicular",
   "relation.tangent": "tangent",
   "relation.coincident": "coincident",
+  "relation.concentric": "concentric",
   "relation.equal": "equal",
   "relation.fix": "fix",
 };

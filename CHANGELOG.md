@@ -5,6 +5,21 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Concentric geometric relation
+
+### Added
+- **`Concentric` sketch relation**, the one relation kind missing from an otherwise
+  complete set (horizontal/vertical/parallel/perpendicular/tangent/coincident/equal/
+  point-on-line/fix). Selecting two circles and applying it adds a residual that pins
+  their centre points together — mechanically the same equation `coincident` already
+  uses on two directly-selected points, just resolved from each circle's `.center`
+  instead. Wired through the existing generic `applyConstraint`/`addConstraint` path
+  (`sketchStore.ts`, `sketchModel.ts`), so no new solver plumbing was needed beyond the
+  one residual case in `residuals.ts`.
+- Surfaced in both places the other relations already are: the ribbon's Geometric
+  Relations group (already present, just unwired) and the in-sketch property panel's
+  quick-access relation grid.
+
 ## 2026-07-30 — Linear Pattern, Circular Pattern and Mirror
 
 ### Added
