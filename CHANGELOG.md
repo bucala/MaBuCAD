@@ -5,6 +5,48 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Arc sketch entity
+
+### Added
+- **Centrepoint `Arc` sketch tool** — three clicks (centre, then start, then end), always
+  sweeping counter-clockwise from start to end. Tangent and 3-point arc variants (also
+  named on the ribbon) are not built; a single well-defined creation mode covers what
+  every other piece of arc support (the solver, loop detection, the kernel's draw path)
+  needs, and adding the other two is pure UI work layered on top of the same entity.
+- **`ArcEntity`** (`types.ts`) stores centre/start/end point ids plus a radius, the same
+  shape a circle uses. Two new `arc-radius` constraints (auto-added by `addArc()`, not
+  user-facing) pin each rim point to that radius from the centre, exactly like a
+  rectangle's edges get auto-added horizontal/vertical constraints — without them,
+  dragging either rim point would let the "arc" stop being circular.
+- **The solver treats an arc's radius as a variable exactly like a circle's** (`buildLayout`/
+  `packVariables`/`unpackVariables` in `residuals.ts`), so a Radius/Diameter dimension
+  drives an arc the same way it already drives a circle, with no new dimension-side code.
+- **The kernel's loop walk (`kernel/profile.ts`) now treats lines and arcs as one edge
+  type** (`start`/`end`, degree-counted the same way) rather than only recognising lines,
+  and each walked ring carries exact per-edge segments (a plain line, or an arc plus the
+  midpoint replicad's `threePointsArcTo` needs) instead of just a flat point list —
+  `rebuild.ts`'s `drawRegion()` draws each accordingly, so a profile mixing straight and
+  curved edges extrudes/revolves as real curved B-Rep, not a polygon approximation.
+- An arc's bulge is accounted for in the outer/inner region-size ranking too
+  (`loopSignedArea()`), not just the straight-edged polygon through its vertices, since a
+  large enough bulge could otherwise flip which region is picked as the boss.
+
+### Fixed
+- **A loop can close with as few as two edges once arcs are allowed** (a line and an arc
+  sharing both endpoints, say), unlike a lines-only loop where two straight segments could
+  only ever retrace each other and three was the true minimum. Both `hasClosedProfile()`
+  (the sketch panel's Open/Closed status) and `extractLoops()` (the kernel's own walk)
+  still carried the lines-only "at least 3" threshold over verbatim when arcs were added,
+  which silently rejected the smallest — and most obviously useful — arc profiles.
+- **Switching sketch tools mid-gesture left stale state behind.** Line and
+  construction-line deliberately leave their draw anchor set after finishing, so the next
+  click chains a new segment from that endpoint — but nothing reset that anchor (or a
+  part-drawn spline's points) on switching to a *different* tool without first pressing
+  Escape or right-clicking to finish. The next tool's first click would misfire using
+  leftover geometry from the one before it — concretely, an arc's first click landing in
+  its second-click branch and using a stale line endpoint as its centre. Fixed with a
+  `useEffect` in `SketchCanvas.tsx` that clears this state on every tool change.
+
 ## 2026-07-30 — Point sketch entity
 
 ### Added

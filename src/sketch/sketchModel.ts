@@ -307,11 +307,11 @@ export function measure(sketch: Sketch, kind: DimensionKind, points: string[], e
       return first && second ? second.y - first.y : 0;
     case "radius": {
       const entity = entities[0] ? entityById(sketch, entities[0]) : undefined;
-      return entity?.kind === "circle" ? entity.radius : 0;
+      return entity?.kind === "circle" || entity?.kind === "arc" ? entity.radius : 0;
     }
     case "diameter": {
       const entity = entities[0] ? entityById(sketch, entities[0]) : undefined;
-      return entity?.kind === "circle" ? entity.radius * 2 : 0;
+      return entity?.kind === "circle" || entity?.kind === "arc" ? entity.radius * 2 : 0;
     }
     case "angle": {
       const [firstId, secondId] = entities;
@@ -350,7 +350,7 @@ export function inferSmartDimension(
 
   if (selectedEntities.length === 1) {
     const entity = entityById(sketch, selectedEntities[0]);
-    if (entity?.kind === "circle") {
+    if (entity?.kind === "circle" || entity?.kind === "arc") {
       return { kind: "radius", points: [], entities: [entity.id] };
     }
     if (entity?.kind === "line") {
@@ -380,7 +380,78 @@ export function entityPoints(entity: SketchEntity): string[] {
       return entity.points;
     case "point":
       return [entity.at];
+    case "arc":
+      return [entity.center, entity.start, entity.end];
   }
+}
+
+/**
+ * The point on an arc's rim halfway around its counter-clockwise sweep from `start` to
+ * `end`, in sketch coordinates.
+ *
+ * Shared by the kernel's exact draw path (`kernel/profile.ts`, via `threePointsArcTo`,
+ * which needs a real point on the curve rather than a radius/angle pair) and the
+ * viewport's rendering — both must agree on which of the two arcs a `start`/`end` pair
+ * denotes, so this is the one place that decides it.
+ */
+export function arcMidpoint(
+  centre: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  radius: number,
+): { x: number; y: number } {
+  const startAngle = Math.atan2(start.y - centre.y, start.x - centre.x);
+  let endAngle = Math.atan2(end.y - centre.y, end.x - centre.x);
+  if (endAngle <= startAngle) endAngle += Math.PI * 2;
+
+  const midAngle = (startAngle + endAngle) / 2;
+  return { x: centre.x + radius * Math.cos(midAngle), y: centre.y + radius * Math.sin(midAngle) };
+}
+
+/**
+ * Adds a centrepoint arc: a centre and two rim points, plus the two `arc-radius`
+ * constraints that keep both rim points on the circle as the sketch is dragged.
+ *
+ * The two rim points are reused-or-created exactly like any other point, so radius is
+ * fixed from the centre-to-start distance at creation time — `end` need not already lie
+ * on that circle; the very next solve pulls it there.
+ */
+export function addArc(
+  sketch: Sketch,
+  centre: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  options: { construction?: boolean; tolerance?: number } = {},
+): { sketch: Sketch; entityId: string } {
+  const tolerance = options.tolerance ?? 0;
+
+  const centrePoint = ensurePoint(sketch, centre.x, centre.y, tolerance);
+  const startPoint = ensurePoint(centrePoint.sketch, start.x, start.y, tolerance);
+  const endPoint = ensurePoint(startPoint.sketch, end.x, end.y, tolerance);
+
+  const entity: SketchEntity = {
+    id: uid("arc"),
+    kind: "arc",
+    center: centrePoint.pointId,
+    start: startPoint.pointId,
+    end: endPoint.pointId,
+    radius: Math.max(Math.hypot(start.x - centre.x, start.y - centre.y), 1e-3),
+    construction: options.construction ?? false,
+  };
+
+  const constraints: GeometricConstraint[] = [
+    { id: uid("con"), kind: "arc-radius", entities: [entity.id], points: [entity.start] },
+    { id: uid("con"), kind: "arc-radius", entities: [entity.id], points: [entity.end] },
+  ];
+
+  return {
+    sketch: {
+      ...endPoint.sketch,
+      entities: [...endPoint.sketch.entities, entity],
+      constraints: [...endPoint.sketch.constraints, ...constraints],
+    },
+    entityId: entity.id,
+  };
 }
 
 /**
@@ -389,19 +460,24 @@ export function entityPoints(entity: SketchEntity): string[] {
  * Reported in the sketch panel because a profile must close before it can be extruded.
  */
 export function hasClosedProfile(sketch: Sketch): boolean {
-  const lines = sketch.entities.filter(
-    (entity): entity is Extract<SketchEntity, { kind: "line" }> =>
-      entity.kind === "line" && !entity.construction,
+  // Lines and arcs both have a start/end and can form a loop's boundary; a circle is
+  // already closed on its own and never needs another edge to complete it.
+  const edges = sketch.entities.filter(
+    (entity): entity is Extract<SketchEntity, { kind: "line" | "arc" }> =>
+      (entity.kind === "line" || entity.kind === "arc") && !entity.construction,
   );
-  if (lines.length < 3) {
+  // A lines-only loop needs at least 3 (two straight segments can't enclose an area), but
+  // an arc can close a loop on its own with just one more edge — a single line, or even a
+  // second arc — so the floor here is 2, not 3, once arcs are in the mix.
+  if (edges.length < 2) {
     return sketch.entities.some((entity) => entity.kind === "circle" && !entity.construction);
   }
 
-  // Every endpoint of a closed loop is shared by at least two lines.
+  // Every endpoint of a closed loop is shared by at least two edges.
   const degree = new Map<string, number>();
-  for (const line of lines) {
-    degree.set(line.start, (degree.get(line.start) ?? 0) + 1);
-    degree.set(line.end, (degree.get(line.end) ?? 0) + 1);
+  for (const edge of edges) {
+    degree.set(edge.start, (degree.get(edge.start) ?? 0) + 1);
+    degree.set(edge.end, (degree.get(edge.end) ?? 0) + 1);
   }
 
   const endpoints = [...degree.values()];

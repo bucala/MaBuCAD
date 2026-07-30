@@ -135,6 +135,27 @@ function EntityView({ entity, sketch, color, isSelected, isSelectMode, onSelect 
       });
     }
 
+    if (entity.kind === "arc") {
+      const [centre, start, end] = resolved;
+      if (!centre || !start || !end) return [];
+
+      // Always sweeps counter-clockwise from start to end — the same convention
+      // `arcMidpoint` and the sketch canvas's own arc preview both use.
+      const startAngle = Math.atan2(start.y - centre.y, start.x - centre.x);
+      let endAngle = Math.atan2(end.y - centre.y, end.x - centre.x);
+      if (endAngle <= startAngle) endAngle += Math.PI * 2;
+
+      const segments = 48;
+      return Array.from({ length: segments + 1 }, (_, index) => {
+        const angle = startAngle + ((endAngle - startAngle) * index) / segments;
+        return [
+          centre.x + Math.cos(angle) * entity.radius,
+          centre.y + Math.sin(angle) * entity.radius,
+          0,
+        ] as [number, number, number];
+      });
+    }
+
     // Spline: interpolate through its points so the curve reads as a smooth profile.
     if (resolved.length < 2) return [];
     const curve = new CatmullRomCurve3(resolved.map((point) => new Vector3(point.x, point.y, 0)));

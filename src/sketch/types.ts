@@ -31,6 +31,25 @@ export interface CircleEntity {
   construction: boolean;
 }
 
+/**
+ * A centrepoint arc: a circle's centre plus two points on its rim.
+ *
+ * Always sweeps counter-clockwise from `start` to `end` — a fixed convention rather than
+ * a stored direction flag, since the interactive tool and the kernel's loop-walking both
+ * need to agree on which of the two possible arcs (through the near side or the far side
+ * of the circle) a given `start`/`end` pair means, and that only works if both derive it
+ * the same way.
+ */
+export interface ArcEntity {
+  id: string;
+  kind: "arc";
+  center: string;
+  start: string;
+  end: string;
+  radius: number;
+  construction: boolean;
+}
+
 export interface SplineEntity {
   id: string;
   kind: "spline";
@@ -47,7 +66,7 @@ export interface PointEntity {
   construction: boolean;
 }
 
-export type SketchEntity = LineEntity | CircleEntity | SplineEntity | PointEntity;
+export type SketchEntity = LineEntity | CircleEntity | SplineEntity | PointEntity | ArcEntity;
 
 export type GeometricConstraintKind =
   | "coincident"
@@ -59,7 +78,13 @@ export type GeometricConstraintKind =
   | "concentric"
   | "equal"
   | "point-on-line"
-  | "fix";
+  | "fix"
+  /**
+   * Not user-facing (no ribbon command creates it directly): pins one endpoint of an arc
+   * to its entity's radius from its centre, auto-added alongside the arc so it stays
+   * circular under dragging. Two of these exist per arc, one for `start` and one for `end`.
+   */
+  | "arc-radius";
 
 export interface GeometricConstraint {
   id: string;

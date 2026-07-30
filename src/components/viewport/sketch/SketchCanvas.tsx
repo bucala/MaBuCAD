@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Line } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
 import { DoubleSide } from "three";
@@ -33,21 +33,36 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const drawCircle = useSketchStore((state) => state.drawCircle);
   const drawSpline = useSketchStore((state) => state.drawSpline);
   const drawPoint = useSketchStore((state) => state.drawPoint);
+  const drawArc = useSketchStore((state) => state.drawArc);
   const clearSelection = useSketchStore((state) => state.clearSelection);
   const dragPoint = useSketchStore((state) => state.dragPoint);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
 
-  /** Anchor for the entity being drawn: line start, rectangle corner, circle centre. */
+  /** Anchor for the entity being drawn: line start, rectangle corner, circle/arc centre. */
   const [anchor, setAnchor] = useState<Point2 | null>(null);
+  /** An arc's second click (its start point, which also fixes its radius). */
+  const [arcStart, setArcStart] = useState<Point2 | null>(null);
   /** Points collected so far for a multi-click spline. */
   const [splinePoints, setSplinePoints] = useState<Point2[]>([]);
   const [cursor, setCursor] = useState<Point2 | null>(null);
 
   const draggingPointId = useRef<string | null>(null);
 
+  // Line and construction-line deliberately leave `anchor` set after finishing an entity
+  // so the next click chains from that endpoint (see the "line"/"construction-line" case
+  // below) — but that same leftover anchor would otherwise survive a switch to a
+  // different tool, so the very next click there would misfire using geometry from a
+  // tool the user already moved on from (e.g. an arc's first click landing in the
+  // `arcStart` branch instead of `anchor`, using a stale line endpoint as its centre).
+  useEffect(() => {
+    setAnchor(null);
+    setArcStart(null);
+    setSplinePoints([]);
+  }, [tool]);
+
   const isDrawingTool =
     tool === "line" || tool === "rectangle" || tool === "circle" ||
-    tool === "spline" || tool === "construction-line" || tool === "point";
+    tool === "spline" || tool === "construction-line" || tool === "point" || tool === "arc";
 
   /** Converts an event to sketch coordinates, snapping to a nearby existing point. */
   const toSketch = (event: ThreeEvent<PointerEvent | MouseEvent>): Point2 => {
@@ -104,6 +119,24 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
       return;
     }
 
+    // An arc needs three clicks — centre, then start (which also fixes the radius), then
+    // end — so it tracks its own second anchor rather than sharing the single `anchor`
+    // every other tool here uses for just a first-and-second-click gesture.
+    if (tool === "arc") {
+      if (!anchor) {
+        setAnchor(position);
+        return;
+      }
+      if (!arcStart) {
+        setArcStart(position);
+        return;
+      }
+      drawArc(anchor, arcStart, position);
+      setAnchor(null);
+      setArcStart(null);
+      return;
+    }
+
     if (!anchor) {
       setAnchor(position);
       return;
@@ -134,9 +167,10 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     }
     setSplinePoints([]);
     setAnchor(null);
+    setArcStart(null);
   };
 
-  const preview = buildPreview(tool, anchor, cursor, splinePoints);
+  const preview = buildPreview(tool, anchor, arcStart, cursor, splinePoints);
 
   return (
     <group>
@@ -152,7 +186,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
           // shortcut below) is meant to be the only one that appears here.
           event.nativeEvent.preventDefault();
 
-          const isMidDraw = anchor !== null || splinePoints.length > 0;
+          const isMidDraw = anchor !== null || arcStart !== null || splinePoints.length > 0;
           if (isMidDraw) {
             // Right-click while drawing keeps its existing shortcut: finish or cancel the
             // in-progress entity, rather than interrupting the gesture with a menu.
@@ -186,12 +220,46 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
 function buildPreview(
   tool: string,
   anchor: Point2 | null,
+  arcStart: Point2 | null,
   cursor: Point2 | null,
   splinePoints: Point2[],
 ): [number, number, number][] {
   if (tool === "spline" && splinePoints.length > 0) {
     const points = cursor ? [...splinePoints, cursor] : splinePoints;
     return points.map((point) => [point.x, point.y, 0.01]);
+  }
+
+  if (tool === "arc" && anchor && cursor) {
+    // Before the start click: a plain radius circle, the same affordance as the circle
+    // tool's own preview. After it: the actual counter-clockwise sweep from the start
+    // point to the cursor, at the radius the start click already fixed.
+    const centre = anchor;
+    const radius = Math.hypot((arcStart ?? cursor).x - centre.x, (arcStart ?? cursor).y - centre.y);
+    const segments = 48;
+
+    if (!arcStart) {
+      return Array.from({ length: segments + 1 }, (_, index) => {
+        const angle = (index / segments) * Math.PI * 2;
+        return [centre.x + Math.cos(angle) * radius, centre.y + Math.sin(angle) * radius, 0.01] as [
+          number,
+          number,
+          number,
+        ];
+      });
+    }
+
+    const startAngle = Math.atan2(arcStart.y - centre.y, arcStart.x - centre.x);
+    let endAngle = Math.atan2(cursor.y - centre.y, cursor.x - centre.x);
+    if (endAngle <= startAngle) endAngle += Math.PI * 2;
+
+    return Array.from({ length: segments + 1 }, (_, index) => {
+      const angle = startAngle + ((endAngle - startAngle) * index) / segments;
+      return [centre.x + Math.cos(angle) * radius, centre.y + Math.sin(angle) * radius, 0.01] as [
+        number,
+        number,
+        number,
+      ];
+    });
   }
 
   if (!anchor || !cursor) return [];

@@ -25,7 +25,7 @@ export function buildLayout(sketch: Sketch): VariableLayout {
   }
 
   for (const entity of sketch.entities) {
-    if (entity.kind === "circle") {
+    if (entity.kind === "circle" || entity.kind === "arc") {
       radiusIndex.set(entity.id, size);
       size += 1;
     }
@@ -44,7 +44,7 @@ export function packVariables(sketch: Sketch, layout: VariableLayout): Float64Ar
   }
 
   for (const entity of sketch.entities) {
-    if (entity.kind === "circle") {
+    if (entity.kind === "circle" || entity.kind === "arc") {
       values[layout.radiusIndex.get(entity.id)!] = entity.radius;
     }
   }
@@ -60,7 +60,7 @@ export function unpackVariables(sketch: Sketch, layout: VariableLayout, values: 
       return { ...point, x: values[index], y: values[index + 1] };
     }),
     entities: sketch.entities.map((entity) =>
-      entity.kind === "circle"
+      entity.kind === "circle" || entity.kind === "arc"
         ? { ...entity, radius: values[layout.radiusIndex.get(entity.id)!] }
         : entity,
     ),
@@ -182,6 +182,16 @@ function geometricResiduals(
       const p = readPoint(values, layout, first.center);
       const q = readPoint(values, layout, second.center);
       return [p.x - q.x, p.y - q.y];
+    }
+
+    case "arc-radius": {
+      const arc = entities.get(constraint.entities[0]);
+      if (!arc || arc.kind !== "arc") return [];
+
+      const centre = readPoint(values, layout, arc.center);
+      const rim = readPoint(values, layout, constraint.points[0]);
+      const radius = values[layout.radiusIndex.get(arc.id)!];
+      return [length(direction(centre, rim)) - radius];
     }
 
     case "tangent": {

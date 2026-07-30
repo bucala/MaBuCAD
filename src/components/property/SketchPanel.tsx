@@ -1,6 +1,7 @@
 import {
   Anchor,
   Circle,
+  CircleDashed,
   CircleDot,
   Columns3,
   Diameter,
@@ -33,6 +34,7 @@ const TOOLS: { id: SketchTool; label: string; icon: LucideIcon }[] = [
   { id: "line", label: "Line", icon: Minus },
   { id: "rectangle", label: "Rectangle", icon: Square },
   { id: "circle", label: "Circle", icon: Circle },
+  { id: "arc", label: "Arc", icon: CircleDashed },
   { id: "spline", label: "Spline", icon: Spline },
   { id: "construction-line", label: "Construction", icon: Route },
   { id: "point", label: "Point", icon: CircleDot },

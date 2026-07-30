@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import {
+  addArc,
   addCircle,
   addConstraint,
   addDimension,
@@ -36,6 +37,7 @@ export type SketchTool =
   | "spline"
   | "construction-line"
   | "point"
+  | "arc"
   | "smart-dimension"
   | "ordinate"
   | "ordinate-horizontal"
@@ -84,6 +86,7 @@ interface SketchStore {
   drawCircle: (centre: Point2, radius: number) => void;
   drawSpline: (positions: Point2[]) => void;
   drawPoint: (position: Point2) => void;
+  drawArc: (centre: Point2, start: Point2, end: Point2) => void;
 
   applyConstraint: (kind: GeometricConstraintKind) => boolean;
   applySmartDimension: () => boolean;
@@ -198,6 +201,9 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
     drawPoint: (position) =>
       edit((sketch) => addPoint(sketch, position, { tolerance: SNAP_TOLERANCE }).sketch),
+
+    drawArc: (centre, start, end) =>
+      edit((sketch) => addArc(sketch, centre, start, end, { tolerance: SNAP_TOLERANCE }).sketch),
 
     applyConstraint: (kind) => {
       const { activeSketchId, sketches } = get();

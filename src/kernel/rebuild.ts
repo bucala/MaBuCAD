@@ -64,10 +64,15 @@ function drawRegion(region: Loop | CircleLoop) {
     return drawCircle(region.radius).translate(region.centre.x, region.centre.y);
   }
 
-  const [first, ...rest] = region.points;
-  let pen = draw().movePointerTo([first.x, first.y]);
-  for (const point of rest) {
-    pen = pen.lineTo([point.x, point.y]);
+  // Every segment already draws all the way back to the loop's own start (segments and
+  // points are the same length, one edge per vertex), so by the time the last one runs
+  // the pen is already there — `close()` only asserts that rather than adding anything.
+  let pen = draw().movePointerTo([region.points[0].x, region.points[0].y]);
+  for (const segment of region.segments) {
+    pen =
+      segment.kind === "arc"
+        ? pen.threePointsArcTo([segment.to.x, segment.to.y], [segment.mid.x, segment.mid.y])
+        : pen.lineTo([segment.to.x, segment.to.y]);
   }
   return pen.close();
 }

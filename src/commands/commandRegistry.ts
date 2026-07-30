@@ -39,6 +39,7 @@ const SKETCH_TOOL_COMMANDS: Record<string, SketchTool> = {
   "sketch.spline": "spline",
   "sketch.construction": "construction-line",
   "sketch.point": "point",
+  "sketch.arc": "arc",
 };
 
 const SKETCH_RELATION_COMMANDS: Record<string, GeometricConstraintKind> = {

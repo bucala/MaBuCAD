@@ -96,7 +96,7 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     ];
     labelPosition = [midX + shiftX, midY + shiftY, 0.05];
     text = `${dimension.value.toFixed(2)}`;
-  } else if (entity?.kind === "circle") {
+  } else if (entity?.kind === "circle" || entity?.kind === "arc") {
     const centre = pointById(sketch, entity.center);
     if (!centre) return null;
 
