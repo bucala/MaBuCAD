@@ -5,6 +5,7 @@ import { Box, Frame } from "lucide-react";
 import { Scene } from "./scene/Scene";
 import type { ProjectionMode } from "./scene/CameraRig";
 import { SketchContextMenu } from "./sketch/SketchContextMenu";
+import { ViewportContextMenu } from "./ViewportContextMenu";
 import styles from "./Viewport.module.css";
 
 const PROJECTIONS: { id: ProjectionMode; label: string; icon: typeof Box; title: string }[] = [
@@ -79,6 +80,10 @@ export function Viewport() {
           opens it, and it lives here (a plain DOM sibling of the Canvas) rather than
           inside the Canvas tree; see SketchContextMenu's own doc comment for why. */}
       <SketchContextMenu />
+
+      {/* Same reasoning as SketchContextMenu, opened instead by ReferencePlanes/SolidModel
+          for a right-click on a plane or the modelled solid. */}
+      <ViewportContextMenu />
     </div>
   );
 }

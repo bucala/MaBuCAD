@@ -86,6 +86,19 @@ interface DocumentStore {
   selectFeature: (id: string | null, additive?: boolean) => void;
   clearSelection: () => void;
 
+  /**
+   * Screen position of the 3D viewport's right-click menu, or null when it is closed.
+   *
+   * Opened from a plane or the solid body inside the react-three-fiber scene, but rendered
+   * as a plain DOM overlay outside the Canvas — same reasoning as the sketch canvas's own
+   * context menu (see `SketchContextMenu.tsx`): `ReactDOM.createPortal` does not safely
+   * escape r3f's reconciler, so the menu component needs to read this from a store instead
+   * of being rendered directly by the component that opens it.
+   */
+  contextMenu: { x: number; y: number } | null;
+  openContextMenu: (x: number, y: number) => void;
+  closeContextMenu: () => void;
+
   renameDocument: (name: string) => void;
   setUnitSystem: (unitSystem: UnitSystemId) => void;
 
@@ -286,6 +299,10 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     },
 
     clearSelection: () => set({ selectedFeatureIds: [] }),
+
+    contextMenu: null,
+    openContextMenu: (x, y) => set({ contextMenu: { x, y } }),
+    closeContextMenu: () => set({ contextMenu: null }),
 
     renameDocument: (name) => {
       const trimmed = name.trim();

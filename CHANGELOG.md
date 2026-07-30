@@ -7,6 +7,15 @@ the commit that introduced them instead of by release tag.
 
 ## 2026-07-30 — Sketcher interaction bug-fix pass
 
+### Added
+- **Right-click context menu extended to the 3D viewport.** Right-clicking a reference plane
+  now selects it and offers "New Sketch"; right-clicking the modelled solid selects the most
+  recent feature that contributed geometry to it (the renderer combines every modelling
+  feature into one mesh, so there is no per-face feature id to target more precisely) and
+  offers Suppress/Unsuppress, Roll Back to Before, and Delete — plus "Edit Sketch" when that
+  feature is a sketch. Shares its styling and DOM-overlay-outside-the-Canvas structure
+  (`ViewportContextMenu.tsx`) with the sketch canvas's own menu from the same pass.
+
 ### Fixed
 - **Points and geometry swallowed clicks meant for the active drawing tool.** Every sketch
   point (and every line/circle/spline) had an unconditional `onClick` that stopped
@@ -38,6 +47,24 @@ the commit that introduced them instead of by release tag.
   tool was active became permanently unselectable afterwards, even back in Select mode.
   Removed — the `onClick` gating alone is sufficient, since r3f already continues the
   raycast past objects with no handler attached.
+- The same `raycast`-prop-toggling bug also existed in `ReferencePlanes.tsx` (toggled on
+  entering/leaving sketch mode), and was real: reference planes became permanently
+  unselectable in the 3D viewport after a sketch had been opened once. Found while adding
+  the viewport context menu to the same file; fixed the same way.
+- Reference planes stayed raycastable after fading to full invisibility once a solid exists
+  (their existing "step back like SolidWorks" behaviour dims them to `opacity: 0` but never
+  stopped them intercepting the pointer), so a plane sitting where a sketch had been drawn —
+  typically coincident with a face of the solid it seeded — silently swallowed clicks and
+  right-clicks meant for the solid underneath it. Found via the new viewport context menu
+  test (right-clicking the solid was selecting the Front plane instead of the extrude
+  feature); fixed by gating plane pickability on the same condition that already drives
+  its opacity. Still selectable from the feature tree in this state, as before.
+- A first attempt at the viewport context menu subscribed to `selectBuiltFeatures` with
+  `useDocumentStore` reactively; that selector returns a new array on every call, which
+  Zustand's `useSyncExternalStore`-based hook treats as a change on every render, causing
+  an infinite render loop (`Maximum update depth exceeded`) the moment a solid existed.
+  Fixed by reading it via `useDocumentStore.getState()` inside the click handler instead,
+  which is also more correct: only the value at the moment of the click is needed.
 - The context menu's first implementation rendered via `ReactDOM.createPortal` from inside
   the sketch canvas's `react-three-fiber` tree, which crashed (`R3F: Svg is not part of the
   THREE namespace!`) the moment it tried to render an SVG icon — `createPortal` does not

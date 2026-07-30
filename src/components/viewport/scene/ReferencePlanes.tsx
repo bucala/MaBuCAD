@@ -37,6 +37,7 @@ export function ReferencePlanes() {
 
   const selectedId = useDocumentStore(selectSelectedPlaneId);
   const selectFeature = useDocumentStore((state) => state.selectFeature);
+  const openContextMenu = useDocumentStore((state) => state.openContextMenu);
   const onSelect = (id: ReferencePlaneId | null) => selectFeature(id);
 
   /**
@@ -68,6 +69,15 @@ export function ReferencePlanes() {
         const isHovered = hoveredId === plane.id;
         const isDimmed = hasSolid && !isSketchMode && !isSelected;
 
+        /**
+         * A plane faded to full invisibility still sits exactly where it was drawn on —
+         * typically coincident with a face of the solid it seeded — so without this it
+         * keeps intercepting clicks and right-clicks meant for the solid underneath it,
+         * even though nothing about it is visible any more. Still selectable in this state
+         * from the feature tree, which is the SolidWorks convention this dimming mirrors.
+         */
+        const isInert = isSketchMode || isDimmed;
+
         const handleOver = (event: ThreeEvent<PointerEvent>) => {
           event.stopPropagation();
           setHoveredId(plane.id);
@@ -84,14 +94,23 @@ export function ReferencePlanes() {
           onSelect(isSelected ? null : plane.id);
         };
 
+        // Right button drives no camera gesture (only middle-drag does), so unlike
+        // `handleClick` this needs no drag guard — every right-click here is a genuine one.
+        const handleContextMenu = (event: ThreeEvent<MouseEvent>) => {
+          event.stopPropagation();
+          event.nativeEvent.preventDefault();
+          onSelect(plane.id);
+          openContextMenu(event.nativeEvent.clientX, event.nativeEvent.clientY);
+        };
+
         return (
           <group key={plane.id} rotation={plane.rotation}>
             <mesh
               name={plane.label}
-              onPointerOver={isSketchMode ? undefined : handleOver}
-              onPointerOut={isSketchMode ? undefined : handleOut}
-              onClick={isSketchMode ? undefined : handleClick}
-              raycast={isSketchMode ? () => null : undefined}
+              onPointerOver={isInert ? undefined : handleOver}
+              onPointerOut={isInert ? undefined : handleOut}
+              onClick={isInert ? undefined : handleClick}
+              onContextMenu={isInert ? undefined : handleContextMenu}
               renderOrder={-1}
             >
               <planeGeometry args={[PLANE_SIZE, PLANE_SIZE]} />

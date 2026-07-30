@@ -7,7 +7,7 @@ import type { Feature } from "@/types/document";
 export type GeometryStatus = "empty" | "loading-kernel" | "building" | "ready" | "error";
 
 /** Feature kinds that the kernel actually contributes geometry for. */
-const GEOMETRY_FEATURE_KINDS = new Set(["extrude", "cut-extrude", "imported"]);
+export const GEOMETRY_FEATURE_KINDS = new Set(["extrude", "cut-extrude", "imported"]);
 
 interface GeometryStore {
   status: GeometryStatus;

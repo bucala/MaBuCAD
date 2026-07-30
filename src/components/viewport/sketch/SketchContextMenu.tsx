@@ -3,7 +3,7 @@ import { Circle, Minus, MousePointer2, Route, Scan, Square, Trash2 } from "lucid
 
 import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 
-import styles from "./SketchContextMenu.module.css";
+import styles from "../ContextMenu.module.css";
 
 const TOOL_ITEMS: { id: SketchTool; label: string; icon: typeof MousePointer2 }[] = [
   { id: "select", label: "Select", icon: MousePointer2 },
