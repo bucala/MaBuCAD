@@ -5,6 +5,30 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Sketch Pattern
+
+### Added
+- **`Pattern`** repeats the selected entities in a linear or circular array, driven by a
+  chain of `window.prompt()`s (type, then count, then linear spacing or circular sweep
+  angle) — the same reasoning as `Offset`'s single prompt, extended to a few numbers
+  instead of one, since there's still no inline numeric-entry UI for a one-shot tool like
+  this. `count` includes the original, matching the convention `buildLinearPatternSolid`/
+  `buildCircularPatternSolid` in `kernel/rebuild.ts` already use for the feature-level
+  pattern, so the same word means the same thing at both the sketch and feature level.
+- `sketchModel.ts` gained `patternEntities()`: a linear instance translates every point by
+  `(dx, dy) * index`, a circular instance rotates every point about the sketch origin by
+  `(angle / count) * index` degrees. A circular pattern has no picked centre yet — the app
+  has no reference-point picking UI, the same gap `FeatureParameters.axis`'s doc comment
+  already notes for the feature-level pattern — so it always rotates about the origin.
+  Unlike `mirrorEntities()`, a rotation or translation preserves orientation, so an arc's
+  start/end are copied in place rather than swapped, and it gets fresh `arc-radius`
+  constraints on each copy exactly as `mirrorEntities()`/`offsetEntities()` already do.
+- Like Mirror and Offset, every instance is an independent one-shot copy, not a live
+  parametric array: editing the original afterward does not move the copies. A true
+  parametric pattern relation is a larger feature nothing here forecloses adding later.
+- `sketchStore.ts` gained `patternSelection(options)`, accepting the same `PatternOptions`
+  union `patternEntities()` takes.
+
 ## 2026-07-30 — Sketch Offset
 
 ### Added

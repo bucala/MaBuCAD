@@ -198,6 +198,39 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
     if (!Number.isFinite(distance) || distance === 0) return;
     useSketchStore.getState().offsetSelection(distance);
   },
+  "sketch.pattern": () => {
+    // Same reasoning as sketch.offset: a chain of prompts is the smallest UI a one-shot
+    // array tool needs. A circular pattern has no picked centre yet — no reference-point
+    // picking UI exists — so it always rotates about the sketch origin, the same stand-in
+    // FeatureParameters.axis documents for the feature-level pattern.
+    const kindInput = window.prompt('Pattern type — type "linear" or "circular":', "linear");
+    if (kindInput === null) return;
+    const mode = kindInput.trim().toLowerCase();
+    if (mode !== "linear" && mode !== "circular") return;
+
+    const countInput = window.prompt("Instance count (including the original):", "3");
+    if (countInput === null) return;
+    const count = Number(countInput);
+    if (!Number.isFinite(count) || count < 2) return;
+
+    if (mode === "linear") {
+      const dxInput = window.prompt("X spacing per instance (mm):", "10");
+      if (dxInput === null) return;
+      const dyInput = window.prompt("Y spacing per instance (mm):", "0");
+      if (dyInput === null) return;
+      const dx = Number(dxInput);
+      const dy = Number(dyInput);
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+      useSketchStore.getState().patternSelection({ mode: "linear", count, dx, dy });
+      return;
+    }
+
+    const angleInput = window.prompt("Total sweep angle (degrees):", "360");
+    if (angleInput === null) return;
+    const angleDegrees = Number(angleInput);
+    if (!Number.isFinite(angleDegrees)) return;
+    useSketchStore.getState().patternSelection({ mode: "circular", count, angleDegrees });
+  },
 
   "view.zoom-fit": () => useViewportStore.getState().requestZoomFit(),
   "view.display-mode": () => useViewportStore.getState().cycleDisplayMode(),
@@ -224,6 +257,7 @@ const SKETCH_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   ...Object.keys(SKETCH_RELATION_COMMANDS),
   "sketch.mirror",
   "sketch.offset",
+  "sketch.pattern",
   "dimension.smart",
   "dimension.ordinate",
   "dimension.horizontal-ordinate",

@@ -704,3 +704,126 @@ export function offsetEntities(sketch: Sketch, entityIds: string[], distance: nu
 
   return working;
 }
+
+/* -------------------------------------------------------------------- pattern */
+
+export type PatternOptions =
+  | { mode: "linear"; count: number; dx: number; dy: number }
+  | { mode: "circular"; count: number; angleDegrees: number };
+
+/**
+ * Repeats the given entities in a linear or circular array, adding `count - 1` further
+ * copies — `count` includes the original, the same convention `buildLinearPatternSolid`/
+ * `buildCircularPatternSolid` in `kernel/rebuild.ts` already use for the feature-level
+ * pattern. Copies are one-shot, not live, for the same reason `mirrorEntities`/
+ * `offsetEntities` don't track their source: editing the original afterward does not move
+ * them. A true parametric pattern relation is a larger feature nothing here forecloses
+ * adding later.
+ *
+ * A circular pattern has no picked centre yet — the app has no reference-point picking UI,
+ * the same gap `FeatureParameters.axis`'s doc comment notes for the feature-level pattern —
+ * so it always rotates about the sketch origin.
+ *
+ * Unlike a mirror, a rotation or translation preserves orientation, so an arc's start/end
+ * are copied in place rather than swapped.
+ */
+export function patternEntities(sketch: Sketch, entityIds: string[], options: PatternOptions): Sketch {
+  const instances = Math.max(1, Math.round(options.count));
+  if (instances < 2) return sketch;
+
+  let working = sketch;
+
+  const transform = (p: { x: number; y: number }, index: number): { x: number; y: number } => {
+    if (options.mode === "linear") {
+      return { x: p.x + options.dx * index, y: p.y + options.dy * index };
+    }
+    const stepRad = ((options.angleDegrees / instances) * index * Math.PI) / 180;
+    const cos = Math.cos(stepRad);
+    const sin = Math.sin(stepRad);
+    return { x: p.x * cos - p.y * sin, y: p.x * sin + p.y * cos };
+  };
+
+  for (let index = 1; index < instances; index += 1) {
+    const copiedPoint = (id: string): string => {
+      const point = pointById(working, id);
+      if (!point) return id;
+      const moved = transform(point, index);
+      const result = ensurePoint(working, moved.x, moved.y, 0);
+      working = result.sketch;
+      return result.pointId;
+    };
+
+    for (const id of entityIds) {
+      const entity = entityById(working, id);
+      if (!entity) continue;
+
+      switch (entity.kind) {
+        case "line": {
+          const copy: SketchEntity = {
+            id: uid("line"),
+            kind: "line",
+            start: copiedPoint(entity.start),
+            end: copiedPoint(entity.end),
+            construction: entity.construction,
+          };
+          working = { ...working, entities: [...working.entities, copy] };
+          break;
+        }
+        case "circle": {
+          const copy: SketchEntity = {
+            id: uid("circle"),
+            kind: "circle",
+            center: copiedPoint(entity.center),
+            radius: entity.radius,
+            construction: entity.construction,
+          };
+          working = { ...working, entities: [...working.entities, copy] };
+          break;
+        }
+        case "arc": {
+          const copy: SketchEntity = {
+            id: uid("arc"),
+            kind: "arc",
+            center: copiedPoint(entity.center),
+            start: copiedPoint(entity.start),
+            end: copiedPoint(entity.end),
+            radius: entity.radius,
+            construction: entity.construction,
+          };
+          const constraints: GeometricConstraint[] = [
+            { id: uid("con"), kind: "arc-radius", entities: [copy.id], points: [copy.start] },
+            { id: uid("con"), kind: "arc-radius", entities: [copy.id], points: [copy.end] },
+          ];
+          working = {
+            ...working,
+            entities: [...working.entities, copy],
+            constraints: [...working.constraints, ...constraints],
+          };
+          break;
+        }
+        case "spline": {
+          const copy: SketchEntity = {
+            id: uid("spline"),
+            kind: "spline",
+            points: entity.points.map(copiedPoint),
+            construction: entity.construction,
+          };
+          working = { ...working, entities: [...working.entities, copy] };
+          break;
+        }
+        case "point": {
+          const copy: SketchEntity = {
+            id: uid("point"),
+            kind: "point",
+            at: copiedPoint(entity.at),
+            construction: entity.construction,
+          };
+          working = { ...working, entities: [...working.entities, copy] };
+          break;
+        }
+      }
+    }
+  }
+
+  return working;
+}

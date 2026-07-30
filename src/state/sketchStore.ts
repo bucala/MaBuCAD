@@ -18,9 +18,11 @@ import {
   mirrorEntities,
   offsetEntities,
   originPointId,
+  patternEntities,
   roundDimensionValue,
   pointById,
 } from "@/sketch/sketchModel";
+import type { PatternOptions } from "@/sketch/sketchModel";
 import { sketchStatusFromDiagnostics, solveSketch } from "@/sketch/solver";
 import type {
   DimensionKind,
@@ -98,6 +100,7 @@ interface SketchStore {
   applyConstraint: (kind: GeometricConstraintKind) => boolean;
   mirrorSelection: () => boolean;
   offsetSelection: (distance: number) => boolean;
+  patternSelection: (options: PatternOptions) => boolean;
   applySmartDimension: () => boolean;
   applyOrdinateDimension: (axis: "both" | "x" | "y") => boolean;
   setDimensionValue: (dimensionId: string, value: number) => void;
@@ -295,6 +298,20 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       if (targets.length === 0) return false;
 
       edit((current) => offsetEntities(current, targets, distance));
+
+      set({ selection: [] });
+      return true;
+    },
+
+    patternSelection: (options) => {
+      const { activeSketchId, sketches, selection } = get();
+      const sketch = activeSketchId ? sketches[activeSketchId] : undefined;
+      if (!sketch || !Number.isFinite(options.count) || options.count < 2) return false;
+
+      const targets = selection.filter((id) => entityById(sketch, id));
+      if (targets.length === 0) return false;
+
+      edit((current) => patternEntities(current, targets, options));
 
       set({ selection: [] });
       return true;
