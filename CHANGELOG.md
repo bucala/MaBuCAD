@@ -5,6 +5,64 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Interaction fixes: menus, Settings, Escape, click precision, dimension editing
+
+A batch of real-world usability bugs found by actually using a build on Windows rather
+than through Playwright — sketch geometry rendered correctly but was hard to *operate*.
+
+### Fixed
+- **The top menu bar did nothing.** `File`/`Edit`/`View`/`Insert`/`Tools`/`Window`/`Help`
+  were static, unclickable text — leftover Step 1 chrome nothing since ever wired up — and
+  the quick-access gear icon called a command (`app.settings`) that was never registered,
+  so it silently did nothing too. `MenuBar.tsx` now opens a real dropdown per menu, each
+  entry a thin pointer to the exact same `runCommand()`/`isCommandAvailable()` the ribbon
+  already uses (so a menu item greys out exactly when its ribbon equivalent would), closing
+  on an outside click, Escape, or choosing an item.
+- **A line was hard to click — often needing several tries.** `SketchGeometry.tsx`'s lines
+  had no raycasting tolerance beyond their own 1-3px drawn width (`Line2`'s raycast adds a
+  `raycaster.params.Line2.threshold`, in screen pixels, on top of `material.linewidth` —
+  see three's `LineSegments2.raycast`; it defaults to 0). `Viewport.tsx`'s `Canvas` now
+  sets that threshold to 6px in `onCreated`, widening the invisible hit area the same way
+  a sketch point already gets a larger invisible pick disc than its drawn dot. This is very
+  likely also why Trim and the other click-a-line tools read as "not working" — the tool
+  logic was correct, the geometry underneath it was just hard to actually hit.
+- **A dimension's value couldn't be edited.** The field was a plain `<input type="number">`
+  bound straight to the store: typing a comma (the ordinary decimal key on a Slovak
+  keyboard) either produced `Number("55,74")` — `NaN`, committed with no validation — or
+  was rejected outright by the input itself depending on locale. `SketchPanel.tsx` gained
+  `DimensionValueField`, a plain text field that accepts either `,` or `.`, keeps local
+  state so a value being typed one character at a time (`"55."`) doesn't get echoed back
+  and stripped by the store on every keystroke, and only resyncs from the store when the
+  value changed for some *other* reason (undo, a different field, a drag).
+- **ESC did nothing.** There was no keyboard handling anywhere above individual context
+  menus. New `hooks/useEscapeToDeselect.ts`, wired in `App.tsx`: Escape backs out of
+  whatever's active one level at a time — a non-Select sketch tool first, falling back to
+  clearing the sketch or feature selection — the same priority every CAD sketcher uses,
+  skipped while a form field has focus so a field's own Escape handling isn't fought.
+
+### Added
+- **Smart Dimension can now dimension a circle's diameter**, not only its radius —
+  `diameter` already had full residual/measure/display support (`residuals.ts`,
+  `sketchModel.ts`'s `measure()`, `SketchDimensions.tsx`) but nothing ever created one.
+  Selecting a circle's rim together with its own centre point (the two are only ever
+  selected together deliberately, since a rim click and a centre click are different
+  gestures) now infers diameter instead of radius; a circle alone is still radius, and an
+  arc — conventionally always radius-dimensioned — is unaffected either way.
+- **A Settings panel**, opened from the (now-functional) gear icon or Tools ▸ Options,
+  holds Projection (Orthographic/Perspective) and the Unit system (MMGS/CGS/MKS/IPS) —
+  both moved here from, respectively, a small toolbar floating over the viewport
+  (`Viewport.tsx`, previously local `useState`, now `viewportStore.projection`) and a row
+  of buttons in the status bar (`StatusBar.tsx`), decluttering both for options changed
+  rarely. Functionally identical to before, just relocated and no longer competing for
+  space with cursor/model-status readouts.
+- **Constraint glyphs.** New `SketchConstraintGlyphs.tsx` draws a small icon at each
+  geometric constraint's anchor (a line's midpoint for horizontal/vertical, the average of
+  its points for coincident/fix, an entity's midpoint — reusing `arcMidpoint()` for an arc
+  — for the two-entity kinds), toggled by a new `view.constraints` ribbon command
+  (`viewportStore.constraintsVisible`) next to Hide/Show. Constraints existed and solved
+  correctly since Step 4 but were completely invisible in the viewport; there was nothing
+  to show or hide until now, which is what this ribbon slot actually asked for.
+
 ## 2026-07-30 — MSI build script
 
 ### Added

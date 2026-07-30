@@ -38,7 +38,7 @@ export interface RibbonTab {
 /** Left panel tabs, mirroring the SolidWorks Feature/Property/Configuration manager split. */
 export type ManagerTabId = "features" | "properties" | "configurations";
 
-/** Unit systems offered in the status bar. */
+/** Unit systems offered in the Settings panel. */
 export type UnitSystemId = "MMGS" | "CGS" | "MKS" | "IPS";
 
 export interface UnitSystem {

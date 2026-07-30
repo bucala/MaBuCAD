@@ -236,6 +236,7 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "view.zoom-fit": () => useViewportStore.getState().requestZoomFit(),
   "view.display-mode": () => useViewportStore.getState().cycleDisplayMode(),
   "view.hide-show": () => useViewportStore.getState().toggleReferenceGeometry(),
+  "view.constraints": () => useViewportStore.getState().toggleConstraintsVisible(),
 
   ...Object.fromEntries(
     Object.entries(SKETCH_TOOL_COMMANDS).map(([id, tool]) => [

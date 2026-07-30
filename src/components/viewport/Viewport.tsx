@@ -1,27 +1,11 @@
-import { useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { Box, Frame } from "lucide-react";
+
+import { useViewportStore } from "@/state/viewportStore";
 
 import { Scene } from "./scene/Scene";
-import type { ProjectionMode } from "./scene/CameraRig";
 import { SketchContextMenu } from "./sketch/SketchContextMenu";
 import { ViewportContextMenu } from "./ViewportContextMenu";
 import styles from "./Viewport.module.css";
-
-const PROJECTIONS: { id: ProjectionMode; label: string; icon: typeof Box; title: string }[] = [
-  {
-    id: "orthographic",
-    label: "Ortho",
-    icon: Frame,
-    title: "Orthographic — parallel projection, equal lengths measure equal on screen",
-  },
-  {
-    id: "perspective",
-    label: "Persp",
-    icon: Box,
-    title: "Perspective — natural depth, for presentation views",
-  },
-];
 
 /**
  * Graphics area.
@@ -31,7 +15,7 @@ const PROJECTIONS: { id: ProjectionMode; label: string; icon: typeof Box; title:
  * at full rate because the controls invalidate on every change.
  */
 export function Viewport() {
-  const [projection, setProjection] = useState<ProjectionMode>("orthographic");
+  const projection = useViewportStore((state) => state.projection);
 
   return (
     <div className={styles.viewport}>
@@ -40,25 +24,21 @@ export function Viewport() {
         frameloop="demand"
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: true }}
+        onCreated={(state) => {
+          // Widens the invisible click-hit area around a sketch line beyond its drawn
+          // pixel width (Line2's own raycast adds this threshold, in screen pixels,
+          // straight onto `material.linewidth` — see three's LineSegments2.raycast) — a
+          // 1-3px line is otherwise a needle to actually click. `Line2` isn't part of
+          // three's own `RaycasterParameters` type (it's an examples/jsm addition reading
+          // this object by convention, not a declared field), so it's set here on the
+          // live raycaster rather than through the strictly-typed `raycaster` prop.
+          const params = state.raycaster.params as unknown as Record<string, { threshold?: number } | undefined>;
+          params.Line = { ...params.Line, threshold: 6 };
+          params.Line2 = { ...params.Line2, threshold: 6 };
+        }}
       >
         <Scene projection={projection} />
       </Canvas>
-
-      <div className={styles.toolbar} role="group" aria-label="Projection">
-        {PROJECTIONS.map(({ id, label, icon: Icon, title }) => (
-          <button
-            key={id}
-            type="button"
-            className={styles.toolbarButton}
-            aria-pressed={projection === id}
-            title={title}
-            onClick={() => setProjection(id)}
-          >
-            <Icon size={14} strokeWidth={1.75} />
-            {label}
-          </button>
-        ))}
-      </div>
 
       <div className={styles.originGizmo} aria-hidden="true">
         <span className={styles.axis}>

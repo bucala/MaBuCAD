@@ -351,7 +351,14 @@ export function inferSmartDimension(
   if (selectedEntities.length === 1) {
     const entity = entityById(sketch, selectedEntities[0]);
     if (entity?.kind === "circle" || entity?.kind === "arc") {
-      return { kind: "radius", points: [], entities: [entity.id] };
+      // A circle plus its own centre point (the two are only ever selected together
+      // deliberately — a click on the rim selects the entity, the centre needs its own
+      // click) asks for the diameter instead of the radius, the same distinction
+      // SolidWorks draws by whether the drag that creates the dimension crosses the
+      // centre. Arcs stay radius-only: a partial sweep is conventionally always
+      // radius-dimensioned, never diameter, so this only applies to a full circle.
+      const wantsDiameter = entity.kind === "circle" && selectedPoints.includes(entity.center);
+      return { kind: wantsDiameter ? "diameter" : "radius", points: [], entities: [entity.id] };
     }
     if (entity?.kind === "line") {
       return { kind: "distance", points: [entity.start, entity.end], entities: [] };

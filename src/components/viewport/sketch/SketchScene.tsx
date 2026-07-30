@@ -9,6 +9,7 @@ import { selectActiveSketch, useSketchStore } from "@/state/sketchStore";
 
 import { DOCUMENT_SCALE } from "../constants";
 import { SketchCanvas } from "./SketchCanvas";
+import { SketchConstraintGlyphs } from "./SketchConstraintGlyphs";
 import { SketchDimensions } from "./SketchDimensions";
 import { SketchGeometry } from "./SketchGeometry";
 
@@ -49,6 +50,7 @@ export function SketchScene() {
       <SketchCanvas sketch={sketch} />
       <SketchGeometry sketch={sketch} isDark={isDark} />
       <SketchDimensions sketch={sketch} />
+      <SketchConstraintGlyphs sketch={sketch} />
     </group>
   );
 }

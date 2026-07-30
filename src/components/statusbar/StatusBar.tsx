@@ -2,16 +2,9 @@ import { useAppInfo } from "@/hooks/useAppInfo";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { selectSketchStatus, useSketchStore } from "@/state/sketchStore";
-import type { SketchStatus, UnitSystem } from "@/types/ui";
+import type { SketchStatus } from "@/types/ui";
 
 import styles from "./StatusBar.module.css";
-
-const UNIT_SYSTEMS: UnitSystem[] = [
-  { id: "MMGS", label: "MMGS", description: "Millimetre, gram, second" },
-  { id: "CGS", label: "CGS", description: "Centimetre, gram, second" },
-  { id: "MKS", label: "MKS", description: "Metre, kilogram, second" },
-  { id: "IPS", label: "IPS", description: "Inch, pound, second" },
-];
 
 const SKETCH_STATUS_LABEL: Record<SketchStatus, string> = {
   "fully-defined": "Fully Defined",
@@ -28,15 +21,14 @@ const SKETCH_STATUS_CLASS: Record<SketchStatus, string> = {
 };
 
 /**
- * Bottom status bar: sketch constraint state, cursor readout, unit system and build info.
+ * Bottom status bar: sketch constraint state, cursor readout and build info.
  *
- * The sketch status is fixed at "no active sketch" until the sketcher lands in Step 4;
- * the unit selector is already live because it is pure UI state.
+ * The sketch status is fixed at "no active sketch" until the sketcher lands in Step 4.
+ * The unit system selector used to live here; it's now in the Settings panel
+ * (`MenuBar.tsx`) alongside the other app-wide display options.
  */
 export function StatusBar() {
   const appInfo = useAppInfo();
-  const unitSystem = useDocumentStore((state) => state.unitSystem);
-  const setUnitSystem = useDocumentStore((state) => state.setUnitSystem);
   const sketchStatus = useSketchStore(selectSketchStatus);
   const dof = useSketchStore((state) => state.diagnostics.dof);
   const isSketchMode = useSketchStore((state) => state.activeSketchId !== null);
@@ -96,28 +88,6 @@ export function StatusBar() {
       <div className={styles.divider} aria-hidden="true" />
 
       <div className={styles.item}>Editing Part</div>
-
-      <div className={styles.divider} aria-hidden="true" />
-
-      <div
-        className={styles.units}
-        role="group"
-        aria-label="Unit system"
-        title="Unit and dimension system"
-      >
-        {UNIT_SYSTEMS.map((system) => (
-          <button
-            key={system.id}
-            type="button"
-            className={styles.unitButton}
-            aria-pressed={unitSystem === system.id}
-            title={system.description}
-            onClick={() => setUnitSystem(system.id)}
-          >
-            {system.label}
-          </button>
-        ))}
-      </div>
 
       <div className={styles.divider} aria-hidden="true" />
 

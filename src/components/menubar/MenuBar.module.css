@@ -28,6 +28,13 @@
   gap: 1px;
 }
 
+/* Anchors a dropdown (`.dropdown`) to sit directly below its trigger button without any
+   measure-then-reposition pass — the trigger and its dropdown are the only two children. */
+.menuWrap {
+  position: relative;
+  display: flex;
+}
+
 .menu {
   height: 24px;
   padding: 0 var(--space-3);
@@ -42,9 +49,106 @@
   background: var(--fill-subtle-hover);
 }
 
-.menu:active {
+.menu:active,
+.menu[aria-expanded="true"] {
   background: var(--fill-subtle-active);
   color: var(--text-secondary);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 1000;
+  min-width: 200px;
+  padding: var(--space-2);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-flyout);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dropdownItem:hover:not(:disabled) {
+  background: var(--fill-subtle-hover);
+}
+
+.dropdownItem:disabled {
+  color: var(--text-disabled);
+}
+
+/* The Settings dropdown holds toggle-row sections instead of a plain command list, and
+   right-aligns under the gear icon rather than the left edge every other dropdown uses,
+   since it's the last thing in the row and would otherwise overhang the window edge. */
+.settingsDropdown {
+  left: auto;
+  right: 0;
+  min-width: 240px;
+  gap: var(--space-3);
+}
+
+.settingsSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settingsLabel {
+  padding: 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px;
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+}
+
+.toggleButton {
+  flex: 1 1 auto;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.toggleButton:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
+
+.toggleButton[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .spacer {
