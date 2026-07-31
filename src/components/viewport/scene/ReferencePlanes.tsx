@@ -64,7 +64,17 @@ export function ReferencePlanes() {
     <group
       // Clicking empty space clears the selection, as in any CAD graphics area. Fires
       // when a click lands in the scene but misses everything in this group.
+      //
+      // Skipped while an edge-pick session is active: a miss there means the click landed
+      // near, but not exactly on, an edge (or on a face, which isn't pickable), and should
+      // just do nothing — not clear the selection and, with it, silently cancel picking
+      // (`PropertyManager.tsx`'s effect exits pick mode the instant the picking feature stops
+      // being the selected one). Read via `getState()` rather than a subscribed hook, same as
+      // `SolidModel.tsx`'s own `handleContextMenu` and for the same reason: only the value at
+      // the moment of the (rare) miss is needed, not a re-render of this whole plane group on
+      // every edge-pick toggle.
       onPointerMissed={(event) => {
+        if (useViewportStore.getState().edgePickModeFeatureId) return;
         if (isPick({ nativeEvent: event })) {
           onSelect(null);
         }

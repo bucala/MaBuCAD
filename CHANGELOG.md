@@ -5,6 +5,54 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — Fillet and Chamfer: pick specific edges instead of always "every edge"
+
+### Added
+- **Fillet and Chamfer gain an Edges section** in the Property Manager with a "Select Edges"
+  toggle. With nothing picked they behave exactly as before (every edge of the body); with one
+  or more edges picked, only those are rounded/beveled. Clicking a picked edge again removes
+  it; "Clear Selection" resets to the all-edges default.
+- **No true persistent edge naming** — this kernel rebuilds the solid from scratch on every
+  change, so there is no topological edge id that survives a rebuild the way one would in a
+  cached-history kernel. The stand-in: a picked click is stored as a world-space point
+  (converted into the kernel's own un-rotated "solid space" — see `rebuild.ts`'s note on
+  display rotation), and on every rebuild the edge nearest that point is re-found via
+  replicad's `EdgeFinder.withinDistance(0.75, point)`. Documented honestly as an approximation
+  that can occasionally latch onto the wrong edge if the body changes drastically between
+  picks — a real limitation, not hidden behind a "smart selection" label.
+- **Picking against a preview, not the already-rounded result.** A Fillet/Chamfer with the
+  all-edges default rounds the whole body the instant it exists, so entering pick mode against
+  its own output would mean clicking edges that already moved. `geometryStore.ts` gained a
+  `previewMesh` + `rebuildPreview()`, which reruns the exact same `rebuildDocument()` with only
+  the picking feature force-suppressed in a cloned feature list — no kernel changes needed.
+  `SolidModel.tsx` swaps to that preview (edges drawn gold) whenever a feature is in pick mode.
+
+### Fixed
+- Passing `raycast={undefined}` as a JSX prop is not "leave it alone" — react-three-fiber still
+  assigns `instance.raycast = undefined` as an own property, which shadows
+  `LineSegments.prototype.raycast` (the real hit-testing implementation) on the prototype
+  chain, silently breaking all raycasting against that object with no console error. This was
+  already how the edge overlay disabled picking outside pick mode; picking mode needed the
+  *real* prototype method back, so it's passed explicitly instead (`LineSegments.prototype.raycast`)
+  rather than `undefined`.
+- Clicking anywhere in the viewport that isn't exactly on an edge — a miss, or a click on a
+  face — used to clear the current selection (`ReferencePlanes.tsx`'s `onPointerMissed`,
+  existing "click empty space to deselect" behaviour), which during an edge-pick session
+  silently cancelled picking altogether the instant the miss happened, since the Property
+  Manager exits pick mode whenever the selected feature stops being the one being picked. Now
+  skipped while a pick session is active.
+
+### Fixed (test only, not the app)
+- The fix above was first written subscribing to `edgePickModeFeatureId` via
+  `useViewportStore()` inside `ReferencePlanes.tsx`. Confirmed via `git stash` A/B (deterministic
+  across three separate fresh-server runs, not the environment's usual probabilistic sketch-click
+  flake) that this extra render subscription — despite being a functional no-op whenever no pick
+  session is active — shifted timing enough to break the sketch rectangle tool's click-to-close
+  race. Switched to reading `useViewportStore.getState()` imperatively inside the handler
+  instead, the same pattern `SolidModel.tsx`'s own `handleContextMenu` already uses and for the
+  same reason: the value is only needed at the moment of a (rare) pointer-miss, not on every
+  render.
+
 ## 2026-07-31 — Rib: a stiffening wall from a sketched line
 
 ### Added

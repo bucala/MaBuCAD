@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   ArrowUp,
   ArrowUpDown,
@@ -10,6 +11,7 @@ import {
   Drill,
   FlipVertical,
   Layers,
+  MousePointerClick,
   Slice,
   SlidersHorizontal,
   Trash2,
@@ -26,6 +28,7 @@ import {
 import { groupTappedBySize, resolveClearanceDiameter, resolveTapDrill } from "@/data/holeResolution";
 import { FEATURE_CATALOG } from "@/state/featureCatalog";
 import { useDocumentStore } from "@/state/documentStore";
+import { useViewportStore } from "@/state/viewportStore";
 import type { EndCondition, FeatureParameters } from "@/types/document";
 
 import styles from "./PropertyManager.module.css";
@@ -82,10 +85,21 @@ export function PropertyManager() {
   const updateParameters = useDocumentStore((state) => state.updateParameters);
   const toggleSuppressed = useDocumentStore((state) => state.toggleSuppressed);
   const deleteFeature = useDocumentStore((state) => state.deleteFeature);
+  const edgePickModeFeatureId = useViewportStore((state) => state.edgePickModeFeatureId);
+  const setEdgePickMode = useViewportStore((state) => state.setEdgePickMode);
 
   const feature = document.features.find((candidate) =>
     selectedFeatureIds.includes(candidate.id),
   );
+
+  // Edge-pick mode is meaningless once its feature is no longer the one showing here —
+  // leaving it on would silently keep sending viewport clicks to a feature the user can no
+  // longer see or stop picking for.
+  useEffect(() => {
+    if (edgePickModeFeatureId && edgePickModeFeatureId !== feature?.id) {
+      setEdgePickMode(null);
+    }
+  }, [feature?.id, edgePickModeFeatureId, setEdgePickMode]);
 
   if (!feature) {
     return (
@@ -110,6 +124,9 @@ export function PropertyManager() {
 
   const definition = FEATURE_CATALOG[feature.kind];
   const isHole = feature.kind === "hole";
+  const isEdgeSelectable = feature.kind === "fillet" || feature.kind === "chamfer";
+  const isPickingEdges = edgePickModeFeatureId === feature.id;
+  const pickedEdgeCount = feature.parameters.edgePoints?.length ?? 0;
   // A hole's own Hole Wizard section below owns `radius` — as a direct input for a simple
   // hole, or resolved from a standard's table for clearance/tapped — so the generic field
   // list must not also render it.
@@ -178,6 +195,37 @@ export function PropertyManager() {
             onChange={(event) => renameFeature(feature.id, event.target.value)}
           />
         </label>
+
+        {isEdgeSelectable && (
+          <div className={styles.section}>
+            <span className={styles.sectionTitle}>Edges</span>
+            <button
+              type="button"
+              className={styles.actionButton}
+              aria-pressed={isPickingEdges}
+              onClick={() => setEdgePickMode(isPickingEdges ? null : feature.id)}
+            >
+              <MousePointerClick size={14} strokeWidth={1.75} />
+              {isPickingEdges ? "Done Selecting" : "Select Edges"}
+            </button>
+            <p className={styles.sectionHint}>
+              {pickedEdgeCount === 0
+                ? "No edges selected — applies to every edge of the body."
+                : `${pickedEdgeCount} edge${pickedEdgeCount === 1 ? "" : "s"} selected.`}
+              {isPickingEdges &&
+                " Click edges on the model in the viewport; click a picked edge again to remove it."}
+            </p>
+            {pickedEdgeCount > 0 && (
+              <button
+                type="button"
+                className={styles.actionButton}
+                onClick={() => updateParameters(feature.id, { edgePoints: [] })}
+              >
+                Clear Selection
+              </button>
+            )}
+          </div>
+        )}
 
         {isHole && (
           <div className={styles.section}>

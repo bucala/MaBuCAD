@@ -94,6 +94,20 @@ export interface FeatureParameters {
    * body to be.
    */
   operation?: "join" | "cut" | "intersect";
+  /**
+   * World-space points marking the specific edges a Fillet or Chamfer applies to, picked in
+   * the viewport (see `viewportStore.ts`'s `edgePickModeFeatureId` and `SolidModel.tsx`'s
+   * edge-overlay click handling). There is no true persistent edge naming here — a rebuilt
+   * solid's edges have no stable id to reference across a parametric replay the way a real
+   * CAD kernel's topological naming would give them — so each point is instead re-resolved
+   * on every rebuild via `EdgeFinder.withinDistance`, the closest edge to where the point
+   * was picked in the *new* solid. This can occasionally latch onto the wrong edge if the
+   * body changes enough between rebuilds, the honest cost of not having real persistent
+   * naming, but works well for the common case of a shape that only grows/shrinks a little
+   * between edits. Empty or absent means "every edge", matching this app's original,
+   * unselective Fillet/Chamfer behaviour.
+   */
+  edgePoints?: [number, number, number][];
 }
 
 export interface Feature {

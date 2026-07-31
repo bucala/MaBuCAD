@@ -34,12 +34,21 @@ interface ViewportStore {
    * geometry. Defaults on: they're new, and a feature nobody knows exists is a feature
    * nobody uses. */
   constraintsVisible: boolean;
+  /**
+   * The Fillet/Chamfer feature currently in "pick edges in the viewport" mode, or `null`
+   * when nothing is being picked. Lives here rather than local state in `PropertyManager.tsx`
+   * (which starts the mode) because `SolidModel.tsx` (which handles the actual edge clicks) is
+   * a sibling, not a descendant — the two need a shared place to agree "picking is on, for
+   * this feature" the same way `hiddenFeatureIds` already crosses that same sibling boundary.
+   */
+  edgePickModeFeatureId: string | null;
 
   cycleDisplayMode: () => void;
   toggleFeatureVisibility: (id: string) => void;
   requestZoomFit: () => void;
   setProjection: (mode: ProjectionMode) => void;
   toggleConstraintsVisible: () => void;
+  setEdgePickMode: (featureId: string | null) => void;
 }
 
 export const useViewportStore = create<ViewportStore>((set) => ({
@@ -48,6 +57,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   zoomFitRequest: 0,
   projection: "orthographic",
   constraintsVisible: true,
+  edgePickModeFeatureId: null,
 
   cycleDisplayMode: () =>
     set((state) => {
@@ -68,4 +78,6 @@ export const useViewportStore = create<ViewportStore>((set) => ({
 
   toggleConstraintsVisible: () =>
     set((state) => ({ constraintsVisible: !state.constraintsVisible })),
+
+  setEdgePickMode: (featureId) => set({ edgePickModeFeatureId: featureId }),
 }));

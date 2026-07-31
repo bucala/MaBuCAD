@@ -1,4 +1,4 @@
-import { draw, drawCircle, drawPointsInterpolation, FaceFinder, genericSweep, Plane } from "replicad";
+import { draw, drawCircle, drawPointsInterpolation, EdgeFinder, FaceFinder, genericSweep, Plane } from "replicad";
 import { Vector3 } from "three";
 
 import { planeBasis, sketchToWorld } from "@/sketch/planeBasis";
@@ -245,17 +245,48 @@ function buildMirrorSolid(source: Solid, feature: Feature): Solid {
   return asTransformable(asTransformable(source).clone()).mirror(plane, [0, 0, 0]);
 }
 
-/** A plain-number fillet radius rounds every edge of the body — see `buildShelledSolid`'s
- * own note on why (no edge/face-picking UI exists yet to be more selective). */
-function buildFilletedSolid(solid: Solid, feature: Feature): Solid {
-  const radius = Math.max(feature.parameters.radius ?? 2, 0.05);
-  return (solid as unknown as { fillet: (radiusConfig: number) => Solid }).fillet(radius);
+/**
+ * How close (mm) a picked point needs to land to an edge, in the *rebuilt* solid, for that
+ * edge to count as "the one picked". Generous enough to absorb the small differences between
+ * where the point was picked (against one triangulation of the body) and the freshly
+ * rebuilt body's own re-triangulated edges, without being so loose it starts picking up
+ * neighbouring edges on a typical small-part scale (`DOCUMENT_SCALE` is 100 mm).
+ */
+const EDGE_PICK_TOLERANCE = 0.75;
+
+/**
+ * Builds an edge filter from picked points — see `FeatureParameters.edgePoints`'s own note
+ * on why this is a geometric proximity match (`EdgeFinder.withinDistance`) rather than true
+ * persistent naming, which this app's kernel has no way to provide. `undefined` means "every
+ * edge", replicad's own convention for a fillet/chamfer's optional filter.
+ */
+function pickedEdgeFilter(
+  edgePoints: [number, number, number][] | undefined,
+): ((finder: EdgeFinder) => EdgeFinder) | undefined {
+  if (!edgePoints || edgePoints.length === 0) return undefined;
+  return (finder) =>
+    finder.either(edgePoints.map((point) => (f: EdgeFinder) => f.withinDistance(EDGE_PICK_TOLERANCE, point)));
 }
 
-/** A plain-number chamfer distance is symmetric and applies to every edge of the body. */
+/**
+ * A fillet applies to every edge of the body by default; selecting edges in the viewport
+ * (`viewportStore.ts`'s `edgePickModeFeatureId`) narrows it to just those, via
+ * `pickedEdgeFilter`.
+ */
+function buildFilletedSolid(solid: Solid, feature: Feature): Solid {
+  const radius = Math.max(feature.parameters.radius ?? 2, 0.05);
+  const target = solid as unknown as { fillet: (radiusConfig: number, filter?: (f: EdgeFinder) => EdgeFinder) => Solid };
+  return target.fillet(radius, pickedEdgeFilter(feature.parameters.edgePoints));
+}
+
+/** A plain-number chamfer distance is symmetric; see `buildFilletedSolid`'s own note on
+ * narrowing which edges it applies to via picked points. */
 function buildChamferedSolid(solid: Solid, feature: Feature): Solid {
   const distance = Math.max(feature.parameters.distance ?? 1, 0.05);
-  return (solid as unknown as { chamfer: (radiusConfig: number) => Solid }).chamfer(distance);
+  const target = solid as unknown as {
+    chamfer: (radiusConfig: number, filter?: (f: EdgeFinder) => EdgeFinder) => Solid;
+  };
+  return target.chamfer(distance, pickedEdgeFilter(feature.parameters.edgePoints));
 }
 
 function facingDirection(axis: "x" | "y" | "z"): [number, number, number] {

@@ -38,8 +38,23 @@ interface GeometryStore {
    * lifetimes rather than sharing one field.
    */
   toast: string | null;
+  /**
+   * The body as it was *before* the feature currently being edge-picked for (see
+   * `viewportStore.ts`'s `edgePickModeFeatureId`), used only while picking. A Fillet/Chamfer
+   * already applied to every edge by default rounds the whole body the moment it's created —
+   * picking specific edges on *that* result would mean clicking already-rounded surfaces
+   * whose edges have moved from where the original sharp ones were, which is exactly the kind
+   * of mismatch `EdgeFinder.withinDistance`'s tolerance can't paper over. `SolidModel.tsx`
+   * swaps to showing this mesh instead of the real one while picking is active, so what the
+   * user clicks is what the picked points are actually measured against.
+   */
+  previewMesh: MeshData | null;
 
   rebuild: (features: Feature[], sketches: Record<string, Sketch>) => Promise<void>;
+  /** Rebuilds with `hideFeatureId` suppressed, into `previewMesh` rather than `mesh` — the
+   * document itself is untouched, this is display-only. */
+  rebuildPreview: (features: Feature[], sketches: Record<string, Sketch>, hideFeatureId: string) => Promise<void>;
+  clearPreview: () => void;
   showToast: (message: string, durationMs?: number) => void;
 }
 
@@ -49,6 +64,7 @@ interface GeometryStore {
  * result, so a slow earlier rebuild cannot overwrite a newer one.
  */
 let latestRequest = 0;
+let latestPreviewRequest = 0;
 let kernelReady = false;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -58,6 +74,7 @@ export const useGeometryStore = create<GeometryStore>((set) => ({
   errors: {},
   message: null,
   toast: null,
+  previewMesh: null,
 
   showToast: (toastMessage, durationMs = 4000) => {
     if (toastTimer !== undefined) clearTimeout(toastTimer);
@@ -100,5 +117,26 @@ export const useGeometryStore = create<GeometryStore>((set) => ({
         message: error instanceof Error ? error.message : "Geometry rebuild failed",
       });
     }
+  },
+
+  rebuildPreview: async (features, sketches, hideFeatureId) => {
+    const request = (latestPreviewRequest += 1);
+    const withoutPicked = features.map((feature) =>
+      feature.id === hideFeatureId ? { ...feature, suppressed: true } : feature,
+    );
+
+    try {
+      const result = await rebuildDocument(withoutPicked, sketches);
+      if (request !== latestPreviewRequest) return;
+      set({ previewMesh: result.mesh });
+    } catch {
+      if (request !== latestPreviewRequest) return;
+      set({ previewMesh: null });
+    }
+  },
+
+  clearPreview: () => {
+    latestPreviewRequest += 1;
+    set({ previewMesh: null });
   },
 }));
