@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="public/mabucad.svg" alt="MaBuCAD logo" width="120" height="120" />
+<img src="public/mabucad-icon.png" alt="MaBuCAD logo" width="120" height="120" />
 
 # MaBuCAD
 
@@ -384,7 +384,7 @@ dated history, including bugs found and fixed along the way.</sub>
 
 <div align="center">
 
-<img src="public/mabucad.svg" alt="MaBuCAD" width="48" height="48" />
+<img src="public/mabucad-icon.png" alt="MaBuCAD" width="48" height="48" />
 
 **MaBuCAD** — built with Tauri, React, TypeScript, Three.js and OpenCASCADE.
 
