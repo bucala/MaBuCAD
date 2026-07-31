@@ -31,6 +31,7 @@ import type {
   Sketch,
   SketchDiagnostics,
 } from "@/sketch/types";
+import { useSettingsStore } from "@/state/settingsStore";
 import type { SketchStatus } from "@/types/ui";
 
 /** Tools available while a sketch is open. */
@@ -118,10 +119,12 @@ interface Point2 {
   y: number;
 }
 
-/** Snap radius in sketch units; small enough to be deliberate, large enough to be easy. */
-export const SNAP_TOLERANCE = 2.5;
-
 export const useSketchStore = create<SketchStore>((set, get) => {
+  /** Snap radius in sketch units — Settings > Sketch > "Snap tolerance", previously a
+   * hardcoded constant here. Read live (not destructured once) so a change while a sketch
+   * is already open takes effect on the very next click rather than needing a re-entry. */
+  const snapTolerance = () => useSettingsStore.getState().snapTolerance;
+
   /** Applies an edit, re-solves, and stores both the geometry and the diagnostics. */
   const edit = (mutate: (sketch: Sketch) => Sketch) => {
     const { activeSketchId, sketches } = get();
@@ -213,22 +216,22 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       }),
 
     drawLine: (from, to, construction = false) =>
-      edit((sketch) => addLine(sketch, from, to, { construction, tolerance: SNAP_TOLERANCE }).sketch),
+      edit((sketch) => addLine(sketch, from, to, { construction, tolerance: snapTolerance() }).sketch),
 
     drawRectangle: (corner, opposite) =>
-      edit((sketch) => addRectangle(sketch, corner, opposite, { tolerance: SNAP_TOLERANCE }).sketch),
+      edit((sketch) => addRectangle(sketch, corner, opposite, { tolerance: snapTolerance() }).sketch),
 
     drawCircle: (centre, radius) =>
-      edit((sketch) => addCircle(sketch, centre, radius, { tolerance: SNAP_TOLERANCE }).sketch),
+      edit((sketch) => addCircle(sketch, centre, radius, { tolerance: snapTolerance() }).sketch),
 
     drawSpline: (positions) =>
-      edit((sketch) => addSpline(sketch, positions, { tolerance: SNAP_TOLERANCE }).sketch),
+      edit((sketch) => addSpline(sketch, positions, { tolerance: snapTolerance() }).sketch),
 
     drawPoint: (position) =>
-      edit((sketch) => addPoint(sketch, position, { tolerance: SNAP_TOLERANCE }).sketch),
+      edit((sketch) => addPoint(sketch, position, { tolerance: snapTolerance() }).sketch),
 
     drawArc: (centre, start, end) =>
-      edit((sketch) => addArc(sketch, centre, start, end, { tolerance: SNAP_TOLERANCE }).sketch),
+      edit((sketch) => addArc(sketch, centre, start, end, { tolerance: snapTolerance() }).sketch),
 
     trimAt: (entityId, position) =>
       edit((sketch) => trimLineAt(sketch, entityId, position.x, position.y)),

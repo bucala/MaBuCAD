@@ -9,6 +9,7 @@ import { SolidModel } from "../model/SolidModel";
 import { SketchScene } from "../sketch/SketchScene";
 import { CameraRig, type ProjectionMode } from "./CameraRig";
 import { Origin } from "./Origin";
+import { RaycasterTuning } from "./RaycasterTuning";
 import { ReferencePlanes } from "./ReferencePlanes";
 import { ViewportGrid } from "./ViewportGrid";
 import { ZoomToFit } from "./ZoomToFit";
@@ -32,6 +33,7 @@ export function Scene({ projection }: SceneProps) {
       <CameraRig mode={projection} />
       <CadControls />
       <ZoomToFit />
+      <RaycasterTuning />
 
       {/* Sketch and reference geometry are unlit, so this lighting exists purely to shade
           the solid: a key light for form, a weaker fill so back faces do not go black, and

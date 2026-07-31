@@ -6,6 +6,7 @@ import { useEscapeToDeselect } from "@/hooks/useEscapeToDeselect";
 import { useRebuild } from "@/hooks/useRebuild";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
+import { useSettingsStore } from "@/state/settingsStore";
 
 export default function App() {
   useRebuild();
@@ -19,6 +20,15 @@ export default function App() {
   useEffect(() => {
     setFeatureErrors(errors);
   }, [errors, setFeatureErrors]);
+
+  // Applies the Settings dialog's theme choice to the DOM attribute tokens.css already
+  // knows how to read (see useIsDarkTheme.ts) — "system" clears the override entirely
+  // rather than writing the literal string "system", which tokens.css has no rule for.
+  const theme = useSettingsStore((state) => state.theme);
+  useEffect(() => {
+    if (theme === "system") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   return <AppShell />;
 }

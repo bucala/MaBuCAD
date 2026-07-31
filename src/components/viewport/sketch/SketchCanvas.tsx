@@ -6,7 +6,8 @@ import { DoubleSide } from "three";
 import { findPointNear } from "@/sketch/sketchModel";
 import { worldToSketch } from "@/sketch/planeBasis";
 import type { Sketch } from "@/sketch/types";
-import { SNAP_TOLERANCE, useSketchStore } from "@/state/sketchStore";
+import { useSettingsStore } from "@/state/settingsStore";
+import { useSketchStore } from "@/state/sketchStore";
 
 import { DOCUMENT_SCALE } from "../constants";
 
@@ -37,6 +38,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const clearSelection = useSketchStore((state) => state.clearSelection);
   const dragPoint = useSketchStore((state) => state.dragPoint);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
+  const snapTolerance = useSettingsStore((state) => state.snapTolerance);
 
   /** Anchor for the entity being drawn: line start, rectangle corner, circle/arc centre. */
   const [anchor, setAnchor] = useState<Point2 | null>(null);
@@ -67,7 +69,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   /** Converts an event to sketch coordinates, snapping to a nearby existing point. */
   const toSketch = (event: ThreeEvent<PointerEvent | MouseEvent>): Point2 => {
     const local = worldToSketch(sketch.planeId, event.point);
-    const snapped = findPointNear(sketch, local.x, local.y, SNAP_TOLERANCE);
+    const snapped = findPointNear(sketch, local.x, local.y, snapTolerance);
     return snapped ? { x: snapped.x, y: snapped.y } : local;
   };
 
@@ -75,7 +77,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     if (tool !== "select" || event.button !== 0) return;
 
     const local = worldToSketch(sketch.planeId, event.point);
-    const hit = findPointNear(sketch, local.x, local.y, SNAP_TOLERANCE);
+    const hit = findPointNear(sketch, local.x, local.y, snapTolerance);
     if (hit) {
       draggingPointId.current = hit.id;
       event.stopPropagation();

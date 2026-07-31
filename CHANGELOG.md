@@ -5,6 +5,45 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Application Options dialog, settings export/import
+
+Against a reference screenshot of another CAD tool's own "Application Options" dialog:
+the gear icon only opened a small dropdown with two settings, there was no way to save or
+transfer preferences, and several already-implemented-but-unreachable knobs (a manual
+theme override the CSS already fully supported, the sketch snap tolerance, the line-click
+raycast tolerance) had no UI at all — they were hardcoded constants nobody could change.
+
+### Added
+- **`SettingsDialog.tsx`**: a real modal "Application Options" dialog (centred, backdrop,
+  closes on Escape/backdrop click/×/Close) replacing the old gear dropdown, opened the
+  same two ways as before (the gear icon, Tools ▸ Options). Tabbed like the reference
+  dialog — **General** (theme, confirm-before-discard, Reset to Defaults), **Display**
+  (projection, line pick tolerance), **Sketch** (snap tolerance, constraint glyphs),
+  **File** (unit system) — but only with tabs that have real settings behind them; Sketch/
+  Part/Assembly/Content Center/Hardware/Prompts/Drawing/Colors/Save from the reference
+  tool either don't apply to what MaBuCAD has built yet or are folded into the tabs above
+  (Prompts' one real setting lives in General, Colors' in the Theme control).
+- **`settingsStore.ts`**: a new persisted (`localStorage`) store for preferences that don't
+  belong to one document (`documentStore.unitSystem`, saved inside a `.mabucad` file) or
+  to a ribbon-owned toggle (`viewportStore.projection`/`constraintsVisible`) — those stay
+  where they are and the dialog reads/writes them directly.
+  - **Theme** (System/Light/Dark) actually does something now: `tokens.css`'s
+    `[data-theme]` override and `useIsDarkTheme.ts`'s detection of it already existed,
+    nothing ever set the attribute. `App.tsx` applies it in a `useEffect`.
+  - **Confirm before discarding unsaved changes**, gating the `window.confirm()` in
+    `documentIO.ts`'s New/Open.
+  - **Snap tolerance** and **line pick tolerance** replace what were hardcoded constants
+    (`sketchStore.ts`'s old `SNAP_TOLERANCE`, `Viewport.tsx`'s raycaster `onCreated`
+    threshold) — the latter now lives in a new `RaycasterTuning.tsx`, applied in a
+    `useEffect` inside the r3f tree so a change while the app is running takes effect
+    immediately rather than only at the next canvas creation.
+- **`settingsIO.ts`**: Export Settings/Import Settings, reusing the same `saveBlob()`/
+  `openFile()` native-dialog-or-browser-fallback helpers `documentIO.ts` already
+  established for whole-document persistence — a `.mabucad-settings` file, separate from
+  a `.mabucad` document, for backing up or carrying preferences to a different machine. An
+  import merges over `DEFAULT_SETTINGS` rather than trusting the file outright, so a field
+  added after an older export was made still gets a sane default instead of `undefined`.
+
 ## 2026-07-30 — Direction/Body property sections, Boolean operations, opaque menus
 
 More feedback against a reference screenshot of another CAD tool's own Extrude dialog:

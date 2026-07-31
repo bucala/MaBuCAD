@@ -96,62 +96,6 @@
   color: var(--text-disabled);
 }
 
-/* The Settings dropdown holds toggle-row sections instead of a plain command list, and
-   right-aligns under the gear icon rather than the left edge every other dropdown uses,
-   since it's the last thing in the row and would otherwise overhang the window edge. */
-.settingsDropdown {
-  left: auto;
-  right: 0;
-  min-width: 240px;
-  gap: var(--space-3);
-}
-
-.settingsSection {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.settingsLabel {
-  padding: 0 var(--space-2);
-  color: var(--text-secondary);
-  font-size: var(--font-size-caption);
-  font-weight: 600;
-}
-
-.toggleRow {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  padding: 1px;
-  border-radius: var(--radius-sm);
-  background: var(--fill-control);
-}
-
-.toggleButton {
-  flex: 1 1 auto;
-  height: 26px;
-  padding: 0 var(--space-2);
-  border: none;
-  border-radius: 3px;
-  background: none;
-  color: var(--text-secondary);
-  font-size: var(--font-size-caption);
-  font-weight: 600;
-  transition: background var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
-}
-
-.toggleButton:hover {
-  background: var(--fill-subtle-hover);
-  color: var(--text-primary);
-}
-
-.toggleButton[aria-pressed="true"] {
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-
 .spacer {
   flex: 1 1 auto;
 }

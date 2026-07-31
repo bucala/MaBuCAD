@@ -25,9 +25,8 @@ import { isCommandAvailable, runCommand } from "@/commands/commandRegistry";
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { useDocumentStore } from "@/state/documentStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
-import { useViewportStore } from "@/state/viewportStore";
-import type { UnitSystem } from "@/types/ui";
 
+import { SettingsDialog } from "../settings/SettingsDialog";
 import styles from "./MenuBar.module.css";
 
 const QUICK_ACTIONS = [
@@ -47,13 +46,6 @@ interface MenuItemSpec {
    * than a second place logic could drift from the ribbon's own. */
   commandId: string;
 }
-
-const UNIT_SYSTEMS: UnitSystem[] = [
-  { id: "MMGS", label: "MMGS", description: "Millimetre, gram, second" },
-  { id: "CGS", label: "CGS", description: "Centimetre, gram, second" },
-  { id: "MKS", label: "MKS", description: "Metre, kilogram, second" },
-  { id: "IPS", label: "IPS", description: "Inch, pound, second" },
-];
 
 const MENUS: { id: string; label: string; items: MenuItemSpec[] }[] = [
   {
@@ -201,100 +193,6 @@ function CustomMenu({ label, children }: { label: string; children: (close: () =
   );
 }
 
-/** Toggle-button row shared by the Settings panel's Projection and Units sections. */
-function ToggleRow<T extends string>({
-  options,
-  value,
-  onChange,
-}: {
-  options: { id: T; label: string; title: string }[];
-  value: T;
-  onChange: (id: T) => void;
-}) {
-  return (
-    <div className={styles.toggleRow} role="group">
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          className={styles.toggleButton}
-          aria-pressed={value === option.id}
-          title={option.title}
-          onClick={() => onChange(option.id)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/**
- * The gear icon's dropdown: display options that apply to the whole app rather than one
- * command — Projection and Units used to sit in the viewport toolbar and status bar
- * respectively, cluttering both for something changed rarely. `open` is controlled by the
- * parent (rather than owned here, the way every other dropdown in this file owns its own
- * `open`) so Tools ▸ Options can open the exact same panel instead of duplicating it.
- */
-function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const close = () => onOpenChange(false);
-  useDismiss(open, wrapRef, close);
-
-  const projection = useViewportStore((state) => state.projection);
-  const setProjection = useViewportStore((state) => state.setProjection);
-  const unitSystem = useDocumentStore((state) => state.unitSystem);
-  const setUnitSystem = useDocumentStore((state) => state.setUnitSystem);
-
-  return (
-    <div ref={wrapRef} className={styles.menuWrap}>
-      <button
-        type="button"
-        className={styles.quickButton}
-        title="Options"
-        aria-label="Options"
-        aria-haspopup="true"
-        aria-expanded={open}
-        onClick={() => onOpenChange(!open)}
-      >
-        <Settings size={15} strokeWidth={1.75} />
-      </button>
-      {open && (
-        <div className={`${styles.dropdown} ${styles.settingsDropdown}`} role="menu">
-          <div className={styles.settingsSection}>
-            <span className={styles.settingsLabel}>Projection</span>
-            <ToggleRow
-              value={projection}
-              onChange={setProjection}
-              options={[
-                {
-                  id: "orthographic",
-                  label: "Orthographic",
-                  title: "Parallel projection — equal lengths measure equal on screen",
-                },
-                { id: "perspective", label: "Perspective", title: "Natural depth, for presentation views" },
-              ]}
-            />
-          </div>
-
-          <div className={styles.settingsSection}>
-            <span className={styles.settingsLabel}>Units</span>
-            <ToggleRow
-              value={unitSystem}
-              onChange={setUnitSystem}
-              options={UNIT_SYSTEMS.map((system) => ({
-                id: system.id,
-                label: system.label,
-                title: system.description,
-              }))}
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /**
  * Menu strip and quick access toolbar.
  *
@@ -381,7 +279,15 @@ export function MenuBar() {
           </button>
         ))}
 
-        <SettingsPanel open={settingsOpen} onOpenChange={setSettingsOpen} />
+        <button
+          type="button"
+          className={styles.quickButton}
+          title="Options"
+          aria-label="Options"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Settings size={15} strokeWidth={1.75} />
+        </button>
       </div>
 
       <div className={styles.spacer} />
@@ -389,6 +295,8 @@ export function MenuBar() {
       <div className={styles.documentName}>
         {documentName} — Untitled{isModified ? " *" : ""}
       </div>
+
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

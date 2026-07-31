@@ -23,19 +23,10 @@ export function Viewport() {
         frameloop="demand"
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: true }}
-        onCreated={(state) => {
-          // Widens the invisible click-hit area around a sketch line beyond its drawn
-          // pixel width (Line2's own raycast adds this threshold, in screen pixels,
-          // straight onto `material.linewidth` — see three's LineSegments2.raycast) — a
-          // 1-3px line is otherwise a needle to actually click. `Line2` isn't part of
-          // three's own `RaycasterParameters` type (it's an examples/jsm addition reading
-          // this object by convention, not a declared field), so it's set here on the
-          // live raycaster rather than through the strictly-typed `raycaster` prop.
-          const params = state.raycaster.params as unknown as Record<string, { threshold?: number } | undefined>;
-          params.Line = { ...params.Line, threshold: 6 };
-          params.Line2 = { ...params.Line2, threshold: 6 };
-        }}
       >
+        {/* Line pick tolerance is applied inside the tree, not here via `onCreated` — see
+            `RaycasterTuning.tsx`: it needs to react to the Settings dialog changing the
+            value live, not just set it once at canvas creation. */}
         <Scene projection={projection} />
       </Canvas>
 

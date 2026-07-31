@@ -3,6 +3,7 @@ import { releaseAllImportedShapes } from "@/kernel/importedShapes";
 import { openFile, saveBlob } from "@/io/files";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
+import { useSettingsStore } from "@/state/settingsStore";
 import { useSketchStore } from "@/state/sketchStore";
 import type { CadDocument } from "@/types/document";
 import type { UnitSystemId } from "@/types/ui";
@@ -45,7 +46,12 @@ function isSavedDocument(value: unknown): value is SavedDocument {
 /** Whether proceeding would discard edits, and if so, whether the user is fine with that. */
 function confirmDiscard(message: string): boolean {
   const { past } = useDocumentStore.getState();
-  return past.length === 0 || window.confirm(message);
+  if (past.length === 0) return true;
+  // Settings > General > "Confirm before discarding unsaved changes" — off means the
+  // prompt is skipped, not that anything is destroyed silently: New/Open were already
+  // the explicit action that discards, this only controls whether it double-checks first.
+  if (!useSettingsStore.getState().confirmBeforeDiscard) return true;
+  return window.confirm(message);
 }
 
 export async function runSaveDocument(): Promise<void> {

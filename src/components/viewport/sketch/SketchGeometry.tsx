@@ -6,10 +6,8 @@ import { CatmullRomCurve3, Vector3 } from "three";
 import { worldToSketch } from "@/sketch/planeBasis";
 import { entityPoints, pointById } from "@/sketch/sketchModel";
 import type { Sketch, SketchEntity } from "@/sketch/types";
-import { SNAP_TOLERANCE, useSketchStore } from "@/state/sketchStore";
-
-/** Invisible pick radius around a point, matching the snap radius of the drawing tools. */
-const PICK_RADIUS = SNAP_TOLERANCE;
+import { useSettingsStore } from "@/state/settingsStore";
+import { useSketchStore } from "@/state/sketchStore";
 
 const COLORS = {
   geometry: "#1a1a1a",
@@ -35,6 +33,9 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
   const trimAt = useSketchStore((state) => state.trimAt);
   const tool = useSketchStore((state) => state.tool);
+  // Invisible pick radius around a point, matching the snap radius the drawing tools use
+  // (Settings > Sketch > "Snap tolerance") — was a hardcoded constant.
+  const pickRadius = useSettingsStore((state) => state.snapTolerance);
   // Points and entities only intercept clicks for selection while the Select tool is
   // active. Any drawing tool needs those same clicks to reach the invisible drawing
   // surface behind them (SketchCanvas), which is what actually creates and snaps
@@ -94,7 +95,7 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
               // still hits this mesh but has nothing to call, so it continues on to the
               // canvas plane behind it instead of stopping here.
             >
-              <circleGeometry args={[PICK_RADIUS, 12]} />
+              <circleGeometry args={[pickRadius, 12]} />
               <meshBasicMaterial transparent opacity={0} depthWrite={false} />
             </mesh>
 
