@@ -15,11 +15,6 @@ import { runExport, runImport } from "./interchange";
  * a command up is a one-line entry here.
  */
 const FEATURE_COMMANDS: Record<string, FeatureKind> = {
-  "feature.sweep": "sweep",
-  "feature.loft": "loft",
-
-  "feature.cut-sweep": "cut-sweep",
-
   "feature.fillet": "fillet",
   "feature.chamfer": "chamfer",
   "feature.shell": "shell",
@@ -127,6 +122,35 @@ function addHoleFeature() {
   useDocumentStore.getState().addFeature("hole", undefined, sketchId ? [sketchId] : []);
 }
 
+/**
+ * Creates a Loft feature between two or more sketches — unlike every other sketch-consuming
+ * feature here, a loft genuinely needs more than one, so this resolves a *list* rather than
+ * `resolveTargetSketchId`'s single id: the currently multi-selected sketches (Ctrl/Cmd-click
+ * several rows in the tree, the same gesture `edit.delete` already treats as "act on all of
+ * these"), or — with fewer than two selected — the two most recent sketches above the
+ * rollback bar, oldest first. `kernel/rebuild.ts` additionally requires every sketch in the
+ * list to share one plane; see its own note on why.
+ */
+function addLoftFeature() {
+  const documentState = useDocumentStore.getState();
+  const { sketches } = useSketchStore.getState();
+  const { features, rollbackIndex } = documentState.document;
+  const isUsableSketch = (id: string) =>
+    features.some((feature) => feature.id === id && feature.kind === "sketch") && sketches[id];
+
+  const selected = documentState.selectedFeatureIds.filter(isUsableSketch);
+  const sketchIds =
+    selected.length >= 2
+      ? selected
+      : features
+          .slice(0, rollbackIndex)
+          .filter((feature) => isUsableSketch(feature.id))
+          .map((feature) => feature.id)
+          .slice(-2);
+
+  documentState.addFeature("loft", undefined, sketchIds);
+}
+
 /** Feature kinds the kernel builds real geometry for — what a pattern or mirror can target. */
 const MODELLING_KINDS: ReadonlySet<Feature["kind"]> = new Set([
   "extrude",
@@ -210,6 +234,7 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "feature.revolve": () => addSketchFeature("revolve"),
   "feature.cut-revolve": () => addSketchFeature("cut-revolve"),
   "feature.hole-wizard": addHoleFeature,
+  "feature.loft": addLoftFeature,
 
   "feature.linear-pattern": () => addPatternFeature("linear-pattern"),
   "feature.circular-pattern": () => addPatternFeature("circular-pattern"),

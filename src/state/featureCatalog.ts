@@ -71,8 +71,8 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
   loft: {
     namePrefix: "Loft",
     icon: Cone,
-    description: "Blends between two or more profiles",
-    defaultParameters: {},
+    description: "Blends between two or more profiles, evenly spaced along their shared plane's normal",
+    defaultParameters: { depth: 20 },
   },
 
   "cut-extrude": {
@@ -103,26 +103,26 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
   fillet: {
     namePrefix: "Fillet",
     icon: CircleDashed,
-    description: "Rounds selected edges",
+    description: "Rounds every edge of the body by a constant radius",
     defaultParameters: { radius: 2 },
   },
   chamfer: {
     namePrefix: "Chamfer",
     icon: Percent,
-    description: "Bevels selected edges",
-    defaultParameters: { distance: 1, angle: 45 },
+    description: "Bevels every edge of the body by a constant, symmetric distance",
+    defaultParameters: { distance: 1 },
   },
   shell: {
     namePrefix: "Shell",
     icon: Cuboid,
-    description: "Hollows the solid, removing selected faces",
-    defaultParameters: { thickness: 2 },
+    description: "Hollows the solid, removing the face(s) facing the chosen direction",
+    defaultParameters: { thickness: 2, axis: "z" },
   },
   draft: {
     namePrefix: "Draft",
     icon: Percent,
-    description: "Applies a draft angle for moulded parts",
-    defaultParameters: { angle: 3 },
+    description: "Applies a draft angle to the face(s) facing the chosen direction",
+    defaultParameters: { angle: 3, axis: "z" },
   },
   rib: {
     namePrefix: "Rib",

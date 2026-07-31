@@ -433,7 +433,11 @@ export function PropertyManager() {
         {feature.parameters.axis !== undefined && (
           <label className={styles.field}>
             <span className={styles.fieldLabel}>
-              {feature.kind === "mirror" ? "Mirror plane" : "Direction"}
+              {feature.kind === "mirror"
+                ? "Mirror plane"
+                : feature.kind === "shell" || feature.kind === "draft"
+                  ? "Face (points this way)"
+                  : "Direction"}
             </span>
             <select
               className={styles.input}
@@ -449,6 +453,12 @@ export function PropertyManager() {
               <option value="z">Z</option>
             </select>
           </label>
+        )}
+        {(feature.kind === "shell" || feature.kind === "draft") && (
+          <p className={styles.sectionHint}>
+            No face-picking UI yet — acts on whichever face(s) point exactly along this axis
+            (e.g. Z for the top face of a simple extruded block).
+          </p>
         )}
 
         {fields.map((field) => (

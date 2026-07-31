@@ -1,4 +1,4 @@
-import { draw, drawCircle } from "replicad";
+import { draw, drawCircle, FaceFinder } from "replicad";
 
 import { planeBasis } from "@/sketch/planeBasis";
 import { pointById } from "@/sketch/sketchModel";
@@ -244,6 +244,51 @@ function buildMirrorSolid(source: Solid, feature: Feature): Solid {
   return asTransformable(asTransformable(source).clone()).mirror(plane, [0, 0, 0]);
 }
 
+/** A plain-number fillet radius rounds every edge of the body — see `buildShelledSolid`'s
+ * own note on why (no edge/face-picking UI exists yet to be more selective). */
+function buildFilletedSolid(solid: Solid, feature: Feature): Solid {
+  const radius = Math.max(feature.parameters.radius ?? 2, 0.05);
+  return (solid as unknown as { fillet: (radiusConfig: number) => Solid }).fillet(radius);
+}
+
+/** A plain-number chamfer distance is symmetric and applies to every edge of the body. */
+function buildChamferedSolid(solid: Solid, feature: Feature): Solid {
+  const distance = Math.max(feature.parameters.distance ?? 1, 0.05);
+  return (solid as unknown as { chamfer: (radiusConfig: number) => Solid }).chamfer(distance);
+}
+
+function facingDirection(axis: "x" | "y" | "z"): [number, number, number] {
+  return AXIS_VECTORS[axis];
+}
+
+/**
+ * Shell and Draft both need to choose which face(s) of the body they act on, and — like a
+ * pattern's direction or a reference axis's placement — there is no face-picking UI yet to
+ * do that with. Both stand in with the same trick: act on whichever face(s) point exactly
+ * along a chosen world axis (`FaceFinder.atAngleWith(direction, 0)`). For a simple extruded
+ * block that resolves to exactly the face a real pick would most often land on anyway (the
+ * top of an open box, the underside of a moulded shape); a body with several faces sharing
+ * that orientation gets all of them shelled/drafted together, which is the honest limit of
+ * this approach without real picking.
+ */
+function buildShelledSolid(solid: Solid, feature: Feature): Solid {
+  const thickness = Math.max(feature.parameters.thickness ?? 2, 0.1);
+  const direction = facingDirection(feature.parameters.axis ?? "z");
+  const target = solid as unknown as {
+    shell: (thickness: number, finderFcn: (f: FaceFinder) => FaceFinder) => Solid;
+  };
+  return target.shell(thickness, (finder) => finder.atAngleWith(direction, 0));
+}
+
+function buildDraftedSolid(solid: Solid, feature: Feature): Solid {
+  const angle = feature.parameters.angle ?? 3;
+  const direction = facingDirection(feature.parameters.axis ?? "z");
+  const target = solid as unknown as {
+    draft: (angle: number, faceFinder: (f: FaceFinder) => FaceFinder) => Solid;
+  };
+  return target.draft(angle, (finder) => finder.atAngleWith(direction, 0));
+}
+
 function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
   const regions = profileRegions(sketch);
   if (!regions) return null;
@@ -310,6 +355,37 @@ function buildHoleSolid(sketch: Sketch, feature: Feature): Solid | null {
   }
 
   return solid;
+}
+
+/**
+ * Builds a loft blending two or more sketches' outer profiles.
+ *
+ * Real lofts blend profiles positioned on different, parallel, offset planes. This app's
+ * sketches only live on one of the three default planes with no position offset yet (see
+ * `reference-plane`'s own "cannot be sketched on" note for why), so every sketch handed to
+ * a loft is required to share the *same* plane by the caller — instead, the profiles are
+ * spread out purely in that plane's local space, evenly along its normal (local +Z) over the
+ * feature's own `depth`, in the order the sketches were selected. This still produces a real,
+ * correct loft — just one whose section spacing is a feature parameter rather than each
+ * profile's own sketched position, an honest trade rather than the real thing.
+ *
+ * Only the outer profile of each sketch is used; inner loops (holes) are not lofted — a hole
+ * cut afterward composes better anyway, the same as every other feature that already leans on
+ * boolean composition instead of doing everything in one operation.
+ */
+function buildLoftSolid(sketches: Sketch[], feature: Feature): Solid | null {
+  const regionsList = sketches.map((sketch) => profileRegions(sketch));
+  if (regionsList.some((regions) => !regions)) return null;
+
+  const totalDepth = feature.parameters.depth ?? 20;
+  const spacing = sketches.length > 1 ? totalDepth / (sketches.length - 1) : 0;
+
+  const profileSketches = regionsList.map((regions, index) =>
+    drawRegion(regions!.outer).sketchOnPlane("XY", [0, 0, spacing * index]),
+  );
+
+  const [base, ...rest] = profileSketches;
+  return (base as unknown as { loftWith: (others: unknown[]) => Solid }).loftWith(rest);
 }
 
 /** How a feature's own solid combines with whatever body already exists. */
@@ -410,6 +486,65 @@ export async function rebuildDocument(
         current = applyOperation(current, patterned, source.operation);
       } catch (error) {
         errors[feature.id] = error instanceof Error ? error.message : "Pattern failed";
+      }
+      continue;
+    }
+
+    // Fillet/Chamfer/Shell/Draft all act on the body as a whole (dress-up features, not
+    // built from a sketch), so unlike an extrude/revolve/hole they need no `parents` lookup
+    // — whatever `current` is by this point in the history is what they modify in place.
+    if (
+      feature.kind === "fillet" ||
+      feature.kind === "chamfer" ||
+      feature.kind === "shell" ||
+      feature.kind === "draft"
+    ) {
+      if (!current) {
+        errors[feature.id] = `Nothing to ${feature.kind}: add a boss feature first`;
+        continue;
+      }
+      try {
+        current =
+          feature.kind === "fillet"
+            ? buildFilletedSolid(current, feature)
+            : feature.kind === "chamfer"
+              ? buildChamferedSolid(current, feature)
+              : feature.kind === "shell"
+                ? buildShelledSolid(current, feature)
+                : buildDraftedSolid(current, feature);
+        featureSolids.set(feature.id, { solid: current, operation: "join" });
+      } catch (error) {
+        errors[feature.id] = error instanceof Error ? error.message : `${feature.kind} failed`;
+      }
+      continue;
+    }
+
+    if (feature.kind === "loft") {
+      const sketchIds = feature.parents.filter((parent) => sketches[parent]);
+      if (sketchIds.length < 2) {
+        errors[feature.id] = "Select at least two sketches to loft between";
+        continue;
+      }
+
+      const loftSketches = sketchIds.map((id) => sketches[id]);
+      const planeId = loftSketches[0].planeId;
+      if (loftSketches.some((sketch) => sketch.planeId !== planeId)) {
+        errors[feature.id] = "All sketches in a loft must be on the same plane (multi-plane lofts aren't supported yet)";
+        continue;
+      }
+
+      try {
+        const solid = buildLoftSolid(loftSketches, feature);
+        if (!solid) {
+          errors[feature.id] = "Each sketch needs a closed profile to loft between";
+          continue;
+        }
+
+        rotation = planeBasis(planeId).rotation as [number, number, number];
+        featureSolids.set(feature.id, { solid, operation: "join" });
+        current = applyOperation(current, solid, "join");
+      } catch (error) {
+        errors[feature.id] = error instanceof Error ? error.message : "Loft failed";
       }
       continue;
     }

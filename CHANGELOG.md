@@ -5,6 +5,63 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — Fillet, Chamfer, Shell, Draft and Loft: five more PartDesign features get real geometry
+
+An audit of the Features ribbon (prompted by "check every PartDesign function and revive each
+one that isn't working yet") found nine commands that created a tree row and nothing else:
+Fillet, Chamfer, Shell, Draft, Rib, Sweep, Cut-Sweep, Loft, and Boundary (which was not even
+wired to a feature kind). This lands real geometry for five of the nine; the rest need either
+genuine edge/face-picking UI (Rib) or a true 3D sweep path (Sweep/Cut-Sweep) — bigger,
+separate changes tracked as follow-ups rather than shipped half-working.
+
+### Added
+- **Fillet and Chamfer** now round/bevel every edge of the current body by a constant radius/
+  distance (`Shape3D.fillet(radius)` / `.chamfer(distance)` with no filter — replicad's own
+  "a plain number applies to every edge" mode). Not edge-selective — there is no edge-picking
+  UI yet — but a real, usable result for the common case of rounding or breaking every sharp
+  edge on a part.
+- **Shell and Draft** hollow the body or apply a taper to whichever face(s) point exactly
+  along a chosen world axis (`FaceFinder.atAngleWith(direction, 0)`), reusing the same
+  axis-as-stand-in-for-picking convention `FeatureParameters.axis` already carries for a
+  pattern's direction or a reference axis's placement. For a simple extruded block this
+  resolves to exactly the face a real pick would most often land on — the top of an open box,
+  the underside of a moulded part — and the existing generic axis `<select>` in the property
+  panel needed no new UI to expose it.
+- **Loft** blends two or more sketches' outer profiles (`Sketch.loftWith()`). Selecting two or
+  more sketch rows (Ctrl/Cmd-click, like any other multi-select here) before clicking Lofted
+  Boss uses that selection; with fewer than two selected it falls back to the two most recent
+  sketches above the rollback bar. Every sketch in a loft must currently be on the *same*
+  plane — the profiles are spread out purely in that plane's local space, evenly along its
+  normal over the feature's own `depth` parameter, rather than each profile keeping its own
+  sketched position (see the scope note below for why).
+- `hole` and `loft` join `GEOMETRY_FEATURE_KINDS`, so hide/show and the "body contributed
+  geometry" bookkeeping the rest of the app already has treat them like any other real solid.
+
+### Scope, documented rather than silently assumed
+This app's sketches only live on one of the three default planes with no position offset yet
+(the same limit `reference-plane`'s own "cannot be sketched on" note already flags), and the
+kernel currently builds every sketch-based feature in that plane's own local space rather than
+true world coordinates, with one shared *display* rotation applied at the very end. A real
+loft normally blends profiles positioned on different, parallel, offset planes; this app's
+loft instead spaces them out with a feature parameter, which is an honest, working stand-in
+rather than the real thing, and is exactly why a loft here refuses sketches from different
+planes rather than silently producing a wrong result. Sweep and Cut-Sweep hit the same wall
+harder — a *useful* sweep path almost always leaves the profile's own plane entirely, which
+this architecture cannot yet position correctly — so they stay unimplemented rather than
+shipping a sweep that can only go in the one direction Extrude already covers.
+
+### Fixed (test only, not the app)
+- `dress-up.mjs`'s Fillet/Chamfer pixel-diff checks were timed to compare a "before" shot
+  taken *before* an unrelated camera orbit against an "after" shot taken *after* one — passing
+  for the wrong reason (the orbit alone changes pixels) rather than proving the dress-up
+  operation did. Fixed by orbiting once to a stable camera angle before either shot.
+- `property-panel.mjs`'s two off-axis orbits (guarding the Reverse-direction and Cut/
+  Intersect geometry checks against the flat-projection trap noted in the previous entry)
+  turned out to still be close enough to the degenerate view that unrelated changes elsewhere
+  in the app — nothing to do with these checks — could tip the resulting camera angle back
+  into it, intermittently zeroing out the very pixel delta the check exists to catch. Widened
+  both orbit gestures to a clearly diagonal angle so the margin is no longer that thin.
+
 ## 2026-07-31 — Hole Wizard: real clearance and tapped holes from Autodesk's own reference data
 
 The `hole` feature kind existed (the ribbon's Hole Wizard button created a tree row) but was
