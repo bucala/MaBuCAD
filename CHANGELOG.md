@@ -5,6 +5,16 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — A real app icon
+
+### Added
+- **The app now has a real icon**: a silver isometric-cube "M" mark with the MaBuCAD
+  wordmark, replacing the placeholder blue outline cube. The full Tauri icon set
+  (`.ico`/`.icns`, every `PNG` size including the Windows Store `Square*Logo`/`StoreLogo`
+  assets) was regenerated from the source artwork via `tauri icon`, and the web favicon and
+  README logo now point at a properly-sized 256×256 PNG instead of the ~6&nbsp;MB
+  SVG-wrapped-PNG the source came packaged as.
+
 ## 2026-07-31 — Three theme skins, five live accent colours, an axis-cross legend, and a real README
 
 ### Added
