@@ -55,6 +55,24 @@ export interface FeatureParameters {
   reversed?: boolean;
   count?: number;
   /**
+   * Hole Wizard configuration — see the "Hole Wizard" section in `PropertyManager.tsx` and
+   * `data/holeStandards.ts`/`data/holeResolution.ts` for where the data comes from. A hole
+   * places one cylindrical cut per point in its sketch (`kernel/rebuild.ts`'s
+   * `buildHoleSolid`), sized by `radius`; these four fields only drive *how `radius` gets
+   * set* — the kernel itself only ever reads `radius`/`depth`/`endCondition`/`reversed`,
+   * the same fields every other hole already used, so a document saved before this existed
+   * still rebuilds unchanged.
+   */
+  holeType?: "simple" | "clearance" | "tapped";
+  /** `ClearanceStandardId` or `TappedStandardId` from `data/holeStandards.ts`, matching `holeType`. */
+  holeStandard?: string;
+  /** Clearance: the nominal size label (e.g. "M6"). Tapped: the full thread designation (e.g. "M6x1"). */
+  holeSize?: string;
+  /** Clearance only. */
+  holeFit?: "close" | "normal" | "loose";
+  /** Resolved thread callout for a tapped hole, e.g. "M6x1 (6H)" — display only. */
+  threadDesignation?: string;
+  /**
    * World axis a pattern repeats along/around, or a mirror reflects across. Also doubles as
    * the direction a `reference-axis` or `reference-point` is drawn along, and the plane a
    * `reference-plane` offsets from is stored in `Feature.parents` instead — all four stand

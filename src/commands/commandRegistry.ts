@@ -19,7 +19,6 @@ const FEATURE_COMMANDS: Record<string, FeatureKind> = {
   "feature.loft": "loft",
 
   "feature.cut-sweep": "cut-sweep",
-  "feature.hole-wizard": "hole",
 
   "feature.fillet": "fillet",
   "feature.chamfer": "chamfer",
@@ -94,7 +93,7 @@ function beginSketch() {
  * the most recent sketch above the rollback bar — the sketch you just finished is almost
  * always the one you mean.
  */
-function addSketchFeature(kind: "extrude" | "cut-extrude" | "revolve" | "cut-revolve") {
+function resolveTargetSketchId(): string | undefined {
   const documentState = useDocumentStore.getState();
   const { sketches } = useSketchStore.getState();
   const { features, rollbackIndex } = documentState.document;
@@ -107,8 +106,25 @@ function addSketchFeature(kind: "extrude" | "cut-extrude" | "revolve" | "cut-rev
     .reverse()
     .find((feature) => feature.kind === "sketch" && sketches[feature.id])?.id;
 
-  const sketchId = selectedSketch ?? lastSketch;
-  documentState.addFeature(kind, undefined, sketchId ? [sketchId] : []);
+  return selectedSketch ?? lastSketch;
+}
+
+function addSketchFeature(kind: "extrude" | "cut-extrude" | "revolve" | "cut-revolve") {
+  const sketchId = resolveTargetSketchId();
+  useDocumentStore.getState().addFeature(kind, undefined, sketchId ? [sketchId] : []);
+}
+
+/**
+ * Creates a Hole Wizard feature from the target sketch's points, one hole per point — the
+ * same sketch-resolution `addSketchFeature` uses. The dialog Inventor pops up before
+ * placement (Hole Type, Standard, Size, Fit...) is the `PropertyManager.tsx` "Hole Wizard"
+ * section instead, opened by selecting the new feature after creation — consistent with
+ * every other feature in this app, which is created with defaults and then tuned in the
+ * property panel rather than through an upfront wizard dialog.
+ */
+function addHoleFeature() {
+  const sketchId = resolveTargetSketchId();
+  useDocumentStore.getState().addFeature("hole", undefined, sketchId ? [sketchId] : []);
 }
 
 /** Feature kinds the kernel builds real geometry for — what a pattern or mirror can target. */
@@ -117,6 +133,7 @@ const MODELLING_KINDS: ReadonlySet<Feature["kind"]> = new Set([
   "cut-extrude",
   "revolve",
   "cut-revolve",
+  "hole",
   "imported",
 ]);
 
@@ -192,6 +209,7 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "feature.cut-extrude": () => addSketchFeature("cut-extrude"),
   "feature.revolve": () => addSketchFeature("revolve"),
   "feature.cut-revolve": () => addSketchFeature("cut-revolve"),
+  "feature.hole-wizard": addHoleFeature,
 
   "feature.linear-pattern": () => addPatternFeature("linear-pattern"),
   "feature.circular-pattern": () => addPatternFeature("circular-pattern"),

@@ -2,7 +2,7 @@ import { draw, drawCircle } from "replicad";
 
 import { planeBasis } from "@/sketch/planeBasis";
 import { pointById } from "@/sketch/sketchModel";
-import type { LineEntity, Sketch } from "@/sketch/types";
+import type { LineEntity, PointEntity, Sketch } from "@/sketch/types";
 import type { EndCondition, Feature } from "@/types/document";
 
 import { getImportedShape } from "./importedShapes";
@@ -276,6 +276,42 @@ function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
   return solid;
 }
 
+/**
+ * Builds the union of one cylindrical cut per point placed in the hole's sketch — a Hole
+ * Wizard feature always cuts (there is no join/intersect for it), and one feature can carry
+ * several holes at once the same way a real Hole Wizard places a whole pattern of them from
+ * one dialog. `radius` is already resolved to its final value by the time this runs, whether
+ * that came from a plain number (a simple hole) or a clearance/tap-drill lookup in
+ * `data/holeStandards.ts` (see `PropertyManager.tsx`'s Hole Wizard section) — this function
+ * has no notion of standards or fasteners, only a radius and an end condition, same as
+ * `buildFeatureSolid` reusing `extrusionRange` below.
+ */
+function buildHoleSolid(sketch: Sketch, feature: Feature): Solid | null {
+  const points = sketch.entities
+    .filter((entity): entity is PointEntity => entity.kind === "point")
+    .map((entity) => pointById(sketch, entity.at))
+    .filter((point): point is NonNullable<typeof point> => point !== undefined);
+  if (points.length === 0) return null;
+
+  const radius = Math.max(feature.parameters.radius ?? 3, 0.05);
+  const { distance, offset } = extrusionRange(
+    feature.parameters.endCondition ?? "through-all",
+    feature.parameters.depth ?? 10,
+    feature.parameters.reversed ?? false,
+  );
+
+  let solid: Solid | null = null;
+  for (const point of points) {
+    let tool = drawCircle(radius).translate(point.x, point.y).sketchOnPlane("XY").extrude(distance) as Solid;
+    if (offset !== 0) {
+      tool = (tool as unknown as { translate: (v: [number, number, number]) => Solid }).translate([0, 0, offset]);
+    }
+    solid = solid ? asBoolean(solid).fuse(tool) : tool;
+  }
+
+  return solid;
+}
+
 /** How a feature's own solid combines with whatever body already exists. */
 type BooleanOperation = "join" | "cut" | "intersect";
 
@@ -342,6 +378,7 @@ export async function rebuildDocument(
 
     const isExtrudeKind = feature.kind === "extrude" || feature.kind === "cut-extrude";
     const isRevolveKind = feature.kind === "revolve" || feature.kind === "cut-revolve";
+    const isHoleKind = feature.kind === "hole";
     const isPatternKind =
       feature.kind === "linear-pattern" || feature.kind === "circular-pattern" || feature.kind === "mirror";
 
@@ -377,7 +414,7 @@ export async function rebuildDocument(
       continue;
     }
 
-    if (!isExtrudeKind && !isRevolveKind) continue;
+    if (!isExtrudeKind && !isRevolveKind && !isHoleKind) continue;
 
     const sketchId = feature.parents.find((parent) => sketches[parent]);
     if (!sketchId) {
@@ -390,11 +427,15 @@ export async function rebuildDocument(
     try {
       const solid = isRevolveKind
         ? buildRevolveSolid(sketch, feature)
-        : buildFeatureSolid(sketch, feature);
+        : isHoleKind
+          ? buildHoleSolid(sketch, feature)
+          : buildFeatureSolid(sketch, feature);
       if (!solid) {
         errors[feature.id] = isRevolveKind
           ? "The sketch has no closed profile to revolve"
-          : "The sketch has no closed profile to extrude";
+          : isHoleKind
+            ? "Place at least one point in the sketch to mark a hole centre"
+            : "The sketch has no closed profile to extrude";
         continue;
       }
 
@@ -403,10 +444,11 @@ export async function rebuildDocument(
       // Falls back to the feature's own kind for a document/undo-history entry saved
       // before `operation` existed — the cut-* kinds always meant "cut" and the boss
       // kinds always meant "join", so an absent value still resolves to what it already
-      // was rather than silently changing behaviour on old documents.
+      // was rather than silently changing behaviour on old documents. A hole always cuts;
+      // it has no join/intersect choice to begin with.
       const operation: BooleanOperation =
         feature.parameters.operation ??
-        (feature.kind === "cut-extrude" || feature.kind === "cut-revolve" ? "cut" : "join");
+        (isHoleKind || feature.kind === "cut-extrude" || feature.kind === "cut-revolve" ? "cut" : "join");
       featureSolids.set(feature.id, { solid, operation });
       if (operation !== "join" && !current) {
         errors[feature.id] =

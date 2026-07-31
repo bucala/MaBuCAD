@@ -5,6 +5,58 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — Hole Wizard: real clearance and tapped holes from Autodesk's own reference data
+
+The `hole` feature kind existed (the ribbon's Hole Wizard button created a tree row) but was
+never in `GEOMETRY_FEATURE_KINDS` or handled by `kernel/rebuild.ts` — it built no geometry at
+all, same "fake feature" status as the dress-up kinds. This makes it real, and sizes it from
+the same reference spreadsheets Inventor's own Hole Wizard ships with (two `.xls` workbooks
+supplied for this: a "Clearance Hole Spreadsheet" and a thread-data workbook), rather than
+inventing hole sizes.
+
+### Added
+- **`data/holeStandards.ts`**: clearance shaft-diameter and tapped-hole tap-drill tables,
+  extracted from the two source spreadsheets and converted to millimetres throughout.
+  Clearance covers all six standards the spreadsheet has (ISO, DIN, ANSI Metric M, ANSI
+  Unified, JIS, GOST), deduplicated to one row per nominal size — the source repeats the
+  same shaft clearance once per fastener head style, and head geometry (counterbore/
+  countersink) isn't modelled yet. Tapped covers three of the thread workbook's ~30 sheets
+  (ISO Metric, ANSI Metric M, ANSI Unified restricted to UNC/UNF/UNEF), narrowed to a
+  practical fastener range (roughly M1-M100 / #0-2in) — the other sheets (pipe threads,
+  Acme/trapezoidal, wood- and self-tapping screws, JIS/DIN/GOST/BSP taps...) are the same
+  shape of table and can be added the same way if a future hole needs them.
+- **`data/holeResolution.ts`**: `resolveClearanceDiameter`, `resolveTapDrill`, and
+  `groupTappedBySize` (which turns each standard's 80-270 pitch-variant rows into a
+  Size → Designation two-step picker — the same shape Inventor's own dialog uses, and the
+  only way that many rows stays usable in a plain `<select>`).
+- **`kernel/rebuild.ts`**: a `hole` feature now builds real geometry — `buildHoleSolid` cuts
+  one cylinder per point placed in the feature's sketch (reusing the existing `extrusionRange`
+  blind/through-all logic extrude already uses), unioned together and always applied as a
+  `cut`. One sketch can carry both a closed profile (for a boss/cut extrude) and standalone
+  placement points (for a hole) at once, since `profileRegions()` only looks at line/arc/
+  circle entities — a point in the same sketch doesn't affect the profile.
+- **`PropertyManager.tsx`** "Hole Wizard" section: Simple (a plain radius, typed directly) /
+  Clearance (Standard → Size → Fit) / Tapped (Standard → Size → Thread designation) hole
+  types, each recomputing `radius` from the standard's table as soon as any of its inputs
+  change — the resolved diameter/tap-drill and, for a tapped hole, the full thread callout
+  (e.g. "M6x1 (6H)") are shown read-only underneath.
+- `commandRegistry.ts`'s `feature.hole-wizard` now resolves a target sketch the same way
+  `feature.extrude` etc. already do (selected sketch, falling back to the most recent one
+  above the rollback bar) rather than creating a parentless tree row — the upfront dialog
+  Inventor shows before placement is this app's Property Manager instead, opened by
+  selecting the new feature after creation, consistent with every other feature here.
+- `hole` joins `GEOMETRY_FEATURE_KINDS` and the pattern/mirror source list (`MODELLING_KINDS`
+  in `commandRegistry.ts`), so a bolt circle of holes can be built with Circular Pattern the
+  same as any other feature.
+
+### Scope, documented rather than silently assumed
+No real helical thread geometry is generated for a tapped hole — same as Inventor's own
+default behaviour, a "tapped hole" here is a cylindrical bore at the tap-drill diameter with
+a thread designation recorded for reference; modelling an actual thread would mean a helical
+sweep per hole, a much larger kernel feature in its own right. Counterbore/countersink head
+profiles (the "Head Dimensions" columns in the clearance spreadsheet) aren't modelled either
+— every hole this pass produces is a plain cylindrical bore regardless of hole type.
+
 ## 2026-07-31 — Reference geometry (plane/axis/point/coordinate system) now has a 3D presence
 
 The four Reference Geometry ribbon buttons (Plane, Axis, Point, Coordinate System) already

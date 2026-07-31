@@ -127,6 +127,13 @@
   letter-spacing: 0.04em;
 }
 
+.sectionHint {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+  line-height: 1.4;
+}
+
 .iconRow {
   display: flex;
   align-items: center;

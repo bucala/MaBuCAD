@@ -3,8 +3,11 @@ import {
   ArrowUpDown,
   ArrowUpToLine,
   Boxes,
+  Circle,
+  CircleDashed,
   CircleDot,
   Combine,
+  Drill,
   FlipVertical,
   Layers,
   Slice,
@@ -13,11 +16,25 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import {
+  CLEARANCE_STANDARDS,
+  TAPPED_STANDARDS,
+  type ClearanceFit,
+  type ClearanceStandardId,
+  type TappedStandardId,
+} from "@/data/holeStandards";
+import { groupTappedBySize, resolveClearanceDiameter, resolveTapDrill } from "@/data/holeResolution";
 import { FEATURE_CATALOG } from "@/state/featureCatalog";
 import { useDocumentStore } from "@/state/documentStore";
 import type { EndCondition, FeatureParameters } from "@/types/document";
 
 import styles from "./PropertyManager.module.css";
+
+const HOLE_TYPES: { id: NonNullable<FeatureParameters["holeType"]>; label: string; icon: LucideIcon }[] = [
+  { id: "simple", label: "Simple — a plain cylindrical hole, no fastener standard", icon: Circle },
+  { id: "clearance", label: "Clearance — sized for a fastener to pass through", icon: CircleDashed },
+  { id: "tapped", label: "Tapped — sized as a tap drill for a threaded hole", icon: Drill },
+];
 
 const END_CONDITIONS: { id: EndCondition; label: string; icon: LucideIcon }[] = [
   { id: "blind", label: "Blind", icon: ArrowUp },
@@ -92,7 +109,56 @@ export function PropertyManager() {
   }
 
   const definition = FEATURE_CATALOG[feature.kind];
-  const fields = PARAMETER_FIELDS.filter((field) => feature.parameters[field.key] !== undefined);
+  const isHole = feature.kind === "hole";
+  // A hole's own Hole Wizard section below owns `radius` — as a direct input for a simple
+  // hole, or resolved from a standard's table for clearance/tapped — so the generic field
+  // list must not also render it.
+  const fields = PARAMETER_FIELDS.filter(
+    (field) => feature.parameters[field.key] !== undefined && !(isHole && field.key === "radius"),
+  );
+
+  const applyClearanceHole = (standardId: ClearanceStandardId, size: string, fit: ClearanceFit) => {
+    const diameter = resolveClearanceDiameter(standardId, size, fit);
+    updateParameters(feature.id, {
+      holeType: "clearance",
+      holeStandard: standardId,
+      holeSize: size,
+      holeFit: fit,
+      radius: diameter !== undefined ? diameter / 2 : feature.parameters.radius,
+      threadDesignation: undefined,
+    });
+  };
+
+  const applyTappedHole = (standardId: TappedStandardId, designation: string) => {
+    const entry = resolveTapDrill(standardId, designation);
+    updateParameters(feature.id, {
+      holeType: "tapped",
+      holeStandard: standardId,
+      holeSize: designation,
+      holeFit: undefined,
+      radius: entry ? entry.tapDrill / 2 : feature.parameters.radius,
+      threadDesignation: entry ? `${entry.designation} (${entry.internalClass})` : undefined,
+    });
+  };
+
+  const handleHoleTypeChange = (holeType: NonNullable<FeatureParameters["holeType"]>) => {
+    if (holeType === "simple") {
+      updateParameters(feature.id, {
+        holeType,
+        holeStandard: undefined,
+        holeSize: undefined,
+        holeFit: undefined,
+        threadDesignation: undefined,
+      });
+    } else if (holeType === "clearance") {
+      const standardId: ClearanceStandardId = "iso";
+      applyClearanceHole(standardId, CLEARANCE_STANDARDS[standardId].sizes[0].size, "normal");
+    } else {
+      const standardId: TappedStandardId = "iso-metric";
+      const firstVariant = groupTappedBySize(standardId)[0].variants[0];
+      applyTappedHole(standardId, firstVariant.designation);
+    }
+  };
 
   return (
     <div className={styles.manager}>
@@ -112,6 +178,191 @@ export function PropertyManager() {
             onChange={(event) => renameFeature(feature.id, event.target.value)}
           />
         </label>
+
+        {isHole && (
+          <div className={styles.section}>
+            <span className={styles.sectionTitle}>Hole Wizard</span>
+            <div className={styles.iconRow} role="group" aria-label="Hole type">
+              {HOLE_TYPES.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={styles.iconButton}
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={(feature.parameters.holeType ?? "simple") === id}
+                  onClick={() => handleHoleTypeChange(id)}
+                >
+                  <Icon size={15} strokeWidth={1.75} />
+                </button>
+              ))}
+            </div>
+
+            {feature.parameters.holeType === "clearance" && (
+              <>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Standard</span>
+                  <select
+                    className={styles.input}
+                    value={feature.parameters.holeStandard}
+                    onChange={(event) => {
+                      const standardId = event.target.value as ClearanceStandardId;
+                      applyClearanceHole(
+                        standardId,
+                        CLEARANCE_STANDARDS[standardId].sizes[0].size,
+                        feature.parameters.holeFit ?? "normal",
+                      );
+                    }}
+                  >
+                    {Object.values(CLEARANCE_STANDARDS).map((standard) => (
+                      <option key={standard.id} value={standard.id}>
+                        {standard.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Size</span>
+                  <select
+                    className={styles.input}
+                    value={feature.parameters.holeSize}
+                    onChange={(event) =>
+                      applyClearanceHole(
+                        feature.parameters.holeStandard as ClearanceStandardId,
+                        event.target.value,
+                        feature.parameters.holeFit ?? "normal",
+                      )
+                    }
+                  >
+                    {CLEARANCE_STANDARDS[feature.parameters.holeStandard as ClearanceStandardId].sizes.map(
+                      (size) => (
+                        <option key={size.size} value={size.size}>
+                          {size.size}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Fit</span>
+                  <select
+                    className={styles.input}
+                    value={feature.parameters.holeFit ?? "normal"}
+                    onChange={(event) =>
+                      applyClearanceHole(
+                        feature.parameters.holeStandard as ClearanceStandardId,
+                        feature.parameters.holeSize ?? "",
+                        event.target.value as ClearanceFit,
+                      )
+                    }
+                  >
+                    <option value="close">Close</option>
+                    <option value="normal">Normal</option>
+                    <option value="loose">Loose</option>
+                  </select>
+                </label>
+
+                <p className={styles.sectionHint}>
+                  Ø{feature.parameters.radius ? (feature.parameters.radius * 2).toFixed(2) : "?"} mm shaft
+                  clearance.
+                </p>
+              </>
+            )}
+
+            {feature.parameters.holeType === "tapped" && (
+              <>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Standard</span>
+                  <select
+                    className={styles.input}
+                    value={feature.parameters.holeStandard}
+                    onChange={(event) => {
+                      const standardId = event.target.value as TappedStandardId;
+                      applyTappedHole(standardId, groupTappedBySize(standardId)[0].variants[0].designation);
+                    }}
+                  >
+                    {Object.values(TAPPED_STANDARDS).map((standard) => (
+                      <option key={standard.id} value={standard.id}>
+                        {standard.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {(() => {
+                  const standardId = feature.parameters.holeStandard as TappedStandardId;
+                  const groups = groupTappedBySize(standardId);
+                  const currentDesignation = feature.parameters.holeSize ?? "";
+                  const currentGroup =
+                    groups.find((group) => group.variants.some((v) => v.designation === currentDesignation)) ??
+                    groups[0];
+
+                  return (
+                    <>
+                      <label className={styles.field}>
+                        <span className={styles.fieldLabel}>Size</span>
+                        <select
+                          className={styles.input}
+                          value={currentGroup.sizeLabel}
+                          onChange={(event) => {
+                            const group = groups.find((candidate) => candidate.sizeLabel === event.target.value);
+                            if (group) applyTappedHole(standardId, group.variants[0].designation);
+                          }}
+                        >
+                          {groups.map((group) => (
+                            <option key={group.sizeLabel} value={group.sizeLabel}>
+                              {group.sizeLabel}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className={styles.field}>
+                        <span className={styles.fieldLabel}>Thread designation</span>
+                        <select
+                          className={styles.input}
+                          value={currentDesignation}
+                          onChange={(event) => applyTappedHole(standardId, event.target.value)}
+                        >
+                          {currentGroup.variants.map((variant) => (
+                            <option key={variant.designation} value={variant.designation}>
+                              {variant.designation}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </>
+                  );
+                })()}
+
+                <p className={styles.sectionHint}>
+                  {feature.parameters.threadDesignation ?? "—"} — tap drill Ø
+                  {feature.parameters.radius ? (feature.parameters.radius * 2).toFixed(2) : "?"} mm.
+                </p>
+              </>
+            )}
+
+            {(feature.parameters.holeType ?? "simple") === "simple" && (
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Radius (mm)</span>
+                <input
+                  className={styles.input}
+                  type="number"
+                  step={0.5}
+                  min={0.1}
+                  value={feature.parameters.radius ?? 3}
+                  onChange={(event) => updateParameters(feature.id, { radius: Number(event.target.value) })}
+                />
+              </label>
+            )}
+
+            <p className={styles.sectionHint}>
+              One hole is cut per point placed in the hole's sketch, all at this size.
+            </p>
+          </div>
+        )}
 
         {feature.parameters.endCondition !== undefined && (
           <div className={styles.section}>

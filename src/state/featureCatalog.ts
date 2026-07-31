@@ -97,7 +97,7 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
     namePrefix: "Hole",
     icon: Drill,
     description: "Standards-based hole",
-    defaultParameters: { radius: 3, depth: 10 },
+    defaultParameters: { radius: 3, depth: 10, endCondition: "through-all", holeType: "simple" },
   },
 
   fillet: {

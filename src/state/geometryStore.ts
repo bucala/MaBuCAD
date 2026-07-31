@@ -12,6 +12,7 @@ export const GEOMETRY_FEATURE_KINDS = new Set([
   "cut-extrude",
   "revolve",
   "cut-revolve",
+  "hole",
   "imported",
   "linear-pattern",
   "circular-pattern",
