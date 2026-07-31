@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  AlignHorizontalJustifyCenter,
   Anchor,
   Circle,
   CircleDashed,
@@ -8,6 +9,7 @@ import {
   Diameter,
   Grid2x2,
   Grid3x3,
+  Lock,
   Minus,
   MousePointer2,
   MoveHorizontal,
@@ -51,6 +53,8 @@ const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideI
   { kind: "tangent", label: "Tangent", icon: Tangent, hint: "Select a line and a circle" },
   { kind: "concentric", label: "Concentric", icon: Diameter, hint: "Select two circles" },
   { kind: "coincident", label: "Coincident", icon: Anchor, hint: "Select two points" },
+  { kind: "equal", label: "Equal", icon: AlignHorizontalJustifyCenter, hint: "Select two lines, or two circles/arcs" },
+  { kind: "fix", label: "Fix", icon: Lock, hint: "Select a point to pin" },
 ];
 
 /**

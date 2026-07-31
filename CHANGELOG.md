@@ -5,6 +5,45 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — Full audit of Home, Sketch and Features: two real bugs found and fixed
+
+A comprehensive pass clicking through every command on the Home, Sketch and Features ribbon
+tabs (backed by ~250 Playwright checks across the full existing suite plus new coverage for
+the 7 geometric relations that had never been driven through the UI before: Vertical,
+Parallel, Perpendicular, Tangent, Coincident, Equal, Fix). Confirmed correctly wired and
+working: every Document/Edit/Interchange/View command on Home, every sketch entity tool and
+all 9 geometric relations and all 4 dimension tools and all 4 sketch tools on Sketch, and
+every Add Material/Remove Material/Dress-up/Pattern/Mirror/Reference Geometry command on
+Features. Confirmed correctly *disabled* (by design, not broken): Print, Export IGES, Sketch
+Text, and Boundary — none of these have an implementation yet, and the ribbon greys them out
+rather than failing at the point of use.
+
+### Fixed
+- **Equal and Fix were missing from the sketch panel's "Add Relation" section** —
+  `SketchPanel.tsx`'s `CONSTRAINTS` list only had 7 of the 9 relations the ribbon and the
+  constraint solver both fully support (`relation.equal`/`relation.fix` were already wired in
+  `ribbonConfig.ts` and `commandRegistry.ts`, and `solveSketch` already handles both `equal`
+  and `fix` kinds — solver.test.mjs was testing them directly, just never through this panel).
+  Reachable only from the ribbon strip, not from the panel every other relation lives in — an
+  inconsistency easy to miss since nothing was actually broken, just absent from where a user
+  would look first. Both are now in the panel with the same click-to-apply behaviour as the
+  rest.
+- **A sketch click can land right after a tool switch and silently do nothing.** Root-caused
+  what this whole session had been treating as generic "environmental" test flakiness
+  (`"profile is closed" got "Open"`, recurring across many unrelated test runs): with
+  `frameloop="demand"`, `SketchCanvas`'s invisible drawing-plane mesh can miss the very first
+  click after a tool change if that click's pointerdown/up fire before the canvas has
+  rendered a frame reflecting the new tool state — the click simply raycasts against stale
+  internal state and nothing happens. Reproduced deterministically (0/5) with two rapid
+  manager-panel tab switches immediately followed by a tight, zero-gap click; a real user
+  clicking at a normal pace essentially never produces small enough a gap to hit it, which is
+  why it read as random rather than a real bug. Mitigated (not fully closed — down to roughly
+  1-in-5 in the tightest repro tried) by having `SketchCanvas` call `invalidate()` whenever
+  the active tool changes, asking the demand-frameloop canvas for a fresh frame right at the
+  moment the next click is about to matter, instead of waiting for the click itself to
+  trigger one. A full fix would need a deeper look at r3f's event/render ordering under
+  `frameloop="demand"`; noted here rather than chased further given how narrow the window is.
+
 ## 2026-07-31 — Fillet and Chamfer: pick specific edges instead of always "every edge"
 
 ### Added

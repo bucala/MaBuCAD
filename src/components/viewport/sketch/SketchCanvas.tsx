@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Line } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
+import { useThree } from "@react-three/fiber";
 import { DoubleSide } from "three";
 
 import { findPointNear } from "@/sketch/sketchModel";
@@ -49,6 +50,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const [cursor, setCursor] = useState<Point2 | null>(null);
 
   const draggingPointId = useRef<string | null>(null);
+  const invalidate = useThree((state) => state.invalidate);
 
   // Line and construction-line deliberately leave `anchor` set after finishing an entity
   // so the next click chains from that endpoint (see the "line"/"construction-line" case
@@ -60,7 +62,14 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     setAnchor(null);
     setArcStart(null);
     setSplinePoints([]);
-  }, [tool]);
+    // With `frameloop="demand"`, a canvas that has not rendered since some earlier state
+    // change can occasionally miss a click landing right after a tool switch — nothing
+    // else here asks for a fresh frame, and picking a tool is exactly the moment right
+    // before the next click matters most (drawing a corner/anchor). This narrows, but does
+    // not fully close, a pointer-event race that a real user is very unlikely to hit —
+    // it needs a click with essentially no gap after the tool switch to reproduce.
+    invalidate();
+  }, [tool, invalidate]);
 
   const isDrawingTool =
     tool === "line" || tool === "rectangle" || tool === "circle" ||
