@@ -3,17 +3,17 @@ import { Line } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
 import { CatmullRomCurve3, Vector3 } from "three";
 
+import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 import { worldToSketch } from "@/sketch/planeBasis";
 import { entityPoints, pointById } from "@/sketch/sketchModel";
 import type { Sketch, SketchEntity } from "@/sketch/types";
 import { useSettingsStore } from "@/state/settingsStore";
 import { useSketchStore } from "@/state/sketchStore";
 
-const COLORS = {
+const STATIC_COLORS = {
   geometry: "#1a1a1a",
   geometryDark: "#e8e8e8",
   construction: "#c48b1a",
-  selected: "#0078d4",
   point: "#4a4a4a",
   origin: "#d9463d",
 };
@@ -29,6 +29,7 @@ interface SketchGeometryProps {
  * The parent group applies the plane rotation, so everything here is plain 2D at z = 0.
  */
 export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
+  const accent = useSceneAccentColor();
   const selection = useSketchStore((state) => state.selection);
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
   const trimAt = useSketchStore((state) => state.trimAt);
@@ -44,7 +45,7 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   const isSelectMode = tool === "select";
   const isTrimMode = tool === "trim";
 
-  const baseColor = isDark ? COLORS.geometryDark : COLORS.geometry;
+  const baseColor = isDark ? STATIC_COLORS.geometryDark : STATIC_COLORS.geometry;
 
   return (
     <group>
@@ -53,7 +54,7 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
           key={entity.id}
           entity={entity}
           sketch={sketch}
-          color={selection.includes(entity.id) ? COLORS.selected : baseColor}
+          color={selection.includes(entity.id) ? accent : baseColor}
           isSelected={selection.includes(entity.id)}
           isSelectMode={isSelectMode}
           onSelect={(additive) => toggleSelection(entity.id, additive)}
@@ -102,7 +103,7 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
             <mesh raycast={() => null}>
               <circleGeometry args={[isOrigin ? 1.1 : 0.8, 12]} />
               <meshBasicMaterial
-                color={isSelected ? COLORS.selected : isOrigin ? COLORS.origin : COLORS.point}
+                color={isSelected ? accent : isOrigin ? STATIC_COLORS.origin : STATIC_COLORS.point}
                 depthTest={false}
               />
             </mesh>
@@ -191,7 +192,7 @@ function EntityView({
   return (
     <Line
       points={points}
-      color={entity.construction ? COLORS.construction : color}
+      color={entity.construction ? STATIC_COLORS.construction : color}
       lineWidth={isSelected ? 3 : entity.construction ? 1 : 2}
       dashed={entity.construction}
       dashSize={2}

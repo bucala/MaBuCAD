@@ -141,6 +141,31 @@
   color: var(--text-on-accent);
 }
 
+.swatchRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background-color: var(--swatch-color);
+  box-shadow: 0 0 0 1px var(--stroke-control);
+}
+
+.swatch:hover {
+  transform: scale(1.08);
+}
+
+.swatch[aria-pressed="true"] {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--bg-solid);
+}
+
 .checkboxField {
   display: flex;
   align-items: center;

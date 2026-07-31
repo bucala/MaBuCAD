@@ -30,5 +30,13 @@ export default function App() {
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  // The chosen accent is the single JS -> CSS handoff for colour: tokens.css derives every
+  // hover/active/subtle/selection shade from this one custom property via color-mix(), so
+  // setting it here is the whole implementation of "recolour the app".
+  const accentColor = useSettingsStore((state) => state.accentColor);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--accent-hex", accentColor);
+  }, [accentColor]);
+
   return <AppShell />;
 }

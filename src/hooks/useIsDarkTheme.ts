@@ -6,10 +6,14 @@ import { useEffect, useState } from "react";
  *
  * Needed because scene colours live in WebGL materials rather than CSS, so they cannot
  * pick up custom properties and have to be resolved in JavaScript.
+ *
+ * The gray skin has no distinct WebGL palette of its own — it is dark enough that every
+ * scene colour picked for the dark theme (grid, gizmo, viewcube) already reads fine on it,
+ * so it resolves here as "dark" the same as the explicit dark theme does.
  */
 function resolveIsDark(): boolean {
   const explicit = document.documentElement.dataset.theme;
-  if (explicit === "dark") return true;
+  if (explicit === "dark" || explicit === "gray") return true;
   if (explicit === "light") return false;
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }

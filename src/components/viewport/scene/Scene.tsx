@@ -1,6 +1,7 @@
 import { GizmoHelper, GizmoViewcube } from "@react-three/drei";
 
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
+import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
@@ -28,6 +29,7 @@ interface SceneProps {
 export function Scene({ projection }: SceneProps) {
   const isDark = useIsDarkTheme();
   const isSketchMode = useSketchStore(selectIsSketchMode);
+  const accent = useSceneAccentColor();
 
   return (
     <>
@@ -57,7 +59,7 @@ export function Scene({ projection }: SceneProps) {
           color={isDark ? "#3a3f45" : "#e8ecf0"}
           textColor={isDark ? "#ffffff" : "#1a1a1a"}
           strokeColor={isDark ? "#7b8593" : "#5d6b7a"}
-          hoverColor={isDark ? "#4cc2ff" : "#0078d4"}
+          hoverColor={accent}
         />
       </GizmoHelper>
     </>
