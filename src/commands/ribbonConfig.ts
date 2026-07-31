@@ -28,6 +28,7 @@ import {
   Grid3x3,
   Group,
   Layers,
+  ListChecks,
   Link2,
   Lock,
   Magnet,
@@ -100,8 +101,16 @@ export const RIBBON_TABS: RibbonTab[] = [
         id: "home-interchange",
         label: "Interchange",
         items: [
-          { id: "file.import", label: "Import", icon: FileInput, size: "large", description: "Import STEP, IGES or STL geometry" },
-          { id: "file.export", label: "Export", icon: FileOutput, size: "large", description: "Export the model as STEP, IGES or STL" },
+          { id: "file.import", label: "Import", icon: FileInput, size: "large", description: "Import a STEP or STL body into the document" },
+          { id: "file.export-step", label: "Export STEP", icon: FileOutput, size: "small", description: "Exact B-Rep solid, keeps surfaces for re-import" },
+          { id: "file.export-stl", label: "Export STL", icon: FileOutput, size: "small", description: "Triangulated mesh for 3D printing and manufacturing hand-off" },
+          {
+            id: "file.export-iges",
+            label: "Export IGES",
+            icon: FileOutput,
+            size: "small",
+            description: "Unavailable: the bundled OpenCASCADE build has no IGES support compiled in",
+          },
         ],
       },
       {
@@ -110,7 +119,8 @@ export const RIBBON_TABS: RibbonTab[] = [
         items: [
           { id: "view.zoom-fit", label: "Zoom to Fit", icon: ZoomIn, size: "small", description: "Frame the whole model in the viewport" },
           { id: "view.display-mode", label: "Display Style", icon: Eye, size: "small", description: "Shaded, shaded with edges, wireframe" },
-          { id: "view.hide-show", label: "Hide / Show", icon: Layers, size: "small", description: "Toggle visibility of planes, axes and bodies" },
+          { id: "view.hide-show", label: "Hide / Show", icon: Layers, size: "small", description: "Toggle visibility of the selected plane, origin or body" },
+          { id: "view.constraints", label: "Constraints", icon: ListChecks, size: "small", description: "Toggle horizontal/vertical/parallel/... constraint glyphs in the sketch" },
         ],
       },
     ],

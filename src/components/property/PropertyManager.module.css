@@ -54,3 +54,156 @@
   font-size: var(--font-size-caption);
   line-height: 1.5;
 }
+
+/* ------------------------------------------------------------ populated panel */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-3);
+  overflow: auto;
+}
+
+.kindDescription {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fieldLabel {
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.input {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--stroke-control);
+  border-bottom-color: var(--stroke-surface);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-primary);
+}
+
+.input:hover:not(:disabled) {
+  background: var(--fill-control-hover);
+}
+
+.input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  border-bottom-width: 2px;
+}
+
+.input:disabled {
+  color: var(--text-disabled);
+}
+
+/* ----------------------------------------------------------- grouped sections
+   Direction and Body group several related controls under a label, the way Fusion 360's
+   own "Behavior"/"Output" sections do, rather than a flat, unlabelled list of fields. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--stroke-divider);
+}
+
+.sectionTitle {
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sectionHint {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+  line-height: 1.4;
+}
+
+.iconRow {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px;
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+}
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  height: 28px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
+
+.iconButton[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.iconButton:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  flex: 1 1 0;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.actionButton:hover {
+  background: var(--fill-control-hover);
+}
+
+.actionButton[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text-accent);
+}
+
+.danger:hover {
+  color: var(--status-over);
+  border-color: var(--status-over);
+}

@@ -38,7 +38,7 @@ export interface RibbonTab {
 /** Left panel tabs, mirroring the SolidWorks Feature/Property/Configuration manager split. */
 export type ManagerTabId = "features" | "properties" | "configurations";
 
-/** Unit systems offered in the status bar. */
+/** Unit systems offered in the Settings panel. */
 export type UnitSystemId = "MMGS" | "CGS" | "MKS" | "IPS";
 
 export interface UnitSystem {
@@ -49,12 +49,3 @@ export interface UnitSystem {
 
 /** Constraint state of the active sketch, reported in the status bar. */
 export type SketchStatus = "fully-defined" | "under-defined" | "over-defined" | "no-sketch";
-
-export interface FeatureNode {
-  id: string;
-  label: string;
-  icon: LucideIcon;
-  /** Reference geometry that ships with every new document and cannot be deleted. */
-  isDefault?: boolean;
-  children?: FeatureNode[];
-}

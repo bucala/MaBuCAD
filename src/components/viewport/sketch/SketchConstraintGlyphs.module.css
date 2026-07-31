@@ -1,0 +1,13 @@
+.constraintGlyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--stroke-control);
+  border-radius: 3px;
+  background: var(--bg-solid);
+  color: var(--text-secondary);
+  pointer-events: none;
+  user-select: none;
+}

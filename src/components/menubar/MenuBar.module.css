@@ -28,6 +28,13 @@
   gap: 1px;
 }
 
+/* Anchors a dropdown (`.dropdown`) to sit directly below its trigger button without any
+   measure-then-reposition pass — the trigger and its dropdown are the only two children. */
+.menuWrap {
+  position: relative;
+  display: flex;
+}
+
 .menu {
   height: 24px;
   padding: 0 var(--space-3);
@@ -42,9 +49,51 @@
   background: var(--fill-subtle-hover);
 }
 
-.menu:active {
+.menu:active,
+.menu[aria-expanded="true"] {
   background: var(--fill-subtle-active);
   color: var(--text-secondary);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 1000;
+  min-width: 200px;
+  padding: var(--space-2);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-md);
+  /* Solid, matching the context menu's own skin — see ContextMenu.module.css's `.menu`
+     for why a floating overlay menu doesn't use `--bg-card`'s translucent glass. */
+  background: var(--bg-solid);
+  box-shadow: var(--shadow-flyout);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dropdownItem:hover:not(:disabled) {
+  background: var(--fill-subtle-hover);
+}
+
+.dropdownItem:disabled {
+  color: var(--text-disabled);
 }
 
 .spacer {

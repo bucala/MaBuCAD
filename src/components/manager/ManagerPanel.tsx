@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ListTree, Settings2, SlidersHorizontal } from "lucide-react";
+
+import { SketchPanel } from "@/components/property/SketchPanel";
+import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
 import { ConfigurationManager } from "@/components/manager/ConfigurationManager";
 import { FeatureTree } from "@/components/tree/FeatureTree";
@@ -20,6 +23,13 @@ const TABS: { id: ManagerTabId; label: string; icon: typeof ListTree }[] = [
  */
 export function ManagerPanel() {
   const [activeTab, setActiveTab] = useState<ManagerTabId>("features");
+  const isSketchMode = useSketchStore(selectIsSketchMode);
+
+  // Opening a sketch swings the panel to the property manager, where the sketch tools
+  // live — the same thing SolidWorks does when a command takes over.
+  useEffect(() => {
+    if (isSketchMode) setActiveTab("properties");
+  }, [isSketchMode]);
 
   return (
     <div className={styles.panel}>
@@ -48,7 +58,7 @@ export function ManagerPanel() {
         aria-labelledby={`manager-tab-${activeTab}`}
       >
         {activeTab === "features" && <FeatureTree />}
-        {activeTab === "properties" && <PropertyManager />}
+        {activeTab === "properties" && (isSketchMode ? <SketchPanel /> : <PropertyManager />)}
         {activeTab === "configurations" && <ConfigurationManager />}
       </div>
     </div>

@@ -1,0 +1,53 @@
+.menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 168px;
+  padding: var(--space-2);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-md);
+  /* Solid, not `--bg-card`'s translucent glass: a floating menu sits over busy content
+     (ribbon icons, 3D geometry, tree rows) and needs to stay legible regardless of what's
+     behind it, unlike the ribbon/manager panel's own deliberately translucent Mica look. */
+  background: var(--bg-solid);
+  box-shadow: var(--shadow-flyout);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--fill-subtle-hover);
+}
+
+.item:disabled {
+  color: var(--text-disabled);
+}
+
+.item[aria-pressed="true"] {
+  color: var(--text-accent);
+}
+
+.danger:hover:not(:disabled) {
+  color: var(--status-over);
+}
+
+.divider {
+  height: 1px;
+  margin: var(--space-2) var(--space-1);
+  background: var(--stroke-divider);
+}

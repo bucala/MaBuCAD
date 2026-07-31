@@ -1,11 +1,63 @@
 .tree {
-  padding: var(--space-2) var(--space-2) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
   font-size: var(--font-size-body);
 }
 
-.node {
+/* ------------------------------------------------------------------- toolbar */
+
+.toolbar {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+  padding: var(--space-2) var(--space-2);
+  border-bottom: 1px solid var(--stroke-divider);
+}
+
+.toolButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--fill-subtle);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.toolButton:hover:not(:disabled) {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
+
+.toolButton:disabled {
+  color: var(--text-disabled);
+}
+
+.toolSpacer {
+  flex: 1 1 auto;
+}
+
+.rollbackCount {
+  padding: 0 var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------- rows */
+
+.rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-2) var(--space-2) var(--space-4);
 }
 
 .row {
@@ -44,8 +96,22 @@
   background: var(--accent);
 }
 
+/* Below the rollback bar: present in the history but not built. */
+.row[data-rolled-back="true"] .label,
+.row[data-rolled-back="true"] .icon {
+  opacity: 0.45;
+}
+
+.row[data-suppressed="true"] .label {
+  color: var(--text-disabled);
+  font-style: italic;
+}
+
+.row[data-hidden="true"] .label {
+  color: var(--text-tertiary);
+}
+
 .rowInner {
-  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -96,23 +162,89 @@
   text-overflow: ellipsis;
 }
 
-.children {
+.errorBadge {
   display: flex;
-  flex-direction: column;
+  flex: 0 0 auto;
+  color: var(--status-over);
+}
+
+/* Row actions appear on hover, keeping the resting tree uncluttered. */
+.rowActions {
+  display: none;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+}
+
+.row:hover .rowActions,
+.row[data-selected="true"] .rowActions {
+  display: flex;
+}
+
+.rowAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-tertiary);
+}
+
+.rowAction:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
+
+.renameInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--bg-solid);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.renameInput:focus-visible {
+  outline: none;
+}
+
+/* --------------------------------------------------------------- rollback bar */
+
+.rollbackBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 18px;
+  margin: var(--space-1) 0;
+  padding-right: var(--space-2);
+  color: var(--accent);
+  cursor: ns-resize;
+}
+
+.rollbackLine {
+  flex: 1 1 auto;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.rollbackGrip {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  user-select: none;
 }
 
 .empty {
-  padding: var(--space-2) var(--space-3) var(--space-3);
-  color: var(--text-tertiary);
-  font-size: var(--font-size-caption);
-  line-height: 1.5;
-}
-
-.hint {
-  margin: var(--space-3) var(--space-2) 0;
-  padding: var(--space-3);
-  border: 1px dashed var(--stroke-surface);
-  border-radius: var(--radius-sm);
+  padding: var(--space-4) var(--space-3);
   color: var(--text-tertiary);
   font-size: var(--font-size-caption);
   line-height: 1.5;

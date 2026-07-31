@@ -1,0 +1,200 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--stroke-divider);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-subtitle);
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.exitButton {
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+
+.exitButton:hover {
+  background: var(--accent-hover);
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.toolGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.toolButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.toolButton:hover:not(:disabled) {
+  background: var(--fill-control-hover);
+}
+
+.toolButton[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+  color: var(--text-accent);
+}
+
+.toolButton:disabled {
+  color: var(--text-disabled);
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+  line-height: 1.4;
+}
+
+/* ---------------------------------------------------------- dimension list */
+
+.dimensionList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dimensionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dimensionKind {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dimensionInput {
+  flex: 0 0 78px;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dimensionInput:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.dimensionDelete {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.dimensionDelete:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--status-over);
+}
+
+/* ----------------------------------------------------------------- status */
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: var(--font-size-caption);
+}
+
+.stats dt {
+  color: var(--text-tertiary);
+}
+
+.stats dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.deleteButton {
+  margin-top: var(--space-3);
+  height: 28px;
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+}
+
+.deleteButton:hover {
+  color: var(--status-over);
+  border-color: var(--status-over);
+}

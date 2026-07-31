@@ -1,4 +1,5 @@
 mod app_info;
+mod fileio;
 
 /// Entry point shared by the desktop binary (`main.rs`) and the mobile runtime.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -6,7 +7,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![app_info::get_app_info])
+        .invoke_handler(tauri::generate_handler![
+            app_info::get_app_info,
+            fileio::write_binary_file,
+            fileio::read_binary_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

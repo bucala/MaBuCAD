@@ -1,16 +1,10 @@
-import { useState } from "react";
-
 import { useAppInfo } from "@/hooks/useAppInfo";
-import type { SketchStatus, UnitSystem, UnitSystemId } from "@/types/ui";
+import { useDocumentStore } from "@/state/documentStore";
+import { useGeometryStore } from "@/state/geometryStore";
+import { selectSketchStatus, useSketchStore } from "@/state/sketchStore";
+import type { SketchStatus } from "@/types/ui";
 
 import styles from "./StatusBar.module.css";
-
-const UNIT_SYSTEMS: UnitSystem[] = [
-  { id: "MMGS", label: "MMGS", description: "Millimetre, gram, second" },
-  { id: "CGS", label: "CGS", description: "Centimetre, gram, second" },
-  { id: "MKS", label: "MKS", description: "Metre, kilogram, second" },
-  { id: "IPS", label: "IPS", description: "Inch, pound, second" },
-];
 
 const SKETCH_STATUS_LABEL: Record<SketchStatus, string> = {
   "fully-defined": "Fully Defined",
@@ -27,23 +21,42 @@ const SKETCH_STATUS_CLASS: Record<SketchStatus, string> = {
 };
 
 /**
- * Bottom status bar: sketch constraint state, cursor readout, unit system and build info.
+ * Bottom status bar: sketch constraint state, cursor readout and build info.
  *
- * The sketch status is fixed at "no active sketch" until the sketcher lands in Step 4;
- * the unit selector is already live because it is pure UI state.
+ * The sketch status is fixed at "no active sketch" until the sketcher lands in Step 4.
+ * The unit system selector used to live here; it's now in the Settings panel
+ * (`MenuBar.tsx`) alongside the other app-wide display options.
  */
 export function StatusBar() {
-  const [unitSystem, setUnitSystem] = useState<UnitSystemId>("MMGS");
   const appInfo = useAppInfo();
-
-  const sketchStatus: SketchStatus = "no-sketch";
+  const sketchStatus = useSketchStore(selectSketchStatus);
+  const dof = useSketchStore((state) => state.diagnostics.dof);
+  const isSketchMode = useSketchStore((state) => state.activeSketchId !== null);
+  const featureCount = useDocumentStore(
+    (state) => state.document.features.filter((feature) => !feature.isDefault).length,
+  );
+  const geometryStatus = useGeometryStore((state) => state.status);
+  const geometryMessage = useGeometryStore((state) => state.message);
+  const toast = useGeometryStore((state) => state.toast);
 
   return (
     <footer className={styles.statusbar}>
-      <div className={`${styles.statusChip} ${SKETCH_STATUS_CLASS[sketchStatus]}`}>
+      <div
+        className={`${styles.statusChip} ${SKETCH_STATUS_CLASS[sketchStatus]}`}
+        data-testid="sketch-status"
+      >
         <span className={styles.statusDot} aria-hidden="true" />
         {SKETCH_STATUS_LABEL[sketchStatus]}
       </div>
+
+      {isSketchMode && (
+        <>
+          <div className={styles.divider} aria-hidden="true" />
+          <div className={styles.item}>
+            {dof} {dof === 1 ? "DOF" : "DOF"}
+          </div>
+        </>
+      )}
 
       <div className={styles.divider} aria-hidden="true" />
 
@@ -51,31 +64,30 @@ export function StatusBar() {
         X 0.00 &nbsp; Y 0.00 &nbsp; Z 0.00
       </div>
 
+      {(toast || geometryStatus !== "empty" || geometryMessage) && (
+        <>
+          <div className={styles.divider} aria-hidden="true" />
+          <div className={styles.item} data-testid="geometry-status">
+            {toast ??
+              geometryMessage ??
+              (geometryStatus === "building"
+                ? "Rebuilding…"
+                : geometryStatus === "error"
+                  ? "Rebuild failed"
+                  : "Model up to date")}
+          </div>
+        </>
+      )}
+
       <div className={styles.spacer} />
 
-      <div className={styles.item}>Editing Part</div>
+      <div className={styles.item}>
+        {featureCount} {featureCount === 1 ? "feature" : "features"}
+      </div>
 
       <div className={styles.divider} aria-hidden="true" />
 
-      <div
-        className={styles.units}
-        role="group"
-        aria-label="Unit system"
-        title="Unit and dimension system"
-      >
-        {UNIT_SYSTEMS.map((system) => (
-          <button
-            key={system.id}
-            type="button"
-            className={styles.unitButton}
-            aria-pressed={unitSystem === system.id}
-            title={system.description}
-            onClick={() => setUnitSystem(system.id)}
-          >
-            {system.label}
-          </button>
-        ))}
-      </div>
+      <div className={styles.item}>Editing Part</div>
 
       <div className={styles.divider} aria-hidden="true" />
 
