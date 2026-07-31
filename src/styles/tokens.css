@@ -42,6 +42,15 @@
   --duration-fast: 90ms;
   --duration-normal: 160ms;
   --ease-standard: cubic-bezier(0.33, 0, 0.67, 1);
+
+  /*
+   * Accent hue, theme-independent — `App.tsx` writes the Settings dialog's chosen colour
+   * here as a plain hex (`--accent-hex`), and every theme block below derives its own
+   * hover/active/subtle/selection/text shades from it with `color-mix()` rather than
+   * hardcoding a second colour per state. Picking a swatch therefore re-tints every skin
+   * at once; this default only matters before `App.tsx`'s effect has run once.
+   */
+  --accent-hex: #de7356;
 }
 
 /* ---------------------------------------------------------------- light theme */
@@ -64,8 +73,8 @@
   --fill-subtle-active: rgba(0, 0, 0, 0.024);
   --fill-control: rgba(255, 255, 255, 0.7);
   --fill-control-hover: rgba(249, 249, 249, 0.5);
-  --fill-selected: rgba(0, 120, 212, 0.1);
-  --fill-selected-hover: rgba(0, 120, 212, 0.16);
+  --fill-selected: color-mix(in srgb, var(--accent) 10%, transparent);
+  --fill-selected-hover: color-mix(in srgb, var(--accent) 16%, transparent);
 
   /* Text */
   --text-primary: #1a1a1a;
@@ -73,7 +82,7 @@
   --text-tertiary: #8a8a8a;
   --text-disabled: #9c9c9c;
   --text-on-accent: #ffffff;
-  --text-accent: #003e92;
+  --text-accent: color-mix(in srgb, var(--accent) 45%, black);
 
   /* Strokes */
   --stroke-divider: rgba(0, 0, 0, 0.0803);
@@ -81,11 +90,12 @@
   --stroke-control: rgba(0, 0, 0, 0.0578);
   --stroke-focus: #1a1a1a;
 
-  /* Accent ramp */
-  --accent: #0078d4;
-  --accent-hover: #006cbe;
-  --accent-active: #005ba1;
-  --accent-subtle: rgba(0, 120, 212, 0.12);
+  /* Accent ramp — every shade below is derived from --accent-hex (App.tsx), never a
+     second hardcoded colour, so a Settings swatch re-tints the whole app. */
+  --accent: var(--accent-hex);
+  --accent-hover: color-mix(in srgb, var(--accent) 90%, black);
+  --accent-active: color-mix(in srgb, var(--accent) 76%, black);
+  --accent-subtle: color-mix(in srgb, var(--accent) 12%, transparent);
 
   /* Semantic status colours */
   --status-defined: #0f7b0f;
@@ -115,25 +125,27 @@
     --fill-subtle-active: rgba(255, 255, 255, 0.0419);
     --fill-control: rgba(255, 255, 255, 0.0605);
     --fill-control-hover: rgba(255, 255, 255, 0.0837);
-    --fill-selected: rgba(76, 194, 255, 0.14);
-    --fill-selected-hover: rgba(76, 194, 255, 0.2);
+    --fill-selected: color-mix(in srgb, var(--accent) 14%, transparent);
+    --fill-selected-hover: color-mix(in srgb, var(--accent) 20%, transparent);
 
     --text-primary: #ffffff;
     --text-secondary: #cfcfcf;
     --text-tertiary: #9a9a9a;
     --text-disabled: #7a7a7a;
     --text-on-accent: #000000;
-    --text-accent: #99ebff;
+    --text-accent: color-mix(in srgb, var(--accent) 55%, white);
 
     --stroke-divider: rgba(255, 255, 255, 0.0837);
     --stroke-surface: rgba(117, 117, 117, 0.4);
     --stroke-control: rgba(255, 255, 255, 0.0698);
     --stroke-focus: #ffffff;
 
-    --accent: #4cc2ff;
-    --accent-hover: #47b1e8;
-    --accent-active: #42a1d2;
-    --accent-subtle: rgba(76, 194, 255, 0.16);
+    /* Lightened relative to the raw accent hex: a saturated swatch chosen for its look on
+       a light background reads muddy against near-black without this. */
+    --accent: color-mix(in srgb, var(--accent-hex) 85%, white);
+    --accent-hover: color-mix(in srgb, var(--accent) 90%, black);
+    --accent-active: color-mix(in srgb, var(--accent) 80%, black);
+    --accent-subtle: color-mix(in srgb, var(--accent) 16%, transparent);
 
     --status-defined: #6ccb5f;
     --status-under: #60cdff;
@@ -160,25 +172,25 @@
   --fill-subtle-active: rgba(255, 255, 255, 0.0419);
   --fill-control: rgba(255, 255, 255, 0.0605);
   --fill-control-hover: rgba(255, 255, 255, 0.0837);
-  --fill-selected: rgba(76, 194, 255, 0.14);
-  --fill-selected-hover: rgba(76, 194, 255, 0.2);
+  --fill-selected: color-mix(in srgb, var(--accent) 14%, transparent);
+  --fill-selected-hover: color-mix(in srgb, var(--accent) 20%, transparent);
 
   --text-primary: #ffffff;
   --text-secondary: #cfcfcf;
   --text-tertiary: #9a9a9a;
   --text-disabled: #7a7a7a;
   --text-on-accent: #000000;
-  --text-accent: #99ebff;
+  --text-accent: color-mix(in srgb, var(--accent) 55%, white);
 
   --stroke-divider: rgba(255, 255, 255, 0.0837);
   --stroke-surface: rgba(117, 117, 117, 0.4);
   --stroke-control: rgba(255, 255, 255, 0.0698);
   --stroke-focus: #ffffff;
 
-  --accent: #4cc2ff;
-  --accent-hover: #47b1e8;
-  --accent-active: #42a1d2;
-  --accent-subtle: rgba(76, 194, 255, 0.16);
+  --accent: color-mix(in srgb, var(--accent-hex) 85%, white);
+  --accent-hover: color-mix(in srgb, var(--accent) 90%, black);
+  --accent-active: color-mix(in srgb, var(--accent) 80%, black);
+  --accent-subtle: color-mix(in srgb, var(--accent) 16%, transparent);
 
   --status-defined: #6ccb5f;
   --status-under: #60cdff;
@@ -186,4 +198,55 @@
 
   --shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.4);
   --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.26);
+}
+
+/* ----------------------------------------------------------------- gray theme */
+
+/*
+ * A neutral skin between light and dark — the flat mid-grey workspace SolidWorks and
+ * Fusion 360 both offer as an alternative to their dark theme, easier on the eyes than
+ * near-black for long sketching sessions while still keeping bright renders from glaring
+ * the way the light theme's near-white chrome does around a shaded model.
+ */
+:root[data-theme="gray"] {
+  color-scheme: dark;
+
+  --bg-base: rgba(66, 66, 66, 0.6);
+  --bg-layer: rgba(78, 78, 78, 0.35);
+  --bg-card: rgba(255, 255, 255, 0.055);
+  --bg-solid: #4a4a4a;
+  --bg-viewport-top: #5a5e63;
+  --bg-viewport-bottom: #34373a;
+
+  --fill-subtle: rgba(255, 255, 255, 0);
+  --fill-subtle-hover: rgba(255, 255, 255, 0.065);
+  --fill-subtle-active: rgba(255, 255, 255, 0.045);
+  --fill-control: rgba(255, 255, 255, 0.08);
+  --fill-control-hover: rgba(255, 255, 255, 0.11);
+  --fill-selected: color-mix(in srgb, var(--accent) 15%, transparent);
+  --fill-selected-hover: color-mix(in srgb, var(--accent) 21%, transparent);
+
+  --text-primary: #f2f2f2;
+  --text-secondary: #cacaca;
+  --text-tertiary: #9e9e9e;
+  --text-disabled: #7f7f7f;
+  --text-on-accent: #000000;
+  --text-accent: color-mix(in srgb, var(--accent) 55%, white);
+
+  --stroke-divider: rgba(255, 255, 255, 0.1);
+  --stroke-surface: rgba(140, 140, 140, 0.45);
+  --stroke-control: rgba(255, 255, 255, 0.085);
+  --stroke-focus: #f2f2f2;
+
+  --accent: color-mix(in srgb, var(--accent-hex) 85%, white);
+  --accent-hover: color-mix(in srgb, var(--accent) 90%, black);
+  --accent-active: color-mix(in srgb, var(--accent) 80%, black);
+  --accent-subtle: color-mix(in srgb, var(--accent) 18%, transparent);
+
+  --status-defined: #6ccb5f;
+  --status-under: #60cdff;
+  --status-over: #ff99a4;
+
+  --shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.35);
+  --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.22);
 }

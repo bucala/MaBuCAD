@@ -5,6 +5,31 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — Three theme skins, five live accent colours, an axis-cross legend, and a real README
+
+### Added
+- **Accent colour picker** in Settings > General: five swatches (the new default Coral
+  `#DE7356`, the original Fluent Blue, Teal, Violet, Amber). Picking one re-tints the whole
+  app live — buttons, tabs, selection highlights, sketch previews and the viewcube hover
+  tint — because every hover/active/subtle/selection/text shade in `tokens.css` is now
+  derived from one `--accent-hex` custom property via `color-mix()` rather than hardcoded
+  per state. Scene colours (three.js materials can't read a CSS variable) get the same
+  derivation in JavaScript via the new `useSceneAccentColor()` hook.
+- **A third "Gray" skin** alongside Light and Dark: a neutral mid-grey workspace, the same
+  alternative SolidWorks and Fusion 360 offer to their pure-dark theme.
+- **Settings Export/Import** now round-trips the accent colour along with everything else
+  (`settingsIO.ts` was missing the new field).
+
+### Changed
+- **The bottom-left XYZ legend is now an axis cross**, not three disconnected colour
+  chips — three short arms radiating from one point with arrowheads and X/Y/Z labels,
+  matching the convention other CAD tools use for this corner indicator. Purely a static
+  legend; the existing `GizmoViewcube` in the opposite corner is still the one interactive,
+  camera-following gizmo.
+- **README rewritten** with badges, a feature table, an architecture diagram, a real
+  screenshot (a mounting plate built from Sketch → Extrude → Hole Wizard → Fillet, shown in
+  the Feature Manager tree), and a roadmap table — replacing the older prose-only version.
+
 ## 2026-07-31 — Full audit of Home, Sketch and Features: two real bugs found and fixed
 
 A comprehensive pass clicking through every command on the Home, Sketch and Features ribbon

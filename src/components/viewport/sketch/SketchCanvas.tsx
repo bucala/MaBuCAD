@@ -4,8 +4,9 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { useThree } from "@react-three/fiber";
 import { DoubleSide } from "three";
 
-import { findPointNear } from "@/sketch/sketchModel";
+import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 import { worldToSketch } from "@/sketch/planeBasis";
+import { findPointNear } from "@/sketch/sketchModel";
 import type { Sketch } from "@/sketch/types";
 import { useSettingsStore } from "@/state/settingsStore";
 import { useSketchStore } from "@/state/sketchStore";
@@ -51,6 +52,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
 
   const draggingPointId = useRef<string | null>(null);
   const invalidate = useThree((state) => state.invalidate);
+  const accent = useSceneAccentColor();
 
   // Line and construction-line deliberately leave `anchor` set after finishing an entity
   // so the next click chains from that endpoint (see the "line"/"construction-line" case
@@ -214,13 +216,13 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
       </mesh>
 
       {preview.length >= 2 && (
-        <Line points={preview} color="#0078d4" lineWidth={1.5} dashed dashSize={2} gapSize={1.5} />
+        <Line points={preview} color={accent} lineWidth={1.5} dashed dashSize={2} gapSize={1.5} />
       )}
 
       {cursor && isDrawingTool && (
         <mesh position={[cursor.x, cursor.y, 0.03]}>
           <circleGeometry args={[0.9, 12]} />
-          <meshBasicMaterial color="#0078d4" depthTest={false} />
+          <meshBasicMaterial color={accent} depthTest={false} />
         </mesh>
       )}
     </group>

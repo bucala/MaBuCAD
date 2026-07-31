@@ -1,5 +1,6 @@
 import { Html, Line } from "@react-three/drei";
 
+import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 import { pointById } from "@/sketch/sketchModel";
 import type { Dimension, Sketch } from "@/sketch/types";
 import { useSketchStore } from "@/state/sketchStore";
@@ -38,10 +39,11 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
   // happens to sit where the user is trying to draw, `pointer-events: none` lets that
   // click fall through to the canvas instead of selecting the dimension.
   const isSelectMode = useSketchStore((state) => state.tool === "select");
+  const accent = useSceneAccentColor();
 
   const isSelected = selection.includes(dimension.id);
   const isOrdinate = dimension.kind === "ordinate-x" || dimension.kind === "ordinate-y";
-  const color = isSelected ? "#0078d4" : isOrdinate ? ORDINATE_COLOR : DIMENSION_COLOR;
+  const color = isSelected ? accent : isOrdinate ? ORDINATE_COLOR : DIMENSION_COLOR;
 
   const first = dimension.points[0] ? pointById(sketch, dimension.points[0]) : undefined;
   const second = dimension.points[1] ? pointById(sketch, dimension.points[1]) : undefined;

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { X } from "lucide-react";
 
 import { runExportSettings, runImportSettings } from "@/commands/settingsIO";
 import { useDocumentStore } from "@/state/documentStore";
-import { useSettingsStore, type ThemePreference } from "@/state/settingsStore";
+import { ACCENT_PRESETS, useSettingsStore, type ThemePreference } from "@/state/settingsStore";
 import { useViewportStore } from "@/state/viewportStore";
 import type { UnitSystem, UnitSystemId } from "@/types/ui";
 
@@ -50,6 +51,8 @@ function ToggleRow<T extends string>({
 function GeneralTab() {
   const theme = useSettingsStore((state) => state.theme);
   const setTheme = useSettingsStore((state) => state.setTheme);
+  const accentColor = useSettingsStore((state) => state.accentColor);
+  const setAccentColor = useSettingsStore((state) => state.setAccentColor);
   const confirmBeforeDiscard = useSettingsStore((state) => state.confirmBeforeDiscard);
   const setConfirmBeforeDiscard = useSettingsStore((state) => state.setConfirmBeforeDiscard);
   const resetToDefaults = useSettingsStore((state) => state.resetToDefaults);
@@ -64,9 +67,31 @@ function GeneralTab() {
           options={[
             { id: "system", label: "System", title: "Follow the OS light/dark setting" },
             { id: "light", label: "Light" },
+            { id: "gray", label: "Gray", title: "A neutral mid-grey workspace between light and dark" },
             { id: "dark", label: "Dark" },
           ]}
         />
+      </div>
+
+      <div className={styles.section}>
+        <span className={styles.sectionTitle}>Accent Colour</span>
+        <div className={styles.swatchRow} role="group" aria-label="Accent colour">
+          {ACCENT_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              className={styles.swatch}
+              style={{ "--swatch-color": preset.hex } as CSSProperties}
+              aria-pressed={accentColor.toLowerCase() === preset.hex.toLowerCase()}
+              title={preset.label}
+              aria-label={preset.label}
+              onClick={() => setAccentColor(preset.hex)}
+            />
+          ))}
+        </div>
+        <p className={styles.sectionHint}>
+          Recolours buttons, selection highlights and sketch previews throughout the app.
+        </p>
       </div>
 
       <div className={styles.section}>
