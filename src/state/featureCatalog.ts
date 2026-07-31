@@ -54,13 +54,13 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
     namePrefix: "Boss-Extrude",
     icon: Box,
     description: "Extrudes a closed profile into a solid",
-    defaultParameters: { depth: 10, endCondition: "blind", reversed: false },
+    defaultParameters: { depth: 10, endCondition: "blind", reversed: false, operation: "join" },
   },
   revolve: {
     namePrefix: "Revolve",
     icon: RotateCw,
     description: "Revolves a profile about an axis",
-    defaultParameters: { angle: 360 },
+    defaultParameters: { angle: 360, operation: "join" },
   },
   sweep: {
     namePrefix: "Sweep",
@@ -79,13 +79,13 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
     namePrefix: "Cut-Extrude",
     icon: Slice,
     description: "Removes material by extruding a profile",
-    defaultParameters: { depth: 10, endCondition: "blind" },
+    defaultParameters: { depth: 10, endCondition: "blind", operation: "cut" },
   },
   "cut-revolve": {
     namePrefix: "Cut-Revolve",
     icon: Cylinder,
     description: "Removes material by revolving a profile",
-    defaultParameters: { angle: 360 },
+    defaultParameters: { angle: 360, operation: "cut" },
   },
   "cut-sweep": {
     namePrefix: "Cut-Sweep",

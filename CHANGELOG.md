@@ -5,6 +5,40 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-30 — Direction/Body property sections, Boolean operations, opaque menus
+
+More feedback against a reference screenshot of another CAD tool's own Extrude dialog:
+the property manager was a flat, unlabelled list of fields (no grouping like that tool's
+own "Behavior"/"Output" sections), there was no way to choose how an extrude/revolve
+combines with the existing body (join/cut/intersect were baked into the feature's *kind*,
+picked once at creation and never changeable afterward), and the new dropdown/context
+menus this session already added rendered partially see-through.
+
+### Added
+- **`PropertyManager.tsx` now groups related fields into labelled sections** — `Direction`
+  (for extrude/cut-extrude: an icon row for Blind/Through All/Mid Plane/Up To Surface,
+  replacing the old plain `<select>`, plus a Reverse Direction toggle) and `Body` (see
+  below) — instead of a flat list, the same visual idea as the reference screenshot's own
+  collapsible sections, though without the collapsing.
+- **`FeatureParameters.operation`**: `"join" | "cut" | "intersect"`, now set on every
+  extrude/cut-extrude/revolve/cut-revolve feature and shown as its own `Body` section
+  with icon buttons (Join/Cut/Intersect, plus a disabled "New Body" — the kernel keeps one
+  fused body per document, so there is nothing yet for a second body to be). Changing it
+  after creation actually re-solves the boolean: `kernel/rebuild.ts` reads
+  `feature.parameters.operation` through a new shared `applyOperation()` helper (falling
+  back to the feature's own kind for a document saved before this field existed) instead
+  of the previous hardcoded `isCut = kind === "cut-extrude" || ...` branch, and a pattern
+  or mirror built from that feature now replays the same operation it does rather than a
+  fixed join. `intersect` is a genuinely new capability — replicad's `Shape3D.intersect()`
+  was already there, nothing before this exposed it.
+- **Dropdown/context menus are fully opaque.** `ContextMenu.module.css`'s `.menu` and
+  `MenuBar.module.css`'s `.dropdown` used `--bg-card`, the same translucent "glass" token
+  the ribbon and manager panel use for their deliberate Mica look — appropriate for a
+  large panel sitting over a mostly-static background, not for a small floating menu that
+  can open over busy ribbon icons, tree rows, or 3D geometry and needs to stay legible
+  regardless. Both now use `--bg-solid` (already an existing, fully opaque token) instead,
+  with the now-pointless `backdrop-filter: blur()` removed alongside it.
+
 ## 2026-07-30 — Feature tree context menu, draggable rollback, per-feature visibility
 
 Another round of real-world feedback: right-clicking the Feature Manager tree showed the

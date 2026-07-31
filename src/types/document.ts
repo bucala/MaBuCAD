@@ -58,6 +58,21 @@ export interface FeatureParameters {
    * picking a reference edge/axis/face in the viewport, which the app has no UI for yet.
    */
   axis?: "x" | "y" | "z";
+  /**
+   * How an extrude/revolve combines with the body that already exists: `join` adds
+   * material (a boss), `cut` removes it, `intersect` keeps only the overlap. Set on
+   * every extrude/cut-extrude/revolve/cut-revolve feature so `kernel/rebuild.ts` reads
+   * this rather than inferring add-vs-remove purely from the feature's own kind — kind
+   * still supplies the default (extrude/revolve start as `join`, the cut-* kinds start
+   * as `cut`), but this can be changed afterward without recreating the feature under a
+   * different kind, matching how other CAD tools expose one Extrude command with a
+   * Boolean choice rather than two separate commands.
+   *
+   * There is no fourth "new body" option: the kernel keeps one fused body per document
+   * (see `viewportStore.ts`'s own note on this), so there is nothing yet for a second
+   * body to be.
+   */
+  operation?: "join" | "cut" | "intersect";
 }
 
 export interface Feature {

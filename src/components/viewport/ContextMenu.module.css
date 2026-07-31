@@ -5,8 +5,10 @@
   padding: var(--space-2);
   border: 1px solid var(--stroke-control);
   border-radius: var(--radius-md);
-  background: var(--bg-card);
-  backdrop-filter: blur(12px);
+  /* Solid, not `--bg-card`'s translucent glass: a floating menu sits over busy content
+     (ribbon icons, 3D geometry, tree rows) and needs to stay legible regardless of what's
+     behind it, unlike the ribbon/manager panel's own deliberately translucent Mica look. */
+  background: var(--bg-solid);
   box-shadow: var(--shadow-flyout);
   display: flex;
   flex-direction: column;

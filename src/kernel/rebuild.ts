@@ -276,6 +276,33 @@ function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
   return solid;
 }
 
+/** How a feature's own solid combines with whatever body already exists. */
+type BooleanOperation = "join" | "cut" | "intersect";
+
+/**
+ * Combines `addition` into `base` with the given operation — `join`/`cut`/`intersect`
+ * map straight onto replicad's own `fuse`/`cut`/`intersect`. A `null` base (nothing built
+ * yet) always becomes `addition` outright regardless of operation, the same as the
+ * pre-existing `current ? fuse(...) : solid` shortcut this replaces: the first feature in
+ * a document has nothing to combine with yet, so it simply *is* the body.
+ */
+function applyOperation(base: Solid | null, addition: Solid, operation: BooleanOperation): Solid {
+  if (!base) return addition;
+  const target = base as unknown as {
+    cut: (other: Solid) => Solid;
+    fuse: (other: Solid) => Solid;
+    intersect: (other: Solid) => Solid;
+  };
+  switch (operation) {
+    case "cut":
+      return target.cut(addition);
+    case "intersect":
+      return target.intersect(addition);
+    case "join":
+      return target.fuse(addition);
+  }
+}
+
 /**
  * Rebuilds the document's geometry from its feature history.
  *
@@ -293,9 +320,9 @@ export async function rebuildDocument(
   let rotation: [number, number, number] = [0, 0, 0];
 
   // Each modelling feature's own contribution, keyed by feature id, so a pattern or mirror
-  // referencing an earlier feature can transform and re-fuse just that feature's shape
+  // referencing an earlier feature can transform and re-combine just that feature's shape
   // rather than the whole cumulative body built up to that point.
-  const featureSolids = new Map<string, { solid: Solid; isCut: boolean }>();
+  const featureSolids = new Map<string, { solid: Solid; operation: BooleanOperation }>();
 
   for (const feature of features) {
     if (feature.suppressed) continue;
@@ -307,10 +334,8 @@ export async function rebuildDocument(
         errors[feature.id] = "Imported geometry is no longer loaded";
         continue;
       }
-      current = current
-        ? (current as unknown as { fuse: (other: Solid) => Solid }).fuse(imported as Solid)
-        : (imported as Solid);
-      featureSolids.set(feature.id, { solid: imported as Solid, isCut: false });
+      current = applyOperation(current, imported as Solid, "join");
+      featureSolids.set(feature.id, { solid: imported as Solid, operation: "join" });
       rotation = [0, 0, 0];
       continue;
     }
@@ -345,9 +370,7 @@ export async function rebuildDocument(
           continue;
         }
 
-        current = source.isCut
-          ? (current as unknown as { cut: (other: Solid) => Solid }).cut(patterned)
-          : (current as unknown as { fuse: (other: Solid) => Solid }).fuse(patterned);
+        current = applyOperation(current, patterned, source.operation);
       } catch (error) {
         errors[feature.id] = error instanceof Error ? error.message : "Pattern failed";
       }
@@ -377,19 +400,20 @@ export async function rebuildDocument(
 
       rotation = planeBasis(sketch.planeId).rotation as [number, number, number];
 
-      const isCut = feature.kind === "cut-extrude" || feature.kind === "cut-revolve";
-      featureSolids.set(feature.id, { solid, isCut });
-      if (isCut) {
-        if (!current) {
-          errors[feature.id] = "Nothing to cut: add a boss feature first";
-          continue;
-        }
-        current = (current as unknown as { cut: (other: Solid) => Solid }).cut(solid);
-      } else {
-        current = current
-          ? (current as unknown as { fuse: (other: Solid) => Solid }).fuse(solid)
-          : solid;
+      // Falls back to the feature's own kind for a document/undo-history entry saved
+      // before `operation` existed — the cut-* kinds always meant "cut" and the boss
+      // kinds always meant "join", so an absent value still resolves to what it already
+      // was rather than silently changing behaviour on old documents.
+      const operation: BooleanOperation =
+        feature.parameters.operation ??
+        (feature.kind === "cut-extrude" || feature.kind === "cut-revolve" ? "cut" : "join");
+      featureSolids.set(feature.id, { solid, operation });
+      if (operation !== "join" && !current) {
+        errors[feature.id] =
+          operation === "cut" ? "Nothing to cut: add a boss feature first" : "Nothing to intersect: add a boss feature first";
+        continue;
       }
+      current = applyOperation(current, solid, operation);
     } catch (error) {
       errors[feature.id] = error instanceof Error ? error.message : "Rebuild failed";
     }

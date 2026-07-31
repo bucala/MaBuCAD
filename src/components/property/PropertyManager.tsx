@@ -1,10 +1,40 @@
-import { SlidersHorizontal, Trash2 } from "lucide-react";
+import {
+  ArrowUp,
+  ArrowUpDown,
+  ArrowUpToLine,
+  Boxes,
+  CircleDot,
+  Combine,
+  FlipVertical,
+  Layers,
+  Slice,
+  SlidersHorizontal,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
 
 import { FEATURE_CATALOG } from "@/state/featureCatalog";
 import { useDocumentStore } from "@/state/documentStore";
-import type { FeatureParameters } from "@/types/document";
+import type { EndCondition, FeatureParameters } from "@/types/document";
 
 import styles from "./PropertyManager.module.css";
+
+const END_CONDITIONS: { id: EndCondition; label: string; icon: LucideIcon }[] = [
+  { id: "blind", label: "Blind", icon: ArrowUp },
+  { id: "through-all", label: "Through All", icon: ArrowUpToLine },
+  { id: "mid-plane", label: "Mid Plane (symmetric)", icon: ArrowUpDown },
+  { id: "up-to-surface", label: "Up To Surface", icon: Layers },
+];
+
+const OPERATIONS: {
+  id: NonNullable<FeatureParameters["operation"]>;
+  label: string;
+  icon: LucideIcon;
+}[] = [
+  { id: "join", label: "Join — add this to the existing body", icon: Combine },
+  { id: "cut", label: "Cut — remove this from the existing body", icon: Slice },
+  { id: "intersect", label: "Intersect — keep only the overlap", icon: CircleDot },
+];
 
 /** Display metadata for the parameters a feature can carry. */
 const PARAMETER_FIELDS: {
@@ -84,23 +114,69 @@ export function PropertyManager() {
         </label>
 
         {feature.parameters.endCondition !== undefined && (
-          <label className={styles.field}>
-            <span className={styles.fieldLabel}>End condition</span>
-            <select
-              className={styles.input}
-              value={feature.parameters.endCondition}
-              onChange={(event) =>
-                updateParameters(feature.id, {
-                  endCondition: event.target.value as FeatureParameters["endCondition"],
-                })
-              }
-            >
-              <option value="blind">Blind</option>
-              <option value="through-all">Through All</option>
-              <option value="mid-plane">Mid Plane</option>
-              <option value="up-to-surface">Up To Surface</option>
-            </select>
-          </label>
+          <div className={styles.section}>
+            <span className={styles.sectionTitle}>Direction</span>
+            <div className={styles.iconRow} role="group" aria-label="End condition">
+              {END_CONDITIONS.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={styles.iconButton}
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={feature.parameters.endCondition === id}
+                  onClick={() => updateParameters(feature.id, { endCondition: id })}
+                >
+                  <Icon size={15} strokeWidth={1.75} />
+                </button>
+              ))}
+            </div>
+
+            {feature.parameters.reversed !== undefined && (
+              <button
+                type="button"
+                className={styles.actionButton}
+                title="Reverse direction"
+                aria-pressed={feature.parameters.reversed}
+                onClick={() =>
+                  updateParameters(feature.id, { reversed: !feature.parameters.reversed })
+                }
+              >
+                <FlipVertical size={14} strokeWidth={1.75} />
+                Reverse direction
+              </button>
+            )}
+          </div>
+        )}
+
+        {feature.parameters.operation !== undefined && (
+          <div className={styles.section}>
+            <span className={styles.sectionTitle}>Body</span>
+            <div className={styles.iconRow} role="group" aria-label="Boolean operation">
+              {OPERATIONS.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={styles.iconButton}
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={feature.parameters.operation === id}
+                  onClick={() => updateParameters(feature.id, { operation: id })}
+                >
+                  <Icon size={15} strokeWidth={1.75} />
+                </button>
+              ))}
+              <button
+                type="button"
+                className={styles.iconButton}
+                title="New Body — not available yet: the kernel keeps one combined body per document"
+                aria-label="New Body (unavailable)"
+                disabled
+              >
+                <Boxes size={15} strokeWidth={1.75} />
+              </button>
+            </div>
+          </div>
         )}
 
         {feature.parameters.axis !== undefined && (
@@ -121,19 +197,6 @@ export function PropertyManager() {
               <option value="y">Y</option>
               <option value="z">Z</option>
             </select>
-          </label>
-        )}
-
-        {feature.parameters.reversed !== undefined && (
-          <label className={styles.checkboxField}>
-            <input
-              type="checkbox"
-              checked={feature.parameters.reversed}
-              onChange={(event) =>
-                updateParameters(feature.id, { reversed: event.target.checked })
-              }
-            />
-            Reverse direction
           </label>
         )}
 
