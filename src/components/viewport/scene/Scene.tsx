@@ -11,6 +11,7 @@ import { CameraRig, type ProjectionMode } from "./CameraRig";
 import { Origin } from "./Origin";
 import { RaycasterTuning } from "./RaycasterTuning";
 import { ReferencePlanes } from "./ReferencePlanes";
+import { UserReferenceGeometry } from "./UserReferenceGeometry";
 import { ViewportGrid } from "./ViewportGrid";
 import { ZoomToFit } from "./ZoomToFit";
 
@@ -46,6 +47,7 @@ export function Scene({ projection }: SceneProps) {
           aside while a sketch is open. */}
       {!isSketchMode && <ViewportGrid />}
       <ReferencePlanes />
+      <UserReferenceGeometry />
       <Origin />
       <SolidModel />
       {isSketchMode && <SketchScene />}

@@ -167,12 +167,18 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
     namePrefix: "Axis",
     icon: Minus,
     description: "User-created reference axis",
-    defaultParameters: {},
+    defaultParameters: { axis: "z" },
   },
   "reference-point": {
     namePrefix: "Point",
     icon: Crosshair,
     description: "User-created reference point",
+    defaultParameters: { distance: 10, axis: "z" },
+  },
+  "reference-csys": {
+    namePrefix: "CoordSys",
+    icon: Rotate3d,
+    description: "User-created local coordinate system",
     defaultParameters: {},
   },
 };

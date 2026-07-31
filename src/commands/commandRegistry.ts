@@ -26,10 +26,6 @@ const FEATURE_COMMANDS: Record<string, FeatureKind> = {
   "feature.shell": "shell",
   "feature.draft": "draft",
   "feature.rib": "rib",
-
-  "reference.plane": "reference-plane",
-  "reference.axis": "reference-axis",
-  "reference.point": "reference-point",
 };
 
 /** Sketch tools, active only while a sketch is open. */
@@ -145,6 +141,51 @@ function addPatternFeature(kind: "linear-pattern" | "circular-pattern" | "mirror
   documentState.addFeature(kind, undefined, sourceId ? [sourceId] : []);
 }
 
+/**
+ * Creates a reference plane, offset from a selected default plane (or the Front plane, if
+ * none is selected) along that plane's normal.
+ *
+ * A one-shot `window.prompt` for the offset matches `sketch.offset`/`sketch.pattern` below —
+ * the smallest UI a single-number tool needs without a dedicated dialog. The base plane is
+ * stored in `Feature.parents` rather than a new parameter, reusing the field that already
+ * means "features this one consumes". Offsetting from another *user-created* reference plane
+ * is not supported yet — that needs the same base-plane picking UI this stands in for.
+ */
+function addReferencePlane() {
+  const documentState = useDocumentStore.getState();
+  const basePlaneId =
+    documentState.selectedFeatureIds.find((id) => (DEFAULT_PLANE_IDS as readonly string[]).includes(id)) ??
+    DEFAULT_PLANE_IDS[0];
+
+  const input = window.prompt("Offset distance from the selected plane (mm) — negative flips the side:", "10");
+  if (input === null) return;
+  const distance = Number(input);
+  if (!Number.isFinite(distance)) return;
+  documentState.addFeature("reference-plane", { distance }, [basePlaneId]);
+}
+
+/** Creates a reference axis aligned to a world axis — the same stand-in `FeatureParameters.axis` already documents for patterns, until edge/face picking exists. */
+function addReferenceAxis() {
+  const input = window.prompt('World axis to align to — "x", "y" or "z":', "z");
+  if (input === null) return;
+  const axis = input.trim().toLowerCase();
+  if (axis !== "x" && axis !== "y" && axis !== "z") return;
+  useDocumentStore.getState().addFeature("reference-axis", { axis });
+}
+
+/** Creates a reference point offset from the origin along a world axis. */
+function addReferencePoint() {
+  const axisInput = window.prompt('Axis to offset along from the origin — "x", "y" or "z":', "z");
+  if (axisInput === null) return;
+  const axis = axisInput.trim().toLowerCase();
+  if (axis !== "x" && axis !== "y" && axis !== "z") return;
+  const distanceInput = window.prompt("Distance from the origin (mm):", "10");
+  if (distanceInput === null) return;
+  const distance = Number(distanceInput);
+  if (!Number.isFinite(distance)) return;
+  useDocumentStore.getState().addFeature("reference-point", { distance, axis });
+}
+
 /** Commands handled directly rather than by creating a feature. */
 const DIRECT_COMMANDS: Record<string, () => void> = {
   "feature.extrude": () => addSketchFeature("extrude"),
@@ -155,6 +196,11 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "feature.linear-pattern": () => addPatternFeature("linear-pattern"),
   "feature.circular-pattern": () => addPatternFeature("circular-pattern"),
   "feature.mirror": () => addPatternFeature("mirror"),
+
+  "reference.plane": addReferencePlane,
+  "reference.axis": addReferenceAxis,
+  "reference.point": addReferencePoint,
+  "reference.csys": () => useDocumentStore.getState().addFeature("reference-csys"),
 
   // `file.export-iges` is deliberately absent: the bundled OpenCASCADE build contains no
   // IGES support, so the ribbon button stays disabled and says why in its tooltip rather
@@ -277,8 +323,10 @@ const SKETCH_ONLY_COMMANDS: ReadonlySet<string> = new Set([
 export function isCommandAvailable(commandId: string, inSketchMode: boolean): boolean {
   if (!IMPLEMENTED_COMMANDS.has(commandId)) return false;
   if (SKETCH_ONLY_COMMANDS.has(commandId)) return inSketchMode;
-  // Modelling features cannot be created from inside a sketch.
-  if (commandId.startsWith("feature.") || commandId === "sketch.new") return !inSketchMode;
+  // Modelling and reference-geometry features cannot be created from inside a sketch.
+  if (commandId.startsWith("feature.") || commandId.startsWith("reference.") || commandId === "sketch.new") {
+    return !inSketchMode;
+  }
   return true;
 }
 

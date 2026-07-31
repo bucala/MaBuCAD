@@ -5,6 +5,55 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — Reference geometry (plane/axis/point/coordinate system) now has a 3D presence
+
+The four Reference Geometry ribbon buttons (Plane, Axis, Point, Coordinate System) already
+created tree rows — they were wired into `commandRegistry.ts` from the start — but none of
+them had any kernel or viewport code referencing their feature kind by name, so creating one
+did nothing visible at all. `reference.csys` in particular wasn't wired up to anything: the
+ribbon button existed but had no handler, so clicking it did nothing whatsoever, not even a
+tree row.
+
+### Added
+- **`UserReferenceGeometry.tsx`**: renders every non-suppressed `reference-plane`/`-axis`/
+  `-point`/`-csys` feature above the rollback bar, selectable and right-clickable the same
+  way the default Front/Top/Right planes already are (hover, select, hide/show via
+  `hiddenFeatureIds`, the shared `FeatureContextMenu`). A reference plane is a translucent
+  dashed-border square offset from a chosen default plane along its normal (distinct purple
+  colour from the RGB default planes); a reference axis is a dashed line along a world axis
+  in that axis's colour; a reference point is a small sphere offset along a world axis from
+  the origin; a coordinate system is a small RGB triad — currently always at the origin,
+  since there is no face/edge picking yet to place it anywhere else.
+- **`reference-csys` feature kind**, closing the one Reference Geometry button that was
+  previously not wired to anything.
+- `commandRegistry.ts` gained dedicated handlers for the four reference commands
+  (`addReferencePlane`/`Axis`/`Point`), using the same one-shot `window.prompt` pattern
+  `sketch.offset`/`sketch.pattern` already use for a single number with no dedicated UI —
+  a plane's offset distance, an axis's or point's world-axis direction. A reference plane's
+  base plane is stored in `Feature.parents`, reusing the field that already means "features
+  this one consumes," rather than adding a new parameter for it.
+
+### Scope, documented rather than silently assumed
+None of this feeds the kernel — these are visual and organisational only, same status as
+before for anything that isn't a real solid. A reference plane specifically **cannot be
+sketched on yet**: `planeBasis.ts` and `SketchScene.tsx` assume a sketch's plane passes
+through the origin, and a reference plane offset away from its base plane does not — making
+that work would mean threading a position offset through the sketch coordinate system, the
+camera alignment, and the kernel's profile extraction, which is a separate, larger change.
+Offsetting a reference plane from another *user-created* reference plane (chaining) is also
+not supported yet, for the same reason dress-up features aren't: there is no viewport picking
+UI to choose an arbitrary base plane, only the three defaults via the current selection.
+
+### Fixed
+- `UserReferenceGeometry.tsx` (this feature) initially subscribed to `documentStore`'s
+  `selectBuiltFeatures` selector directly from a component, which returns a freshly sliced
+  array on every call — handing `useSyncExternalStore` a "changed" snapshot on every render
+  regardless of whether the document had actually changed, which is an infinite render loop
+  (`Maximum update depth exceeded`) rather than a mere inefficiency. Fixed by subscribing to
+  the raw `features` array and `rollbackIndex` and computing the filtered list with
+  `useMemo`, the same trap `SolidModel.tsx`'s own comment on this selector already warns
+  about — caught before shipping via the Playwright regression pass, not left in.
+
 ## 2026-07-30 — Application Options dialog, settings export/import
 
 Against a reference screenshot of another CAD tool's own "Application Options" dialog:

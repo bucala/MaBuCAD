@@ -39,7 +39,8 @@ export type FeatureKind =
   // Reference geometry created by the user
   | "reference-plane"
   | "reference-axis"
-  | "reference-point";
+  | "reference-point"
+  | "reference-csys";
 
 /** Depth condition for extruded features, used by the property manager in Step 5. */
 export type EndCondition = "blind" | "through-all" | "mid-plane" | "up-to-surface";
@@ -54,8 +55,10 @@ export interface FeatureParameters {
   reversed?: boolean;
   count?: number;
   /**
-   * World axis a pattern repeats along/around, or a mirror reflects across. Stands in for
-   * picking a reference edge/axis/face in the viewport, which the app has no UI for yet.
+   * World axis a pattern repeats along/around, or a mirror reflects across. Also doubles as
+   * the direction a `reference-axis` or `reference-point` is drawn along, and the plane a
+   * `reference-plane` offsets from is stored in `Feature.parents` instead — all four stand
+   * in for picking an edge/face/plane in the viewport, which the app has no UI for yet.
    */
   axis?: "x" | "y" | "z";
   /**
