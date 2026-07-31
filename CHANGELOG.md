@@ -5,6 +5,14 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — Regenerated the Tauri icon set from a sharper source
+
+### Fixed
+- `public/mabucad-icon.png` was replaced with a sharper 512×512 export of the same artwork
+  after the previous entry shipped; the full Tauri icon set (`.ico`/`.icns`, every PNG size)
+  is regenerated from it here so every size matches the same source instead of the earlier,
+  smaller extraction.
+
 ## 2026-07-31 — A real app icon
 
 ### Added
