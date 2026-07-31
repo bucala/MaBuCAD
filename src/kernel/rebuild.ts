@@ -1,9 +1,9 @@
-import { draw, drawCircle, FaceFinder, genericSweep, Plane } from "replicad";
+import { draw, drawCircle, drawPointsInterpolation, FaceFinder, genericSweep, Plane } from "replicad";
 import { Vector3 } from "three";
 
 import { planeBasis, sketchToWorld } from "@/sketch/planeBasis";
 import { pointById } from "@/sketch/sketchModel";
-import type { LineEntity, PointEntity, Sketch } from "@/sketch/types";
+import type { LineEntity, PointEntity, Sketch, SplineEntity } from "@/sketch/types";
 import type { EndCondition, Feature } from "@/types/document";
 
 import { getImportedShape } from "./importedShapes";
@@ -395,59 +395,91 @@ function perpendicularTo(direction: Vector3): Vector3 {
   return new Vector3().crossVectors(direction, helper).normalize();
 }
 
+/** The world-space basis a sketch's plane maps onto, as a replicad `Plane` object — origin
+ * at the sketch's own origin (always [0, 0, 0]; sketches don't support a position offset
+ * yet), oriented by the same quaternion `sketchToWorld` uses. */
+function replicadPlaneFor(planeId: string): Plane {
+  const basis = planeBasis(planeId);
+  const xDir = new Vector3(1, 0, 0).applyQuaternion(basis.quaternion);
+  return new Plane([0, 0, 0], [xDir.x, xDir.y, xDir.z], [basis.normal.x, basis.normal.y, basis.normal.z]);
+}
+
 /**
- * Builds a sweep: `profileSketch`'s outer profile, extruded along the straight path defined
- * by `pathSketch`'s first construction line.
- *
- * Unlike every other sketch-based feature here, this does not build everything in one
- * sketch's own local-XY space and rotate the result for display afterward — a sweep whose
- * path leaves the profile's own plane is the entire point of the feature (an extrude already
- * covers "sweep along the profile plane's own normal"). Both the profile and the path are
- * instead embedded directly in true world coordinates computed by this function itself
- * (`sketchToWorld`, the same conversion the sketch editor's own click handling uses), each on
- * an explicit `Plane` this function builds by hand — the profile perpendicular to the path at
- * its start point (the plane's normal *is* the sweep direction, the standard convention a
- * pipe/sweep needs), the path along its own local +X so a single 0..length line traces it
- * exactly. `genericSweep`, replicad's lower-level pipe-sweep function, is used directly
- * instead of `Sketch.sweepSketch`'s own `(plane, origin)` callback convenience, which turned
- * out to not honour a supplied plane the way its own types suggest (empirically, every
- * attempt through it produced a sweep aligned to a fixed axis regardless of the path actually
- * given to it) — worth another look someday, but not blocking on understanding why once a
- * lower-level path that this function fully controls itself produces a correct result.
- *
- * The path is deliberately just a straight line for now — a curved path (a construction
- * spline) needs its own wire-building code this doesn't have yet, a follow-up the same as the
- * other scope notes in this area.
+ * Resolves the sweep path from `pathSketch`: a spline's points if it has one (a curved path —
+ * springs, handles, pipes with bends), otherwise a construction line's two endpoints (a
+ * straight path, the same "first construction entity" convention `revolveAxis` already uses
+ * for a revolve's axis). A spline doesn't need to be a *construction* spline the way the
+ * line does — `profileRegions()` never uses splines for a boss/cut profile either way (its
+ * closed-loop walk only looks at line/arc edges), so there is no ordinary, non-path meaning
+ * for a spline to be "taken" from, unlike a line, which the same sketch could otherwise mean
+ * as a real profile edge.
  */
-function buildSweepSolid(profileSketch: Sketch, pathSketch: Sketch): Solid | null {
-  const regions = profileRegions(profileSketch);
-  if (!regions) return null;
+function sweepPathPoints(pathSketch: Sketch): { x: number; y: number }[] | null {
+  const spline = pathSketch.entities.find((entity): entity is SplineEntity => entity.kind === "spline");
+  if (spline) {
+    const points = spline.points
+      .map((id) => pointById(pathSketch, id))
+      .filter((point): point is NonNullable<typeof point> => point !== undefined);
+    return points.length >= 2 ? points : null;
+  }
 
   const axisLine = pathSketch.entities.find(
     (entity): entity is LineEntity => entity.kind === "line" && entity.construction,
   );
   if (!axisLine) return null;
 
-  const localStart = pointById(pathSketch, axisLine.start);
-  const localEnd = pointById(pathSketch, axisLine.end);
-  if (!localStart || !localEnd) return null;
+  const start = pointById(pathSketch, axisLine.start);
+  const end = pointById(pathSketch, axisLine.end);
+  return start && end ? [start, end] : null;
+}
 
-  const worldStart = sketchToWorld(pathSketch.planeId, localStart.x, localStart.y);
-  const worldEnd = sketchToWorld(pathSketch.planeId, localEnd.x, localEnd.y);
-  const length = worldStart.distanceTo(worldEnd);
-  if (length < 1e-6) return null;
+/**
+ * Builds a sweep: `profileSketch`'s outer profile, extruded along the path defined by
+ * `pathSketch`'s first construction line or spline.
+ *
+ * Unlike every other sketch-based feature here, this does not build everything in one
+ * sketch's own local-XY space and rotate the result for display afterward — a sweep whose
+ * path leaves the profile's own plane is the entire point of the feature (an extrude already
+ * covers "sweep along the profile plane's own normal"). The path is embedded via the path
+ * sketch's own true plane (`replicadPlaneFor`, matching `sketchToWorld`'s own convention) —
+ * a straight line for two points, an interpolated spline for three or more. The profile sits
+ * on its own explicit `Plane`, perpendicular to the path's start tangent (the plane's normal
+ * *is* the sweep direction, the standard convention a pipe/sweep needs) — approximated as the
+ * direction from the path's first point to its second, which is exact for a straight path and
+ * a reasonable estimate of a curved one's initial tangent. `genericSweep`, replicad's
+ * lower-level pipe-sweep function, is used directly instead of `Sketch.sweepSketch`'s own
+ * `(plane, origin)` callback convenience, which turned out to not honour a supplied plane the
+ * way its own types suggest (empirically, every attempt through it produced a sweep aligned
+ * to a fixed axis regardless of the path actually given to it) — worth another look someday,
+ * but not blocking on understanding why once a lower-level path this function fully controls
+ * itself produces a correct result.
+ */
+function buildSweepSolid(profileSketch: Sketch, pathSketch: Sketch): Solid | null {
+  const regions = profileRegions(profileSketch);
+  if (!regions) return null;
 
-  const pathDir = worldEnd.clone().sub(worldStart).normalize();
-  const perpendicular = perpendicularTo(pathDir);
-  const origin: [number, number, number] = [worldStart.x, worldStart.y, worldStart.z];
-  const pathDirArray: [number, number, number] = [pathDir.x, pathDir.y, pathDir.z];
+  const pathPoints = sweepPathPoints(pathSketch);
+  if (!pathPoints) return null;
+
+  const worldPoints = pathPoints.map((point) => sketchToWorld(pathSketch.planeId, point.x, point.y));
+  const tangent = worldPoints[1].clone().sub(worldPoints[0]).normalize();
+  if (tangent.lengthSq() < 1e-12) return null;
+
+  const perpendicular = perpendicularTo(tangent);
+  const origin: [number, number, number] = [worldPoints[0].x, worldPoints[0].y, worldPoints[0].z];
+  const tangentArray: [number, number, number] = [tangent.x, tangent.y, tangent.z];
   const perpendicularArray: [number, number, number] = [perpendicular.x, perpendicular.y, perpendicular.z];
 
-  const spinePlane = new Plane(origin, pathDirArray, perpendicularArray);
-  const spineWire = (draw().lineTo([length, 0]).done().sketchOnPlane(spinePlane) as unknown as { wire: unknown })
-    .wire;
+  const pathPlane = replicadPlaneFor(pathSketch.planeId);
+  const pathDrawing =
+    pathPoints.length === 2
+      ? draw([pathPoints[0].x, pathPoints[0].y])
+          .lineTo([pathPoints[1].x, pathPoints[1].y])
+          .done()
+      : drawPointsInterpolation(pathPoints.map((point): [number, number] => [point.x, point.y]));
+  const spineWire = (pathDrawing.sketchOnPlane(pathPlane) as unknown as { wire: unknown }).wire;
 
-  const profilePlane = new Plane(origin, perpendicularArray, pathDirArray);
+  const profilePlane = new Plane(origin, perpendicularArray, tangentArray);
   const profileWire = (drawRegion(regions.outer).sketchOnPlane(profilePlane) as unknown as { wire: unknown })
     .wire;
 
@@ -618,14 +650,14 @@ export async function rebuildDocument(
     if (feature.kind === "sweep" || feature.kind === "cut-sweep") {
       const [profileId, pathId] = feature.parents.filter((parent) => sketches[parent]);
       if (!profileId || !pathId) {
-        errors[feature.id] = "Select a profile sketch and a path sketch (with a construction line) to sweep";
+        errors[feature.id] = "Select a profile sketch and a path sketch (with a spline or construction line) to sweep";
         continue;
       }
 
       try {
         const solid = buildSweepSolid(sketches[profileId], sketches[pathId]);
         if (!solid) {
-          errors[feature.id] = "The profile needs a closed loop and the path sketch needs a construction line";
+          errors[feature.id] = "The profile needs a closed loop and the path sketch needs a spline or construction line";
           continue;
         }
 

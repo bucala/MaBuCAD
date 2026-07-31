@@ -5,6 +5,22 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — Sweep along a curved path (spline), not just a straight one
+
+### Added
+- A Sweep/Cut-Sweep's path can now be a spline, not just a construction line — the path
+  sketch's points are interpolated into a curve (`drawPointsInterpolation`) and embedded via
+  the same true-world-coordinates approach the straight-line path already used, with the
+  profile positioned perpendicular to the curve's start tangent (approximated as the
+  direction from the path's first point to its second — exact for a straight path, a
+  reasonable estimate for a curved one). This is what makes a sweep worth having as a
+  distinct feature rather than just a fancier extrude: springs, handles, and pipes with
+  bends are now genuinely reachable, not just straight tubes at an arbitrary angle.
+- Unlike the straight-line path, the spline does not need to be a *construction* spline —
+  `profileRegions()` never uses splines for a boss/cut profile boundary either way (its
+  closed-loop walk only looks at line/arc edges), so there is no ordinary meaning for a
+  spline to be "taken away from" the way a line could otherwise mean a real profile edge.
+
 ## 2026-07-31 — Sweep and Cut-Sweep: real 3D paths, correcting an earlier "deferred"
 
 The previous entry deferred Sweep/Cut-Sweep, having concluded from a `Sketch.sweepSketch()`
