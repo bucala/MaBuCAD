@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { X } from "lucide-react";
 
 import { runExportSettings, runImportSettings } from "@/commands/settingsIO";
+import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { useDocumentStore } from "@/state/documentStore";
 import { ACCENT_PRESETS, useSettingsStore, type ThemePreference } from "@/state/settingsStore";
 import { useViewportStore } from "@/state/viewportStore";
@@ -17,7 +18,7 @@ const UNIT_SYSTEMS: UnitSystem[] = [
   { id: "IPS", label: "IPS", description: "Inch, pound, second" },
 ];
 
-const TABS = ["General", "Display", "Sketch", "File"] as const;
+const TABS = ["General", "Colours", "Display", "Sketch", "File"] as const;
 type TabId = (typeof TABS)[number];
 
 /** Toggle-button row shared by every tab. */
@@ -49,13 +50,89 @@ function ToggleRow<T extends string>({
 }
 
 function GeneralTab() {
+  const confirmBeforeDiscard = useSettingsStore((state) => state.confirmBeforeDiscard);
+  const setConfirmBeforeDiscard = useSettingsStore((state) => state.setConfirmBeforeDiscard);
+  const resetToDefaults = useSettingsStore((state) => state.resetToDefaults);
+
+  return (
+    <>
+      <div className={styles.section}>
+        <span className={styles.sectionTitle}>Prompting</span>
+        <label className={styles.checkboxField}>
+          <input
+            type="checkbox"
+            checked={confirmBeforeDiscard}
+            onChange={(event) => setConfirmBeforeDiscard(event.target.checked)}
+          />
+          Confirm before discarding unsaved changes (New / Open)
+        </label>
+      </div>
+
+      <div className={styles.section}>
+        <button type="button" className={styles.footerButton} onClick={resetToDefaults}>
+          Reset to Defaults
+        </button>
+      </div>
+    </>
+  );
+}
+
+// Mirrors `SolidModel.tsx`'s own hardcoded fallbacks — shown as the swatch's resting
+// colour whenever the matching override is `null` ("Automatic").
+const AUTO_MODEL_COLOR = { light: "#c9d4e0", dark: "#b8c4d0" };
+const AUTO_MODEL_EDGE_COLOR = { light: "#2b3138", dark: "#1b1f24" };
+
+/** A colour swatch backed by a native colour picker, with a button to fall back to the
+ * app's own automatic (theme-matched) default — used for every override in this tab that
+ * isn't one of the fixed `ACCENT_PRESETS` swatches. */
+function ColorField({
+  label,
+  hint,
+  value,
+  autoValue,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: string | null;
+  autoValue: string;
+  onChange: (hex: string | null) => void;
+}) {
+  return (
+    <div className={styles.section}>
+      <span className={styles.sectionTitle}>{label}</span>
+      <div className={styles.colorFieldRow}>
+        <input
+          type="color"
+          className={styles.colorInput}
+          value={value ?? autoValue}
+          aria-label={label}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button
+          type="button"
+          className={styles.footerButton}
+          disabled={value === null}
+          onClick={() => onChange(null)}
+        >
+          Automatic
+        </button>
+      </div>
+      <p className={styles.sectionHint}>{hint}</p>
+    </div>
+  );
+}
+
+function ColoursTab() {
+  const isDark = useIsDarkTheme();
   const theme = useSettingsStore((state) => state.theme);
   const setTheme = useSettingsStore((state) => state.setTheme);
   const accentColor = useSettingsStore((state) => state.accentColor);
   const setAccentColor = useSettingsStore((state) => state.setAccentColor);
-  const confirmBeforeDiscard = useSettingsStore((state) => state.confirmBeforeDiscard);
-  const setConfirmBeforeDiscard = useSettingsStore((state) => state.setConfirmBeforeDiscard);
-  const resetToDefaults = useSettingsStore((state) => state.resetToDefaults);
+  const modelColor = useSettingsStore((state) => state.modelColor);
+  const setModelColor = useSettingsStore((state) => state.setModelColor);
+  const modelEdgeColor = useSettingsStore((state) => state.modelEdgeColor);
+  const setModelEdgeColor = useSettingsStore((state) => state.setModelEdgeColor);
 
   return (
     <>
@@ -94,23 +171,21 @@ function GeneralTab() {
         </p>
       </div>
 
-      <div className={styles.section}>
-        <span className={styles.sectionTitle}>Prompting</span>
-        <label className={styles.checkboxField}>
-          <input
-            type="checkbox"
-            checked={confirmBeforeDiscard}
-            onChange={(event) => setConfirmBeforeDiscard(event.target.checked)}
-          />
-          Confirm before discarding unsaved changes (New / Open)
-        </label>
-      </div>
+      <ColorField
+        label="Model Colour"
+        hint="The shaded solid's surface colour. Automatic picks a neutral grey tuned for the current theme."
+        value={modelColor}
+        autoValue={isDark ? AUTO_MODEL_COLOR.dark : AUTO_MODEL_COLOR.light}
+        onChange={setModelColor}
+      />
 
-      <div className={styles.section}>
-        <button type="button" className={styles.footerButton} onClick={resetToDefaults}>
-          Reset to Defaults
-        </button>
-      </div>
+      <ColorField
+        label="Model Edge Colour"
+        hint="The B-Rep edge overlay drawn on top of the solid in Shaded with Edges and Wireframe."
+        value={modelEdgeColor}
+        autoValue={isDark ? AUTO_MODEL_EDGE_COLOR.dark : AUTO_MODEL_EDGE_COLOR.light}
+        onChange={setModelEdgeColor}
+      />
     </>
   );
 }
@@ -277,6 +352,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
 
         <div className={styles.body}>
           {activeTab === "General" && <GeneralTab />}
+          {activeTab === "Colours" && <ColoursTab />}
           {activeTab === "Display" && <DisplayTab />}
           {activeTab === "Sketch" && <SketchTab />}
           {activeTab === "File" && <FileTab />}

@@ -47,6 +47,14 @@ interface SettingsValues {
    * width, added straight onto `material.linewidth` (`RaycasterTuning.tsx`) — was a
    * hardcoded constant in `Viewport.tsx`'s `Canvas` `onCreated` callback. */
   linePickTolerance: number;
+  /** Solid material colour override; `null` keeps `SolidModel.tsx`'s own light/dark
+   * default (a neutral grey chosen to read well against either skin). Unlike
+   * `accentColor`, this is genuinely optional — most users never need to move off the
+   * default, so there is no preset row, just a colour picker and a way back to auto. */
+  modelColor: string | null;
+  /** B-Rep edge overlay colour override — same `null`-is-automatic convention as
+   * `modelColor`. Matches SolidWorks' "Model Edge Color" option in Display Appearance. */
+  modelEdgeColor: string | null;
 }
 
 interface SettingsStore extends SettingsValues {
@@ -55,6 +63,8 @@ interface SettingsStore extends SettingsValues {
   setConfirmBeforeDiscard: (value: boolean) => void;
   setSnapTolerance: (value: number) => void;
   setLinePickTolerance: (value: number) => void;
+  setModelColor: (hex: string | null) => void;
+  setModelEdgeColor: (hex: string | null) => void;
   /** Replaces every value at once — what Import Settings uses, so an imported file fully
    * determines the result rather than merging over whatever was already set. */
   replaceAll: (values: SettingsValues) => void;
@@ -67,6 +77,8 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   confirmBeforeDiscard: true,
   snapTolerance: 2.5,
   linePickTolerance: 6,
+  modelColor: null,
+  modelEdgeColor: null,
 };
 
 /**
@@ -89,6 +101,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setConfirmBeforeDiscard: (confirmBeforeDiscard) => set({ confirmBeforeDiscard }),
       setSnapTolerance: (value) => set({ snapTolerance: Math.max(0.5, value) }),
       setLinePickTolerance: (value) => set({ linePickTolerance: Math.max(1, value) }),
+      setModelColor: (hex) => set({ modelColor: hex }),
+      setModelEdgeColor: (hex) => set({ modelEdgeColor: hex }),
       replaceAll: (values) => set(values),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),

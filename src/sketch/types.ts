@@ -21,6 +21,16 @@ export interface LineEntity {
   start: string;
   end: string;
   construction: boolean;
+  /**
+   * A construction line specifically marked as a revolve/rotation axis (drawn dash-dot,
+   * the CAD convention for centrelines) — always also `construction: true`, so it is
+   * excluded from a profile the same way any construction line already is. The distinction
+   * from a plain construction line only matters to `revolveAxis()` in `kernel/rebuild.ts`:
+   * when a sketch has one, it is preferred over "just the first construction line", which
+   * is ambiguous the moment a sketch also uses a construction line for something else
+   * (a mirror axis, an offset reference).
+   */
+  isAxis?: boolean;
 }
 
 export interface CircleEntity {

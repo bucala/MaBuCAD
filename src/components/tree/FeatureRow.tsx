@@ -12,6 +12,9 @@ interface FeatureRowProps {
   isSelected: boolean;
   isRolledBack: boolean;
   isHidden: boolean;
+  /** Number of other features that reference this one as input (a sketch consumed by
+   * more than one extrude/revolve/etc, for example) — 0 for anything not reused. */
+  usedByCount: number;
   onSelect: (id: string, additive: boolean) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
@@ -28,6 +31,7 @@ export function FeatureRow({
   isSelected,
   isRolledBack,
   isHidden,
+  usedByCount,
   onSelect,
   onRename,
   onDelete,
@@ -119,6 +123,11 @@ export function FeatureRow({
         <button
           type="button"
           className={styles.rowInner}
+          title={
+            feature.kind === "sketch"
+              ? "Select, then run a Feature command to use this sketch as its input — the same sketch can feed more than one feature"
+              : undefined
+          }
           onClick={(event) => onSelect(feature.id, event.ctrlKey || event.metaKey)}
           onDoubleClick={() => {
             // A sketch is edited on double-click, matching SolidWorks; renaming it still
@@ -139,6 +148,15 @@ export function FeatureRow({
       {feature.error && (
         <span className={styles.errorBadge} title={feature.error}>
           <CircleAlert size={13} />
+        </span>
+      )}
+
+      {usedByCount > 0 && (
+        <span
+          className={styles.usageBadge}
+          title={`Used as input by ${usedByCount} feature${usedByCount === 1 ? "" : "s"}`}
+        >
+          {usedByCount}
         </span>
       )}
 

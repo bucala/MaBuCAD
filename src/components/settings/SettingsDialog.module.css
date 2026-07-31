@@ -186,6 +186,21 @@
   font-size: var(--font-size-caption);
 }
 
+.colorFieldRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.colorInput {
+  width: 40px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+}
+
 .numberInput {
   width: 90px;
   height: 28px;

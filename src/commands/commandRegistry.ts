@@ -306,7 +306,11 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "sketch.new": beginSketch,
   "sketch.exit": () => useSketchStore.getState().exitSketch(),
 
-  "dimension.smart": () => useSketchStore.getState().applySmartDimension(),
+  // Arms the tool rather than dimensioning the current selection once: Smart Dimension
+  // stays active across clicks (see SketchGeometry.tsx/SketchDimensions.tsx's own
+  // handling of the "smart-dimension" tool), the same "stays armed until you pick
+  // something else" convention every drawing tool already follows.
+  "dimension.smart": () => useSketchStore.getState().setTool("smart-dimension"),
   "dimension.ordinate": () => useSketchStore.getState().applyOrdinateDimension("both"),
   "dimension.horizontal-ordinate": () => useSketchStore.getState().applyOrdinateDimension("x"),
   "dimension.vertical-ordinate": () => useSketchStore.getState().applyOrdinateDimension("y"),

@@ -75,7 +75,8 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
 
   const isDrawingTool =
     tool === "line" || tool === "rectangle" || tool === "circle" ||
-    tool === "spline" || tool === "construction-line" || tool === "point" || tool === "arc";
+    tool === "spline" || tool === "construction-line" || tool === "axis-line" ||
+    tool === "point" || tool === "arc";
 
   /** Converts an event to sketch coordinates, snapping to a nearby existing point. */
   const toSketch = (event: ThreeEvent<PointerEvent | MouseEvent>): Point2 => {
@@ -158,7 +159,8 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     switch (tool) {
       case "line":
       case "construction-line":
-        drawLine(anchor, position, tool === "construction-line");
+      case "axis-line":
+        drawLine(anchor, position, tool === "construction-line" || tool === "axis-line", tool === "axis-line");
         // Chain from the endpoint so a profile is drawn in one continuous gesture.
         setAnchor(position);
         break;
@@ -277,7 +279,7 @@ function buildPreview(
 
   if (!anchor || !cursor) return [];
 
-  if (tool === "line" || tool === "construction-line") {
+  if (tool === "line" || tool === "construction-line" || tool === "axis-line") {
     return [
       [anchor.x, anchor.y, 0.01],
       [cursor.x, cursor.y, 0.01],

@@ -4,11 +4,13 @@ import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
+import { useViewportStore } from "@/state/viewportStore";
 
 import { CadControls } from "../controls/CadControls";
 import { SolidModel } from "../model/SolidModel";
 import { SketchScene } from "../sketch/SketchScene";
 import { CameraRig, type ProjectionMode } from "./CameraRig";
+import { InactiveSketches } from "./InactiveSketches";
 import { Origin } from "./Origin";
 import { RaycasterTuning } from "./RaycasterTuning";
 import { ReferencePlanes } from "./ReferencePlanes";
@@ -29,6 +31,7 @@ interface SceneProps {
 export function Scene({ projection }: SceneProps) {
   const isDark = useIsDarkTheme();
   const isSketchMode = useSketchStore(selectIsSketchMode);
+  const gridVisible = useViewportStore((state) => state.gridVisible);
   const accent = useSceneAccentColor();
 
   return (
@@ -47,9 +50,10 @@ export function Scene({ projection }: SceneProps) {
 
       {/* The ground grid competes with the sketch's own in-plane grid, so it steps
           aside while a sketch is open. */}
-      {!isSketchMode && <ViewportGrid />}
+      {!isSketchMode && gridVisible && <ViewportGrid />}
       <ReferencePlanes />
       <UserReferenceGeometry />
+      <InactiveSketches />
       <Origin />
       <SolidModel />
       {isSketchMode && <SketchScene />}

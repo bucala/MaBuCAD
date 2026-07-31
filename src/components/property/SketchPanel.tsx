@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import {
   AlignHorizontalJustifyCenter,
   Anchor,
+  Axis3D,
   Circle,
   CircleDashed,
   CircleDot,
@@ -23,6 +23,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { DimensionValueField } from "@/components/shared/DimensionValueField";
 import type { GeometricConstraintKind } from "@/sketch/types";
 import {
   selectActiveSketch,
@@ -35,7 +36,6 @@ import styles from "./SketchPanel.module.css";
 
 const TOOLS: { id: SketchTool; label: string; icon: LucideIcon }[] = [
   { id: "select", label: "Select", icon: MousePointer2 },
-  { id: "line", label: "Line", icon: Minus },
   { id: "rectangle", label: "Rectangle", icon: Square },
   { id: "circle", label: "Circle", icon: Circle },
   { id: "arc", label: "Arc", icon: CircleDashed },
@@ -44,6 +44,19 @@ const TOOLS: { id: SketchTool; label: string; icon: LucideIcon }[] = [
   { id: "point", label: "Point", icon: CircleDot },
   { id: "trim", label: "Trim", icon: Scissors },
 ];
+
+/**
+ * The Line button cycles through three line variants on repeated clicks rather than each
+ * getting its own button — Construction still has its own dedicated entry in `TOOLS` above
+ * for direct access, this is just a second, faster path to it (and the only path to Axis
+ * Line, which doesn't get a dedicated button of its own to avoid crowding the grid further).
+ */
+const LINE_CYCLE = ["line", "construction-line", "axis-line"] as const satisfies readonly SketchTool[];
+const LINE_CYCLE_META: Record<(typeof LINE_CYCLE)[number], { label: string; icon: LucideIcon }> = {
+  line: { label: "Line", icon: Minus },
+  "construction-line": { label: "Construction", icon: Route },
+  "axis-line": { label: "Axis Line", icon: Axis3D },
+};
 
 const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideIcon; hint: string }[] = [
   { kind: "horizontal", label: "Horizontal", icon: MoveHorizontal, hint: "Select one or more lines" },
@@ -61,16 +74,25 @@ const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideI
  * Property manager contents while a sketch is open: tools, constraints, dimensioning and
  * the list of driving dimensions.
  */
+function isLineCycleTool(tool: SketchTool): tool is (typeof LINE_CYCLE)[number] {
+  return (LINE_CYCLE as readonly SketchTool[]).includes(tool);
+}
+
 export function SketchPanel() {
   const sketch = useSketchStore(selectActiveSketch);
   const tool = useSketchStore((state) => state.tool);
   const setTool = useSketchStore((state) => state.setTool);
   const selection = useSketchStore((state) => state.selection);
+  const lineCycleMeta = LINE_CYCLE_META[isLineCycleTool(tool) ? tool : "line"];
+  const LineIcon = lineCycleMeta.icon;
+  const cycleLineTool = () => {
+    const index = isLineCycleTool(tool) ? LINE_CYCLE.indexOf(tool) : -1;
+    setTool(LINE_CYCLE[(index + 1) % LINE_CYCLE.length]);
+  };
   const diagnostics = useSketchStore((state) => state.diagnostics);
   const isClosed = useSketchStore(selectProfileClosed);
 
   const applyConstraint = useSketchStore((state) => state.applyConstraint);
-  const applySmartDimension = useSketchStore((state) => state.applySmartDimension);
   const applyOrdinateDimension = useSketchStore((state) => state.applyOrdinateDimension);
   const setDimensionValue = useSketchStore((state) => state.setDimensionValue);
   const deleteDimension = useSketchStore((state) => state.deleteDimension);
@@ -92,6 +114,16 @@ export function SketchPanel() {
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>Tools</h3>
           <div className={styles.toolGrid}>
+            <button
+              type="button"
+              className={styles.toolButton}
+              aria-pressed={isLineCycleTool(tool)}
+              title="Click to cycle: Line -> Construction -> Axis Line"
+              onClick={cycleLineTool}
+            >
+              <LineIcon size={14} strokeWidth={1.75} />
+              {lineCycleMeta.label}
+            </button>
             {TOOLS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -138,9 +170,9 @@ export function SketchPanel() {
             <button
               type="button"
               className={styles.toolButton}
-              title="Infer a length, radius or angle from the selection"
-              disabled={selection.length === 0}
-              onClick={applySmartDimension}
+              aria-pressed={tool === "smart-dimension"}
+              title="Click elements in the viewport to dimension them — stays active until you pick another tool"
+              onClick={() => setTool(tool === "smart-dimension" ? "select" : "smart-dimension")}
             >
               <Ruler size={14} strokeWidth={1.75} />
               Smart
@@ -237,60 +269,3 @@ const DIMENSION_LABEL: Record<string, string> = {
   "ordinate-y": "Ordinate Y",
 };
 
-/** Accepts either "." or "," as the decimal separator — a plain `Number()` call rejects
- * a comma outright, and a comma is the ordinary decimal key on most non-US keyboard
- * layouts (Slovak included), which made this field impossible to type into at all. */
-function parseLocaleNumber(text: string): number {
-  return Number(text.trim().replace(",", "."));
-}
-
-/**
- * A driving dimension's editable value.
- *
- * Not a plain `<input type="number">` bound straight to the store for two reasons: that
- * type rejects a typed comma outright on some locales, and even where it doesn't, binding
- * `value` straight to the store echoes the parsed number back on every keystroke — typing
- * "55." only for the trailing dot to vanish immediately (re-rendered from the number 55)
- * makes it impossible to ever type a fractional value one character at a time. Local text
- * state keeps exactly what was typed on screen; it only snaps back to the store's value
- * when that value changed for some other reason (undo, another field, a drag) — detected
- * by comparing the parse of the current text against the incoming value rather than a
- * blur/focus flag, so a programmatic `.fill()` (no real focus event) still commits.
- */
-function DimensionValueField({
-  dimensionId,
-  value,
-  label,
-  onCommit,
-}: {
-  dimensionId: string;
-  value: number;
-  label: string;
-  onCommit: (dimensionId: string, value: number) => void;
-}) {
-  const [text, setText] = useState(() => String(value));
-
-  useEffect(() => {
-    if (parseLocaleNumber(text) !== value) setText(String(value));
-    // Only react to the store's value changing — re-running this because `text` itself
-    // changed would fight every keystroke instead of only resyncing external updates.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  return (
-    <input
-      className={styles.dimensionInput}
-      type="text"
-      inputMode="decimal"
-      aria-label={label}
-      data-dimension-input={dimensionId}
-      value={text}
-      onChange={(event) => {
-        const raw = event.target.value;
-        setText(raw);
-        const parsed = parseLocaleNumber(raw);
-        if (Number.isFinite(parsed)) onCommit(dimensionId, parsed);
-      }}
-    />
-  );
-}
