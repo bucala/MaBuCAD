@@ -65,8 +65,8 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
   sweep: {
     namePrefix: "Sweep",
     icon: Waves,
-    description: "Sweeps a profile along a path",
-    defaultParameters: {},
+    description: "Sweeps a profile along a straight path from another sketch's construction line",
+    defaultParameters: { operation: "join" },
   },
   loft: {
     namePrefix: "Loft",
@@ -90,8 +90,8 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
   "cut-sweep": {
     namePrefix: "Cut-Sweep",
     icon: Route,
-    description: "Removes material along a path",
-    defaultParameters: {},
+    description: "Removes material by sweeping a profile along a straight path",
+    defaultParameters: { operation: "cut" },
   },
   hole: {
     namePrefix: "Hole",

@@ -1,6 +1,7 @@
-import { draw, drawCircle, FaceFinder } from "replicad";
+import { draw, drawCircle, FaceFinder, genericSweep, Plane } from "replicad";
+import { Vector3 } from "three";
 
-import { planeBasis } from "@/sketch/planeBasis";
+import { planeBasis, sketchToWorld } from "@/sketch/planeBasis";
 import { pointById } from "@/sketch/sketchModel";
 import type { LineEntity, PointEntity, Sketch } from "@/sketch/types";
 import type { EndCondition, Feature } from "@/types/document";
@@ -388,6 +389,71 @@ function buildLoftSolid(sketches: Sketch[], feature: Feature): Solid | null {
   return (base as unknown as { loftWith: (others: unknown[]) => Solid }).loftWith(rest);
 }
 
+/** Any world vector not parallel to `direction`, for building a stable perpendicular basis. */
+function perpendicularTo(direction: Vector3): Vector3 {
+  const helper = Math.abs(direction.x) < 0.9 ? new Vector3(1, 0, 0) : new Vector3(0, 1, 0);
+  return new Vector3().crossVectors(direction, helper).normalize();
+}
+
+/**
+ * Builds a sweep: `profileSketch`'s outer profile, extruded along the straight path defined
+ * by `pathSketch`'s first construction line.
+ *
+ * Unlike every other sketch-based feature here, this does not build everything in one
+ * sketch's own local-XY space and rotate the result for display afterward — a sweep whose
+ * path leaves the profile's own plane is the entire point of the feature (an extrude already
+ * covers "sweep along the profile plane's own normal"). Both the profile and the path are
+ * instead embedded directly in true world coordinates computed by this function itself
+ * (`sketchToWorld`, the same conversion the sketch editor's own click handling uses), each on
+ * an explicit `Plane` this function builds by hand — the profile perpendicular to the path at
+ * its start point (the plane's normal *is* the sweep direction, the standard convention a
+ * pipe/sweep needs), the path along its own local +X so a single 0..length line traces it
+ * exactly. `genericSweep`, replicad's lower-level pipe-sweep function, is used directly
+ * instead of `Sketch.sweepSketch`'s own `(plane, origin)` callback convenience, which turned
+ * out to not honour a supplied plane the way its own types suggest (empirically, every
+ * attempt through it produced a sweep aligned to a fixed axis regardless of the path actually
+ * given to it) — worth another look someday, but not blocking on understanding why once a
+ * lower-level path that this function fully controls itself produces a correct result.
+ *
+ * The path is deliberately just a straight line for now — a curved path (a construction
+ * spline) needs its own wire-building code this doesn't have yet, a follow-up the same as the
+ * other scope notes in this area.
+ */
+function buildSweepSolid(profileSketch: Sketch, pathSketch: Sketch): Solid | null {
+  const regions = profileRegions(profileSketch);
+  if (!regions) return null;
+
+  const axisLine = pathSketch.entities.find(
+    (entity): entity is LineEntity => entity.kind === "line" && entity.construction,
+  );
+  if (!axisLine) return null;
+
+  const localStart = pointById(pathSketch, axisLine.start);
+  const localEnd = pointById(pathSketch, axisLine.end);
+  if (!localStart || !localEnd) return null;
+
+  const worldStart = sketchToWorld(pathSketch.planeId, localStart.x, localStart.y);
+  const worldEnd = sketchToWorld(pathSketch.planeId, localEnd.x, localEnd.y);
+  const length = worldStart.distanceTo(worldEnd);
+  if (length < 1e-6) return null;
+
+  const pathDir = worldEnd.clone().sub(worldStart).normalize();
+  const perpendicular = perpendicularTo(pathDir);
+  const origin: [number, number, number] = [worldStart.x, worldStart.y, worldStart.z];
+  const pathDirArray: [number, number, number] = [pathDir.x, pathDir.y, pathDir.z];
+  const perpendicularArray: [number, number, number] = [perpendicular.x, perpendicular.y, perpendicular.z];
+
+  const spinePlane = new Plane(origin, pathDirArray, perpendicularArray);
+  const spineWire = (draw().lineTo([length, 0]).done().sketchOnPlane(spinePlane) as unknown as { wire: unknown })
+    .wire;
+
+  const profilePlane = new Plane(origin, perpendicularArray, pathDirArray);
+  const profileWire = (drawRegion(regions.outer).sketchOnPlane(profilePlane) as unknown as { wire: unknown })
+    .wire;
+
+  return genericSweep(profileWire as never, spineWire as never, {});
+}
+
 /** How a feature's own solid combines with whatever body already exists. */
 type BooleanOperation = "join" | "cut" | "intersect";
 
@@ -545,6 +611,37 @@ export async function rebuildDocument(
         current = applyOperation(current, solid, "join");
       } catch (error) {
         errors[feature.id] = error instanceof Error ? error.message : "Loft failed";
+      }
+      continue;
+    }
+
+    if (feature.kind === "sweep" || feature.kind === "cut-sweep") {
+      const [profileId, pathId] = feature.parents.filter((parent) => sketches[parent]);
+      if (!profileId || !pathId) {
+        errors[feature.id] = "Select a profile sketch and a path sketch (with a construction line) to sweep";
+        continue;
+      }
+
+      try {
+        const solid = buildSweepSolid(sketches[profileId], sketches[pathId]);
+        if (!solid) {
+          errors[feature.id] = "The profile needs a closed loop and the path sketch needs a construction line";
+          continue;
+        }
+
+        // Both sketches are already embedded in true world coordinates (see
+        // `buildSweepSolid`'s own note), so unlike every other sketch-based feature there is
+        // no cosmetic display rotation left to apply.
+        rotation = [0, 0, 0];
+        const operation: BooleanOperation = feature.parameters.operation ?? (feature.kind === "cut-sweep" ? "cut" : "join");
+        featureSolids.set(feature.id, { solid, operation });
+        if (operation !== "join" && !current) {
+          errors[feature.id] = "Nothing to cut: add a boss feature first";
+          continue;
+        }
+        current = applyOperation(current, solid, operation);
+      } catch (error) {
+        errors[feature.id] = error instanceof Error ? error.message : "Sweep failed";
       }
       continue;
     }

@@ -151,6 +151,32 @@ function addLoftFeature() {
   documentState.addFeature("loft", undefined, sketchIds);
 }
 
+/**
+ * Creates a Sweep or Cut-Sweep feature from two sketches: a profile (the cross-section) and
+ * a path (a construction line marking the sweep direction) — resolved the same way
+ * `addLoftFeature` resolves its list, except order matters here (`parents[0]` is always the
+ * profile, `parents[1]` the path), so this keeps selection order rather than sorting it.
+ */
+function addSweepFeature(kind: "sweep" | "cut-sweep") {
+  const documentState = useDocumentStore.getState();
+  const { sketches } = useSketchStore.getState();
+  const { features, rollbackIndex } = documentState.document;
+  const isUsableSketch = (id: string) =>
+    features.some((feature) => feature.id === id && feature.kind === "sketch") && sketches[id];
+
+  const selected = documentState.selectedFeatureIds.filter(isUsableSketch);
+  const sketchIds =
+    selected.length >= 2
+      ? selected
+      : features
+          .slice(0, rollbackIndex)
+          .filter((feature) => isUsableSketch(feature.id))
+          .map((feature) => feature.id)
+          .slice(-2);
+
+  documentState.addFeature(kind, undefined, sketchIds);
+}
+
 /** Feature kinds the kernel builds real geometry for — what a pattern or mirror can target. */
 const MODELLING_KINDS: ReadonlySet<Feature["kind"]> = new Set([
   "extrude",
@@ -235,6 +261,8 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "feature.cut-revolve": () => addSketchFeature("cut-revolve"),
   "feature.hole-wizard": addHoleFeature,
   "feature.loft": addLoftFeature,
+  "feature.sweep": () => addSweepFeature("sweep"),
+  "feature.cut-sweep": () => addSweepFeature("cut-sweep"),
 
   "feature.linear-pattern": () => addPatternFeature("linear-pattern"),
   "feature.circular-pattern": () => addPatternFeature("circular-pattern"),

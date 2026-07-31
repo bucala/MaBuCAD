@@ -5,6 +5,44 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — Sweep and Cut-Sweep: real 3D paths, correcting an earlier "deferred"
+
+The previous entry deferred Sweep/Cut-Sweep, having concluded from a `Sketch.sweepSketch()`
+attempt that produced a sweep seemingly always aligned to one fixed world axis regardless of
+the path it was given — misdiagnosed as an architectural blocker. Re-examining it: the
+diagnostic screenshots that led to that conclusion were all taken from an orbited camera angle
+that, it turns out, foreshortens world X into something that reads as "vertical" at a glance;
+comparing against the scene's own origin axis colours (and a straight default Front view)
+showed the earlier attempt was probably already positioning things correctly, just impossible
+to *tell* from the angle chosen to look at it. Rewritten regardless, on a lower-level API this
+session had more confidence reasoning about precisely, and confirmed correct from multiple
+camera angles and two independent path directions this time.
+
+### Added
+- **Sweep and Cut-Sweep** now build a real swept solid: `profileSketch`'s outer profile,
+  extruded along the straight path defined by a second sketch's first construction line.
+  Both sketches are embedded directly in true world coordinates (via `sketchToWorld`, the
+  same conversion the sketch editor's own click handling uses) rather than the "build in one
+  plane's local space, rotate the whole result for display afterward" shortcut every other
+  sketch-based feature here relies on — a sweep whose path leaves the profile's own plane is
+  the entire point of the feature (an extrude already covers "along the profile plane's own
+  normal"), so this one constructs its own explicit `replicad.Plane` for the profile
+  (perpendicular to the path at its start, the standard convention a pipe/sweep needs) and
+  for the path itself, then calls replicad's lower-level `genericSweep(profileWire, spineWire)`
+  directly instead of `Sketch.sweepSketch()`'s convenience wrapper.
+- Selecting two sketches (Ctrl/Cmd-click, like Loft) before Swept Boss/Swept Cut uses that
+  selection as profile + path in click order; with fewer than two selected it falls back to
+  the two most recent sketches above the rollback bar, same convention as Loft.
+- `sweep`/`cut-sweep` join `GEOMETRY_FEATURE_KINDS`.
+
+### Scope, documented rather than silently assumed
+The path is still just a straight line — a curved path (a construction spline) needs its own
+wire-building code this doesn't have yet, the same kind of follow-up already noted for a
+tapped hole's cosmetic-only thread. Rib and Boundary remain unimplemented: Rib needs genuine
+face-picking (extending an open profile to a nearby face) this app has no UI for yet, and
+Boundary is an advanced loft variant with tangency continuity between sections — a real
+follow-up, not a subset of what Loft already does.
+
 ## 2026-07-31 — Fillet, Chamfer, Shell, Draft and Loft: five more PartDesign features get real geometry
 
 An audit of the Features ribbon (prompted by "check every PartDesign function and revive each
@@ -45,10 +83,9 @@ true world coordinates, with one shared *display* rotation applied at the very e
 loft normally blends profiles positioned on different, parallel, offset planes; this app's
 loft instead spaces them out with a feature parameter, which is an honest, working stand-in
 rather than the real thing, and is exactly why a loft here refuses sketches from different
-planes rather than silently producing a wrong result. Sweep and Cut-Sweep hit the same wall
-harder — a *useful* sweep path almost always leaves the profile's own plane entirely, which
-this architecture cannot yet position correctly — so they stay unimplemented rather than
-shipping a sweep that can only go in the one direction Extrude already covers.
+planes rather than silently producing a wrong result. (Sweep and Cut-Sweep, which sounded like
+they would hit the same wall even harder, turned out not to — see the entry above, which
+corrects the original version of this note.)
 
 ### Fixed (test only, not the app)
 - `dress-up.mjs`'s Fillet/Chamfer pixel-diff checks were timed to compare a "before" shot
