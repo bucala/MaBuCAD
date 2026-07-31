@@ -127,8 +127,8 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
   rib: {
     namePrefix: "Rib",
     icon: Columns3,
-    description: "Adds a stiffening rib from an open profile",
-    defaultParameters: { thickness: 2 },
+    description: "Adds a stiffening rib along a sketched line",
+    defaultParameters: { thickness: 2, depth: 10, endCondition: "blind" },
   },
 
   "linear-pattern": {

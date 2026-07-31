@@ -323,6 +323,57 @@ function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
 }
 
 /**
+ * Builds a rib: a thin wall extruded from the first non-construction line in the sketch,
+ * thickened symmetrically by `thickness` on either side of that line, then extruded to
+ * `depth`/`endCondition` the same way `buildFeatureSolid` does.
+ *
+ * A real Rib normally extends automatically until it meets the existing body's faces — this
+ * app has no face-picking UI yet to know where those are, so this instead extrudes to an
+ * explicit depth, the same as any other sketch-based feature; the user controls how far the
+ * rib reaches rather than it being inferred. Only a single straight segment is supported for
+ * now, not a connected chain of several — a zigzag rib is a real follow-up, not
+ * fundamentally different, just needing the same multi-segment walk this doesn't have yet.
+ */
+function buildRibSolid(sketch: Sketch, feature: Feature): Solid | null {
+  const line = sketch.entities.find(
+    (entity): entity is LineEntity => entity.kind === "line" && !entity.construction,
+  );
+  if (!line) return null;
+
+  const start = pointById(sketch, line.start);
+  const end = pointById(sketch, line.end);
+  if (!start || !end) return null;
+
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1e-6) return null;
+
+  const halfThickness = Math.max(feature.parameters.thickness ?? 2, 0.05) / 2;
+  const perpX = (-dy / length) * halfThickness;
+  const perpY = (dx / length) * halfThickness;
+
+  const wallProfile = draw([start.x + perpX, start.y + perpY])
+    .lineTo([end.x + perpX, end.y + perpY])
+    .lineTo([end.x - perpX, end.y - perpY])
+    .lineTo([start.x - perpX, start.y - perpY])
+    .close();
+
+  const { distance, offset } = extrusionRange(
+    feature.parameters.endCondition ?? "blind",
+    feature.parameters.depth ?? 10,
+    feature.parameters.reversed ?? false,
+  );
+
+  let solid = wallProfile.sketchOnPlane("XY").extrude(distance) as Solid;
+  if (offset !== 0) {
+    solid = (solid as unknown as { translate: (v: [number, number, number]) => Solid }).translate([0, 0, offset]);
+  }
+
+  return solid;
+}
+
+/**
  * Builds the union of one cylindrical cut per point placed in the hole's sketch — a Hole
  * Wizard feature always cuts (there is no join/intersect for it), and one feature can carry
  * several holes at once the same way a real Hole Wizard places a whole pattern of them from
@@ -678,7 +729,9 @@ export async function rebuildDocument(
       continue;
     }
 
-    if (!isExtrudeKind && !isRevolveKind && !isHoleKind) continue;
+    const isRibKind = feature.kind === "rib";
+
+    if (!isExtrudeKind && !isRevolveKind && !isHoleKind && !isRibKind) continue;
 
     const sketchId = feature.parents.find((parent) => sketches[parent]);
     if (!sketchId) {
@@ -693,13 +746,17 @@ export async function rebuildDocument(
         ? buildRevolveSolid(sketch, feature)
         : isHoleKind
           ? buildHoleSolid(sketch, feature)
-          : buildFeatureSolid(sketch, feature);
+          : isRibKind
+            ? buildRibSolid(sketch, feature)
+            : buildFeatureSolid(sketch, feature);
       if (!solid) {
         errors[feature.id] = isRevolveKind
           ? "The sketch has no closed profile to revolve"
           : isHoleKind
             ? "Place at least one point in the sketch to mark a hole centre"
-            : "The sketch has no closed profile to extrude";
+            : isRibKind
+              ? "Draw a single line in the sketch to mark the rib's path"
+              : "The sketch has no closed profile to extrude";
         continue;
       }
 
@@ -708,8 +765,8 @@ export async function rebuildDocument(
       // Falls back to the feature's own kind for a document/undo-history entry saved
       // before `operation` existed — the cut-* kinds always meant "cut" and the boss
       // kinds always meant "join", so an absent value still resolves to what it already
-      // was rather than silently changing behaviour on old documents. A hole always cuts;
-      // it has no join/intersect choice to begin with.
+      // was rather than silently changing behaviour on old documents. A hole always cuts
+      // and a rib always joins; neither has a join/cut/intersect choice to begin with.
       const operation: BooleanOperation =
         feature.parameters.operation ??
         (isHoleKind || feature.kind === "cut-extrude" || feature.kind === "cut-revolve" ? "cut" : "join");

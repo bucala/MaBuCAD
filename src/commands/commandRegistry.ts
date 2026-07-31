@@ -19,7 +19,6 @@ const FEATURE_COMMANDS: Record<string, FeatureKind> = {
   "feature.chamfer": "chamfer",
   "feature.shell": "shell",
   "feature.draft": "draft",
-  "feature.rib": "rib",
 };
 
 /** Sketch tools, active only while a sketch is open. */
@@ -120,6 +119,13 @@ function addSketchFeature(kind: "extrude" | "cut-extrude" | "revolve" | "cut-rev
 function addHoleFeature() {
   const sketchId = resolveTargetSketchId();
   useDocumentStore.getState().addFeature("hole", undefined, sketchId ? [sketchId] : []);
+}
+
+/** Creates a Rib feature from the target sketch's first non-construction line — the same
+ * sketch-resolution `addSketchFeature`/`addHoleFeature` use. */
+function addRibFeature() {
+  const sketchId = resolveTargetSketchId();
+  useDocumentStore.getState().addFeature("rib", undefined, sketchId ? [sketchId] : []);
 }
 
 /**
@@ -260,6 +266,7 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "feature.revolve": () => addSketchFeature("revolve"),
   "feature.cut-revolve": () => addSketchFeature("cut-revolve"),
   "feature.hole-wizard": addHoleFeature,
+  "feature.rib": addRibFeature,
   "feature.loft": addLoftFeature,
   "feature.sweep": () => addSweepFeature("sweep"),
   "feature.cut-sweep": () => addSweepFeature("cut-sweep"),

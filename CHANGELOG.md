@@ -5,6 +5,23 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-07-31 — Rib: a stiffening wall from a sketched line
+
+### Added
+- **Rib** now builds a real thin wall: the first non-construction line in the target sketch,
+  thickened symmetrically by `thickness` on either side, then extruded to `depth`/
+  `endCondition` the same way any other sketch-based feature is (reusing the existing
+  Direction/Depth/Thickness property-panel fields — all already generic, no new UI needed).
+  Always joins to the existing body; there is no Cut-Rib command to give it a choice.
+
+### Scope, documented rather than silently assumed
+A real Rib normally extends automatically until it meets the body's own faces — this app has
+no face-picking UI yet to know where those are (the same gap blocking selective Fillet/
+Chamfer edges), so the rib's reach is an explicit depth the user sets, same as any extrude.
+Only a single straight segment is supported, not a connected chain of several (a zigzag rib) —
+a real follow-up, not fundamentally different, just needing a multi-segment walk this doesn't
+have yet.
+
 ## 2026-07-31 — Sweep along a curved path (spline), not just a straight one
 
 ### Added
