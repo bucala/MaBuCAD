@@ -55,6 +55,21 @@ interface SettingsValues {
   /** B-Rep edge overlay colour override — same `null`-is-automatic convention as
    * `modelColor`. Matches SolidWorks' "Model Edge Color" option in Display Appearance. */
   modelEdgeColor: string | null;
+  /** Zooms the wheel towards the point under the cursor rather than the viewport centre —
+   * passed straight through to `OrbitControls`' own `zoomToCursor` prop in
+   * `CadControls.tsx`, which already supports exactly this as a boolean. */
+  zoomToCursor: boolean;
+  /** The ViewCube navigation gizmo in the viewport's top-right corner. */
+  viewCubeVisible: boolean;
+  /** The origin axis triad at the intersection of the default planes — a persisted
+   * default, separate from `viewportStore.hiddenFeatureIds`'s per-document override
+   * (the feature tree's own eye icon on the Origin row), matching how SolidWorks keeps
+   * an Application Options default distinct from a document-level visibility toggle. */
+  originIndicatorVisible: boolean;
+  /** X/Y/Z text labels at the end of each origin axis — only drawn while
+   * `originIndicatorVisible` is also on, since a label with no triad to label makes no
+   * sense. */
+  axisLabelsVisible: boolean;
 }
 
 interface SettingsStore extends SettingsValues {
@@ -65,6 +80,10 @@ interface SettingsStore extends SettingsValues {
   setLinePickTolerance: (value: number) => void;
   setModelColor: (hex: string | null) => void;
   setModelEdgeColor: (hex: string | null) => void;
+  toggleZoomToCursor: () => void;
+  toggleViewCubeVisible: () => void;
+  toggleOriginIndicatorVisible: () => void;
+  toggleAxisLabelsVisible: () => void;
   /** Replaces every value at once — what Import Settings uses, so an imported file fully
    * determines the result rather than merging over whatever was already set. */
   replaceAll: (values: SettingsValues) => void;
@@ -79,6 +98,10 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   linePickTolerance: 6,
   modelColor: null,
   modelEdgeColor: null,
+  zoomToCursor: true,
+  viewCubeVisible: true,
+  originIndicatorVisible: true,
+  axisLabelsVisible: true,
 };
 
 /**
@@ -103,6 +126,11 @@ export const useSettingsStore = create<SettingsStore>()(
       setLinePickTolerance: (value) => set({ linePickTolerance: Math.max(1, value) }),
       setModelColor: (hex) => set({ modelColor: hex }),
       setModelEdgeColor: (hex) => set({ modelEdgeColor: hex }),
+      toggleZoomToCursor: () => set((state) => ({ zoomToCursor: !state.zoomToCursor })),
+      toggleViewCubeVisible: () => set((state) => ({ viewCubeVisible: !state.viewCubeVisible })),
+      toggleOriginIndicatorVisible: () =>
+        set((state) => ({ originIndicatorVisible: !state.originIndicatorVisible })),
+      toggleAxisLabelsVisible: () => set((state) => ({ axisLabelsVisible: !state.axisLabelsVisible })),
       replaceAll: (values) => set(values),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),

@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { CatmullRomCurve3, Vector3 } from "three";
 import { Line } from "@react-three/drei";
+import { useThree } from "@react-three/fiber";
 
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { planeBasis } from "@/sketch/planeBasis";
@@ -49,6 +50,15 @@ export function InactiveSketches() {
         ),
     [allFeatures, rollbackIndex, activeSketchId, hiddenFeatureIds, sketches],
   );
+
+  const invalidate = useThree((state) => state.invalidate);
+
+  // `visible` (and the entities it renders) can change from outside this component's own
+  // render loop — Exit Sketch, hide/show, rollback — so under `frameloop="demand"` a
+  // repaint has to be requested explicitly. See `Origin.tsx`'s own note on the same gap.
+  useEffect(() => {
+    invalidate();
+  }, [visible, invalidate]);
 
   return (
     <>

@@ -37,6 +37,10 @@ export async function runExportSettings(): Promise<void> {
     linePickTolerance,
     modelColor,
     modelEdgeColor,
+    zoomToCursor,
+    viewCubeVisible,
+    originIndicatorVisible,
+    axisLabelsVisible,
   } = useSettingsStore.getState();
 
   const payload: SavedSettings = {
@@ -49,6 +53,10 @@ export async function runExportSettings(): Promise<void> {
       linePickTolerance,
       modelColor,
       modelEdgeColor,
+      zoomToCursor,
+      viewCubeVisible,
+      originIndicatorVisible,
+      axisLabelsVisible,
     },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });

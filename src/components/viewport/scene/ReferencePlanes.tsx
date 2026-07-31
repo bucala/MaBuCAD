@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Line } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
+import { useThree } from "@react-three/fiber";
 import { DoubleSide } from "three";
 
 import { selectSelectedPlaneId, useDocumentStore } from "@/state/documentStore";
@@ -59,6 +60,15 @@ export function ReferencePlanes() {
    * even when hidden, same as it does when dimmed for having a solid — the selection
    * needs something to point at. */
   const hiddenFeatureIds = useViewportStore((state) => state.hiddenFeatureIds);
+  const invalidate = useThree((state) => state.invalidate);
+
+  // Hide/Show (from the ribbon or the tree's own eye icon) and "a solid now exists, so
+  // dim back" both originate outside this component's own render loop, so under
+  // `frameloop="demand"` the resulting opacity change needs an explicit repaint — the
+  // canvas would otherwise keep showing the plane's old, now-stale opacity indefinitely.
+  useEffect(() => {
+    invalidate();
+  }, [hiddenFeatureIds, hasSolid, isSketchMode, selectedId, hoveredId, invalidate]);
 
   return (
     <group

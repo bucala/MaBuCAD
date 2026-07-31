@@ -4,6 +4,8 @@ import { useThree } from "@react-three/fiber";
 import { MOUSE } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
+import { useSettingsStore } from "@/state/settingsStore";
+
 import { MAX_ZOOM_DISTANCE, MIN_ZOOM_DISTANCE } from "../constants";
 import { useModifierKeys } from "./useModifierKeys";
 
@@ -13,7 +15,7 @@ import { useModifierKeys } from "./useModifierKeys";
  *   middle drag           orbit
  *   Ctrl  + middle drag   pan
  *   Shift + middle drag   zoom
- *   wheel                 zoom towards the cursor
+ *   wheel                 zoom (towards the cursor, unless Settings ▸ Display turns that off)
  *
  * Left and right buttons are deliberately left unbound: left belongs to entity selection
  * from Step 4, and right opens the context menu.
@@ -22,6 +24,7 @@ export function CadControls() {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const { ctrl, shift } = useModifierKeys();
   const gl = useThree((state) => state.gl);
+  const zoomToCursor = useSettingsStore((state) => state.zoomToCursor);
 
   const mouseButtons = useMemo(() => {
     if (ctrl) {
@@ -61,7 +64,7 @@ export function CadControls() {
       // Inertia feels imprecise when placing geometry, and damping would need a render
       // loop running every frame rather than only on change.
       enableDamping={false}
-      zoomToCursor
+      zoomToCursor={zoomToCursor}
       mouseButtons={mouseButtons}
       minDistance={MIN_ZOOM_DISTANCE}
       maxDistance={MAX_ZOOM_DISTANCE}

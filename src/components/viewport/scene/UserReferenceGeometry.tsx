@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Line } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
+import { useThree } from "@react-three/fiber";
 import { DoubleSide, Vector3 } from "three";
 
 import { planeBasis } from "@/sketch/planeBasis";
@@ -79,6 +80,14 @@ export function UserReferenceGeometry() {
   const isSketchMode = useSketchStore(selectIsSketchMode);
   const hasSolid = useGeometryStore((state) => state.mesh !== null);
   const hiddenFeatureIds = useViewportStore((state) => state.hiddenFeatureIds);
+  const invalidate = useThree((state) => state.invalidate);
+
+  // Same `frameloop="demand"` gap `ReferencePlanes.tsx` fixes for the default planes:
+  // hide/show and the solid appearing both change opacity from outside this component's
+  // own render loop, so a repaint has to be requested explicitly.
+  useEffect(() => {
+    invalidate();
+  }, [features, hiddenFeatureIds, hasSolid, isSketchMode, selectedFeatureIds, hoveredId, invalidate]);
 
   if (features.length === 0) return null;
 

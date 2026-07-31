@@ -196,6 +196,15 @@ function DisplayTab() {
   const linePickTolerance = useSettingsStore((state) => state.linePickTolerance);
   const setLinePickTolerance = useSettingsStore((state) => state.setLinePickTolerance);
 
+  const zoomToCursor = useSettingsStore((state) => state.zoomToCursor);
+  const toggleZoomToCursor = useSettingsStore((state) => state.toggleZoomToCursor);
+  const viewCubeVisible = useSettingsStore((state) => state.viewCubeVisible);
+  const toggleViewCubeVisible = useSettingsStore((state) => state.toggleViewCubeVisible);
+  const originIndicatorVisible = useSettingsStore((state) => state.originIndicatorVisible);
+  const toggleOriginIndicatorVisible = useSettingsStore((state) => state.toggleOriginIndicatorVisible);
+  const axisLabelsVisible = useSettingsStore((state) => state.axisLabelsVisible);
+  const toggleAxisLabelsVisible = useSettingsStore((state) => state.toggleAxisLabelsVisible);
+
   return (
     <>
       <div className={styles.section}>
@@ -232,6 +241,43 @@ function DisplayTab() {
           as a hit — higher makes clicking easier at the cost of precision when lines run close
           together.
         </p>
+      </div>
+
+      <div className={styles.section}>
+        <span className={styles.sectionTitle}>3D Navigation</span>
+
+        <label className={styles.checkboxField}>
+          <input type="checkbox" checked={zoomToCursor} onChange={toggleZoomToCursor} />
+          Zoom to cursor
+        </label>
+        <p className={styles.sectionHint}>
+          The scroll wheel zooms toward whatever is under the pointer instead of the centre of
+          the viewport.
+        </p>
+
+        <label className={styles.checkboxField}>
+          <input type="checkbox" checked={viewCubeVisible} onChange={toggleViewCubeVisible} />
+          Show ViewCube
+        </label>
+
+        <label className={styles.checkboxField}>
+          <input
+            type="checkbox"
+            checked={originIndicatorVisible}
+            onChange={toggleOriginIndicatorVisible}
+          />
+          Show Origin 3D indicator
+        </label>
+
+        <label className={styles.checkboxField}>
+          <input
+            type="checkbox"
+            checked={axisLabelsVisible}
+            disabled={!originIndicatorVisible}
+            onChange={toggleAxisLabelsVisible}
+          />
+          Show Origin XYZ axis labels
+        </label>
       </div>
     </>
   );
