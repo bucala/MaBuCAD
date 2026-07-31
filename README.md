@@ -1,7 +1,6 @@
 # MaBuCAD
 
-A parametric 3D/2D CAD system for Windows 11 x64, in the spirit of SolidWorks, Siemens NX and
-Inventor: history-based feature modelling, a constraint-driven 2D sketcher, assemblies with mates,
+A parametric 3D/2D CAD system for Windows 11 x64, in the spirit of many CAD: history-based feature modelling, a constraint-driven 2D sketcher, assemblies with mates,
 and drawings with ordinate dimensioning.
 
 See [CHANGELOG.md](./CHANGELOG.md) for a dated history of what was built and why, including
