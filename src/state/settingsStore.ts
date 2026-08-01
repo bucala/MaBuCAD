@@ -93,6 +93,12 @@ interface SettingsValues {
    * (`Viewport.module.css`'s `--bg-viewport-top`/`-bottom`) — see `ViewportBackground`'s
    * own doc comment for the mode set. */
   viewportBackground: ViewportBackground;
+  /** Off by default. When on, `useDebugLogging.ts` captures uncaught errors, unhandled
+   * rejections, console.error/warn calls and rebuild failures to a log file next to the
+   * installed app — see `debug/logger.ts`'s own doc comment for the line format. Meant
+   * to be turned on only while reproducing a problem to report, not left on: it patches
+   * `console.error`/`warn` for as long as it's active. */
+  debugModeEnabled: boolean;
 }
 
 /**
@@ -146,6 +152,7 @@ interface SettingsStore extends SettingsValues {
    * Settings ▸ Colours' "Viewport Background" section only ever changes one field at a
    * time (the mode, the colour, the intensity slider, ...). */
   setViewportBackground: (patch: Partial<ViewportBackground>) => void;
+  toggleDebugMode: () => void;
   /** Replaces every value at once — what Import Settings uses, so an imported file fully
    * determines the result rather than merging over whatever was already set. */
   replaceAll: (values: SettingsValues) => void;
@@ -168,6 +175,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   autosaveEnabled: false,
   keyboardShortcuts: { ...DEFAULT_SHORTCUT_KEYS },
   viewportBackground: { ...DEFAULT_VIEWPORT_BACKGROUND },
+  debugModeEnabled: false,
 };
 
 /**
@@ -210,6 +218,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
       setViewportBackground: (patch) =>
         set((state) => ({ viewportBackground: { ...state.viewportBackground, ...patch } })),
+      toggleDebugMode: () => set((state) => ({ debugModeEnabled: !state.debugModeEnabled })),
       replaceAll: (values) => set(values),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),

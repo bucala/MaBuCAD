@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 
 import { normalizeKeyEvent, SHORTCUT_ACTIONS } from "@/commands/keyboardShortcuts";
 import { runExportSettings, runImportSettings } from "@/commands/settingsIO";
+import { resolveDebugLogPath } from "@/debug/logger";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { LANGUAGES } from "@/i18n/languages";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -63,6 +64,8 @@ function GeneralTab() {
   const resetToDefaults = useSettingsStore((state) => state.resetToDefaults);
   const language = useSettingsStore((state) => state.language);
   const setLanguage = useSettingsStore((state) => state.setLanguage);
+  const debugModeEnabled = useSettingsStore((state) => state.debugModeEnabled);
+  const toggleDebugMode = useSettingsStore((state) => state.toggleDebugMode);
   const { t } = useTranslation();
 
   return (
@@ -102,11 +105,49 @@ function GeneralTab() {
       </div>
 
       <div className={styles.section}>
+        <span className={styles.sectionTitle}>Debugging</span>
+        <label className={styles.checkboxField}>
+          <input type="checkbox" checked={debugModeEnabled} onChange={toggleDebugMode} />
+          Debug Mode — log to a file for troubleshooting
+        </label>
+        {debugModeEnabled && <DebugLogPathHint />}
+        <p className={styles.sectionHint}>
+          Captures errors, warnings and rebuild failures to a log file next to the installed
+          app while this is on. Attach that file when reporting a problem.
+        </p>
+      </div>
+
+      <div className={styles.section}>
         <button type="button" className={styles.footerButton} onClick={resetToDefaults}>
           Reset to Defaults
         </button>
       </div>
     </>
+  );
+}
+
+/** Resolved lazily (only while Debug Mode is on) rather than eagerly on every Settings
+ * open — it's an IPC round trip that's pointless when the toggle is off. */
+function DebugLogPathHint() {
+  const [path, setPath] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    void resolveDebugLogPath().then((resolved) => {
+      if (!cancelled) setPath(resolved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (path === undefined) return null;
+  return (
+    <p className={styles.sectionHint}>
+      {path
+        ? `Log file: ${path}`
+        : "Log file only exists in the packaged app — browser preview has nowhere to write it."}
+    </p>
   );
 }
 
