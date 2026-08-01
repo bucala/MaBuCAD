@@ -20,21 +20,6 @@
 
 /* ------------------------------------------------------------------- overlays */
 
-.originGizmo {
-  position: absolute;
-  left: var(--space-4);
-  bottom: var(--space-4);
-  padding: var(--space-2);
-  border-radius: var(--radius-sm);
-  background: var(--bg-layer);
-  font-family: var(--font-mono);
-  pointer-events: none;
-}
-
-.originDot {
-  color: var(--text-secondary);
-}
-
 .hint {
   position: absolute;
   right: var(--space-4);
