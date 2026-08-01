@@ -2,8 +2,21 @@
 
 All notable changes to MaBuCAD are documented in this file, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project does not yet follow
-semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
-the commit that introduced them instead of by release tag.
+semantic versioning strictly (the `0.x.0` in `package.json`/`tauri.conf.json` bumps roughly
+per feedback round so the in-app version number is a quick way to tell whether an installed
+build actually contains a given round's work — see the entry below), so entries are grouped
+by date and by the commit that introduced them instead of by release tag.
+
+## 2026-08-01 — Version bump, and a note on why a packaged build can look like it's "missing" work
+
+Bumped `0.1.0` → `0.2.0` (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`)
+after a report that a freshly-installed `.msi` didn't show most of the previous entry's
+work — traced to the `.msi` having been built and committed (`git log --follow` on the bundle
+file) about an hour *before* that entire round of fixes was written, not to anything actually
+missing from the source. The version number hadn't moved between rounds, so there was no way
+to tell the two apart just by looking at the running app. From here on, a round of fixes that
+changes behaviour bumps this number, so "which build am I running" has an answer that doesn't
+depend on remembering timestamps.
 
 ## 2026-08-01 — CSP crash fix, live gizmo, Inventor-style Smart Dimension, smart constrains, keyboard shortcuts, viewport backgrounds, Debug Mode
 
