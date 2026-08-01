@@ -10,12 +10,22 @@
 }
 
 /*
- * The canvas is transparent, so the gradient above shows through and the graphics area
- * follows the light/dark theme without any work on the WebGL side.
+ * The canvas is transparent, so the gradient above (or a custom Settings > Colours
+ * background, see Viewport.tsx's own `backgroundStyle`) shows through and the graphics
+ * area follows the light/dark theme without any work on the WebGL side.
  */
 .canvas {
   position: absolute;
   inset: 0;
+}
+
+/* A custom background image sits behind the (transparent) canvas, faded independently by
+   its own opacity so the `.viewport` background colour shows through underneath it. */
+.backgroundImage {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
 }
 
 /* ------------------------------------------------------------------- overlays */

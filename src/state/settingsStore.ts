@@ -89,7 +89,39 @@ interface SettingsValues {
    * Shortcuts is the UI for rebinding these; `useKeyboardShortcuts.ts` is what reads
    * them live. */
   keyboardShortcuts: Record<ShortcutActionId, string>;
+  /** The 3D viewport's own backdrop, overriding the theme's default top/bottom gradient
+   * (`Viewport.module.css`'s `--bg-viewport-top`/`-bottom`) — see `ViewportBackground`'s
+   * own doc comment for the mode set. */
+  viewportBackground: ViewportBackground;
 }
+
+/**
+ * `"theme"` keeps the existing light/dark/gray gradient (`Viewport.module.css`) and
+ * ignores every other field here — it's the default, so choosing a custom backdrop is
+ * opt-in. The other four modes are rendered in `Viewport.tsx`:
+ * - `"solid"`: `color` alone.
+ * - `"gradient-center"` / `"gradient-bottom"`: `color` mixed toward white by `intensity`
+ *   (0 = flat `color`, 1 = white) as the gradient's near/top stop, fading to `color`.
+ * - `"image"`: `imageDataUrl` (a data: URL — small enough images to be worth persisting
+ *   inline in `localStorage` rather than needing real file storage) drawn behind the
+ *   (transparent) canvas at `imageOpacity`, with `color` showing through wherever the
+ *   image doesn't fully cover.
+ */
+export interface ViewportBackground {
+  mode: "theme" | "solid" | "gradient-center" | "gradient-bottom" | "image";
+  color: string;
+  intensity: number;
+  imageDataUrl: string | null;
+  imageOpacity: number;
+}
+
+export const DEFAULT_VIEWPORT_BACKGROUND: ViewportBackground = {
+  mode: "theme",
+  color: "#33383e",
+  intensity: 0.35,
+  imageDataUrl: null,
+  imageOpacity: 0.6,
+};
 
 interface SettingsStore extends SettingsValues {
   setTheme: (theme: ThemePreference) => void;
@@ -110,6 +142,10 @@ interface SettingsStore extends SettingsValues {
    * would otherwise only ever fire whichever one `SHORTCUT_ACTIONS` happens to list
    * first, silently. */
   setShortcutKey: (id: ShortcutActionId, key: string) => void;
+  /** Merges into `viewportBackground` rather than replacing it — every control in
+   * Settings ▸ Colours' "Viewport Background" section only ever changes one field at a
+   * time (the mode, the colour, the intensity slider, ...). */
+  setViewportBackground: (patch: Partial<ViewportBackground>) => void;
   /** Replaces every value at once — what Import Settings uses, so an imported file fully
    * determines the result rather than merging over whatever was already set. */
   replaceAll: (values: SettingsValues) => void;
@@ -131,6 +167,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   language: DEFAULT_LANGUAGE,
   autosaveEnabled: false,
   keyboardShortcuts: { ...DEFAULT_SHORTCUT_KEYS },
+  viewportBackground: { ...DEFAULT_VIEWPORT_BACKGROUND },
 };
 
 /**
@@ -171,6 +208,8 @@ export const useSettingsStore = create<SettingsStore>()(
           next[id] = key;
           return { keyboardShortcuts: next };
         }),
+      setViewportBackground: (patch) =>
+        set((state) => ({ viewportBackground: { ...state.viewportBackground, ...patch } })),
       replaceAll: (values) => set(values),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),

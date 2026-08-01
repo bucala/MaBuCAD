@@ -8,7 +8,12 @@ import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { LANGUAGES } from "@/i18n/languages";
 import { useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
-import { ACCENT_PRESETS, useSettingsStore, type ThemePreference } from "@/state/settingsStore";
+import {
+  ACCENT_PRESETS,
+  useSettingsStore,
+  type ThemePreference,
+  type ViewportBackground,
+} from "@/state/settingsStore";
 import { useViewportStore } from "@/state/viewportStore";
 import type { UnitSystem, UnitSystemId } from "@/types/ui";
 
@@ -151,6 +156,112 @@ function ColorField({
   );
 }
 
+const BACKGROUND_MODES: { id: ViewportBackground["mode"]; label: string; title?: string }[] = [
+  { id: "theme", label: "Theme", title: "The current theme's default gradient" },
+  { id: "solid", label: "Solid" },
+  { id: "gradient-center", label: "Gradient (centre)" },
+  { id: "gradient-bottom", label: "Gradient (bottom)" },
+  { id: "image", label: "Image" },
+];
+
+/** Settings > Colours' "Viewport Background" section — see `Viewport.tsx`'s own
+ * `backgroundStyle` for how each mode actually renders. */
+function ViewportBackgroundField() {
+  const background = useSettingsStore((state) => state.viewportBackground);
+  const setViewportBackground = useSettingsStore((state) => state.setViewportBackground);
+
+  const handleImageFile = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setViewportBackground({ imageDataUrl: reader.result });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className={styles.section}>
+      <span className={styles.sectionTitle}>Viewport Background</span>
+      <ToggleRow<ViewportBackground["mode"]>
+        value={background.mode}
+        onChange={(mode) => setViewportBackground({ mode })}
+        options={BACKGROUND_MODES}
+      />
+
+      {background.mode !== "theme" && (
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>Colour</span>
+          <input
+            type="color"
+            className={styles.colorInput}
+            value={background.color}
+            aria-label="Viewport background colour"
+            onChange={(event) => setViewportBackground({ color: event.target.value })}
+          />
+        </div>
+      )}
+
+      {(background.mode === "gradient-center" || background.mode === "gradient-bottom") && (
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>Intensity</span>
+          <input
+            type="range"
+            className={styles.rangeInput}
+            min={0}
+            max={100}
+            value={Math.round(background.intensity * 100)}
+            aria-label="Gradient intensity"
+            onChange={(event) => setViewportBackground({ intensity: Number(event.target.value) / 100 })}
+          />
+        </div>
+      )}
+
+      {background.mode === "image" && (
+        <>
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>Image</span>
+            <label className={styles.footerButton}>
+              Choose…
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(event) => handleImageFile(event.target.files?.[0])}
+              />
+            </label>
+          </div>
+          {background.imageDataUrl && (
+            <>
+              <div
+                className={styles.backgroundPreview}
+                style={{ backgroundImage: `url(${background.imageDataUrl})`, opacity: background.imageOpacity }}
+              />
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Opacity</span>
+                <input
+                  type="range"
+                  className={styles.rangeInput}
+                  min={0}
+                  max={100}
+                  value={Math.round(background.imageOpacity * 100)}
+                  aria-label="Image opacity"
+                  onChange={(event) => setViewportBackground({ imageOpacity: Number(event.target.value) / 100 })}
+                />
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      <p className={styles.sectionHint}>
+        Overrides the current theme's default gradient in the 3D and sketch viewport.
+      </p>
+    </div>
+  );
+}
+
 function ColoursTab() {
   const isDark = useIsDarkTheme();
   const theme = useSettingsStore((state) => state.theme);
@@ -214,6 +325,8 @@ function ColoursTab() {
         autoValue={isDark ? AUTO_MODEL_EDGE_COLOR.dark : AUTO_MODEL_EDGE_COLOR.light}
         onChange={setModelEdgeColor}
       />
+
+      <ViewportBackgroundField />
     </>
   );
 }
