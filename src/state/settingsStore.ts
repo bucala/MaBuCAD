@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { DEFAULT_SHORTCUT_KEYS, type ShortcutActionId } from "@/commands/keyboardShortcuts";
 import { DEFAULT_LANGUAGE, type Language } from "@/i18n/languages";
 
 /** "system" tracks the OS light/dark preference; "gray" is a third explicit skin between
@@ -84,6 +85,10 @@ interface SettingsValues {
    * (`io/files.ts`'s `saveBlob`), and a background save that popped a native file dialog
    * every few minutes would be worse than no autosave at all. */
   autosaveEnabled: boolean;
+  /** Key bound to each of `keyboardShortcuts.ts`'s fixed action list — Settings ▸
+   * Shortcuts is the UI for rebinding these; `useKeyboardShortcuts.ts` is what reads
+   * them live. */
+  keyboardShortcuts: Record<ShortcutActionId, string>;
 }
 
 interface SettingsStore extends SettingsValues {
@@ -100,6 +105,11 @@ interface SettingsStore extends SettingsValues {
   toggleAxisLabelsVisible: () => void;
   setLanguage: (language: Language) => void;
   toggleAutosave: () => void;
+  /** Binds `key` (a `normalizeKeyEvent` string) to `id`. If another action already owns
+   * that key, it loses the binding first — two actions racing for the same keypress
+   * would otherwise only ever fire whichever one `SHORTCUT_ACTIONS` happens to list
+   * first, silently. */
+  setShortcutKey: (id: ShortcutActionId, key: string) => void;
   /** Replaces every value at once — what Import Settings uses, so an imported file fully
    * determines the result rather than merging over whatever was already set. */
   replaceAll: (values: SettingsValues) => void;
@@ -120,6 +130,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   axisLabelsVisible: true,
   language: DEFAULT_LANGUAGE,
   autosaveEnabled: false,
+  keyboardShortcuts: { ...DEFAULT_SHORTCUT_KEYS },
 };
 
 /**
@@ -151,6 +162,15 @@ export const useSettingsStore = create<SettingsStore>()(
       toggleAxisLabelsVisible: () => set((state) => ({ axisLabelsVisible: !state.axisLabelsVisible })),
       setLanguage: (language) => set({ language }),
       toggleAutosave: () => set((state) => ({ autosaveEnabled: !state.autosaveEnabled })),
+      setShortcutKey: (id, key) =>
+        set((state) => {
+          const next = { ...state.keyboardShortcuts };
+          for (const otherId of Object.keys(next) as ShortcutActionId[]) {
+            if (otherId !== id && next[otherId] === key) next[otherId] = "";
+          }
+          next[id] = key;
+          return { keyboardShortcuts: next };
+        }),
       replaceAll: (values) => set(values),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),

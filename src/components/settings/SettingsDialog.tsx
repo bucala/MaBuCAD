@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { X } from "lucide-react";
 
+import { normalizeKeyEvent, SHORTCUT_ACTIONS } from "@/commands/keyboardShortcuts";
 import { runExportSettings, runImportSettings } from "@/commands/settingsIO";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { LANGUAGES } from "@/i18n/languages";
@@ -20,7 +21,7 @@ const UNIT_SYSTEMS: UnitSystem[] = [
   { id: "IPS", label: "IPS", description: "Inch, pound, second" },
 ];
 
-const TABS = ["General", "Colours", "Display", "Sketch", "File"] as const;
+const TABS = ["General", "Colours", "Display", "Sketch", "Shortcuts", "File"] as const;
 type TabId = (typeof TABS)[number];
 
 /** Toggle-button row shared by every tab. */
@@ -348,6 +349,53 @@ function SketchTab() {
   );
 }
 
+function ShortcutsTab() {
+  const shortcuts = useSettingsStore((state) => state.keyboardShortcuts);
+  const setShortcutKey = useSettingsStore((state) => state.setShortcutKey);
+  const [listeningFor, setListeningFor] = useState<(typeof SHORTCUT_ACTIONS)[number]["id"] | null>(null);
+
+  // Capturing phase + `stopPropagation` so this intercepts the key before the app's own
+  // global shortcut listener (`useKeyboardShortcuts.ts`) or this dialog's own Escape-to-
+  // close handler ever see it — otherwise pressing "Delete" to rebind it would also
+  // delete the current selection, and Escape would close the dialog instead of just
+  // cancelling the capture.
+  useEffect(() => {
+    if (!listeningFor) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key !== "Escape") setShortcutKey(listeningFor, normalizeKeyEvent(event));
+      setListeningFor(null);
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [listeningFor, setShortcutKey]);
+
+  return (
+    <div className={styles.section}>
+      <span className={styles.sectionTitle}>Shortcuts</span>
+      {SHORTCUT_ACTIONS.map((action) => (
+        <div key={action.id} className={styles.field}>
+          <span className={styles.fieldLabel}>{action.label}</span>
+          <button
+            type="button"
+            className={styles.toggleButton}
+            aria-pressed={listeningFor === action.id}
+            onClick={() => setListeningFor(action.id)}
+          >
+            {listeningFor === action.id ? "Press a key…" : shortcuts[action.id] || "Not set"}
+          </button>
+        </div>
+      ))}
+      <p className={styles.sectionHint}>
+        Click a shortcut, then press the key (or combination) to bind it. Escape cancels
+        without changing it. Binding a key already used by another shortcut here clears it
+        from that one.
+      </p>
+    </div>
+  );
+}
+
 function FileTab() {
   const unitSystem = useDocumentStore((state) => state.unitSystem);
   const setUnitSystem = useDocumentStore((state) => state.setUnitSystem);
@@ -429,6 +477,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           {activeTab === "Colours" && <ColoursTab />}
           {activeTab === "Display" && <DisplayTab />}
           {activeTab === "Sketch" && <SketchTab />}
+          {activeTab === "Shortcuts" && <ShortcutsTab />}
           {activeTab === "File" && <FileTab />}
         </div>
 

@@ -4,6 +4,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { useAutosave } from "@/hooks/useAutosave";
 import { useDisableNativeContextMenu } from "@/hooks/useDisableNativeContextMenu";
 import { useEscapeToDeselect } from "@/hooks/useEscapeToDeselect";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useRebuild } from "@/hooks/useRebuild";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
@@ -12,6 +13,7 @@ import { useSettingsStore } from "@/state/settingsStore";
 export default function App() {
   useRebuild();
   useEscapeToDeselect();
+  useKeyboardShortcuts();
   useDisableNativeContextMenu();
   useAutosave();
 
