@@ -22,6 +22,18 @@ export const AXIS_COLORS = {
   z: "#3d7ad9",
 } as const;
 
+/** Sketch grid cell size, in sketch units (mm) — matches `SketchScene.tsx`'s own grid
+ * `cellSize` and is what the snap-to-grid toggle snaps drawn points to. */
+export const SKETCH_GRID_SIZE = DOCUMENT_SCALE / 20;
+
+/** Rough average of the viewport's background gradient (see `Viewport.module.css`'s
+ * `--bg-viewport-top`/`--bg-viewport-bottom`), used to dim the reference grids' line
+ * colours toward the backdrop rather than just picking darker/lighter constants by hand. */
+export const VIEWPORT_BG_APPROX = {
+  dark: "#25282d",
+  light: "#c4ceda",
+} as const;
+
 /**
  * Reference plane definitions.
  *

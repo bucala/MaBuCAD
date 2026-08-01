@@ -10,8 +10,9 @@ import { findPointNear } from "@/sketch/sketchModel";
 import type { Sketch } from "@/sketch/types";
 import { useSettingsStore } from "@/state/settingsStore";
 import { useSketchStore } from "@/state/sketchStore";
+import { useViewportStore } from "@/state/viewportStore";
 
-import { DOCUMENT_SCALE } from "../constants";
+import { DOCUMENT_SCALE, SKETCH_GRID_SIZE } from "../constants";
 
 interface Point2 {
   x: number;
@@ -42,6 +43,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const dragPoint = useSketchStore((state) => state.dragPoint);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
   const snapTolerance = useSettingsStore((state) => state.snapTolerance);
+  const snapToGridEnabled = useViewportStore((state) => state.snapToGridEnabled);
 
   /** Anchor for the entity being drawn: line start, rectangle corner, circle/arc centre. */
   const [anchor, setAnchor] = useState<Point2 | null>(null);
@@ -79,11 +81,19 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     tool === "spline" || tool === "construction-line" || tool === "axis-line" ||
     tool === "point" || tool === "arc";
 
-  /** Converts an event to sketch coordinates, snapping to a nearby existing point. */
+  const snapToGrid = (point: Point2): Point2 => ({
+    x: Math.round(point.x / SKETCH_GRID_SIZE) * SKETCH_GRID_SIZE,
+    y: Math.round(point.y / SKETCH_GRID_SIZE) * SKETCH_GRID_SIZE,
+  });
+
+  /** Converts an event to sketch coordinates, snapping to a nearby existing point first
+   * and, failing that, to the sketch grid when that toggle is on — existing geometry
+   * always wins over the grid, the same priority every other CAD sketcher uses. */
   const toSketch = (event: ThreeEvent<PointerEvent | MouseEvent>): Point2 => {
     const local = worldToSketch(sketch.planeId, event.point);
     const snapped = findPointNear(sketch, local.x, local.y, snapTolerance);
-    return snapped ? { x: snapped.x, y: snapped.y } : local;
+    if (snapped) return { x: snapped.x, y: snapped.y };
+    return snapToGridEnabled ? snapToGrid(local) : local;
   };
 
   const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
@@ -105,7 +115,11 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     setCursor(local);
 
     if (draggingPointId.current) {
-      dragPoint(draggingPointId.current, worldToSketch(sketch.planeId, event.point));
+      // Deliberately not `toSketch`'s point-snapping here — snapping a dragged point onto
+      // whatever other point it passes near would fight the drag. Grid-snapping is fine to
+      // share, though: it only rounds, it never jumps to unrelated geometry.
+      const dragged = worldToSketch(sketch.planeId, event.point);
+      dragPoint(draggingPointId.current, snapToGridEnabled ? snapToGrid(dragged) : dragged);
     }
   };
 

@@ -42,9 +42,14 @@ interface ViewportStore {
    * this feature" the same way `hiddenFeatureIds` already crosses that same sibling boundary.
    */
   edgePickModeFeatureId: string | null;
-  /** Ground grid in the 3D viewport (not the sketcher's own in-plane grid, which is
-   * unaffected). Defaults on, matching every other CAD viewport. */
+  /** Ground grid in the 3D viewport and, while a sketch is open, the sketcher's own
+   * in-plane grid too — one toggle, since they're never both visible at once. */
   gridVisible: boolean;
+  /** Whether newly drawn/dragged sketch points snap to the sketch grid's intersections,
+   * on top of the existing snap-to-nearby-point behaviour (see `SketchCanvas.tsx`'s
+   * `toSketch`). Off by default: existing point/entity snapping already covers the common
+   * case, and forcing every click onto the grid would surprise anyone not expecting it. */
+  snapToGridEnabled: boolean;
 
   cycleDisplayMode: () => void;
   toggleFeatureVisibility: (id: string) => void;
@@ -53,6 +58,7 @@ interface ViewportStore {
   toggleConstraintsVisible: () => void;
   setEdgePickMode: (featureId: string | null) => void;
   toggleGridVisible: () => void;
+  toggleSnapToGrid: () => void;
 }
 
 export const useViewportStore = create<ViewportStore>((set) => ({
@@ -63,6 +69,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   constraintsVisible: true,
   edgePickModeFeatureId: null,
   gridVisible: true,
+  snapToGridEnabled: false,
 
   cycleDisplayMode: () =>
     set((state) => {
@@ -87,4 +94,5 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   setEdgePickMode: (featureId) => set({ edgePickModeFeatureId: featureId }),
 
   toggleGridVisible: () => set((state) => ({ gridVisible: !state.gridVisible })),
+  toggleSnapToGrid: () => set((state) => ({ snapToGridEnabled: !state.snapToGridEnabled })),
 }));
