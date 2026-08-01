@@ -77,6 +77,13 @@ interface SettingsValues {
    * back to English string-by-string until they get one, rather than being hidden from
    * the switcher. */
   language: Language;
+  /** Off by default — "možnosť aktivácie" (the ability to turn it on), not something
+   * silently active from first launch. When on, `useAutosave.ts` periodically writes a
+   * recovery snapshot of the current document to `localStorage`; it never touches the
+   * file system on its own, since every real Save already needs a path the user picks
+   * (`io/files.ts`'s `saveBlob`), and a background save that popped a native file dialog
+   * every few minutes would be worse than no autosave at all. */
+  autosaveEnabled: boolean;
 }
 
 interface SettingsStore extends SettingsValues {
@@ -92,6 +99,7 @@ interface SettingsStore extends SettingsValues {
   toggleOriginIndicatorVisible: () => void;
   toggleAxisLabelsVisible: () => void;
   setLanguage: (language: Language) => void;
+  toggleAutosave: () => void;
   /** Replaces every value at once — what Import Settings uses, so an imported file fully
    * determines the result rather than merging over whatever was already set. */
   replaceAll: (values: SettingsValues) => void;
@@ -111,6 +119,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   originIndicatorVisible: true,
   axisLabelsVisible: true,
   language: DEFAULT_LANGUAGE,
+  autosaveEnabled: false,
 };
 
 /**
@@ -141,6 +150,7 @@ export const useSettingsStore = create<SettingsStore>()(
         set((state) => ({ originIndicatorVisible: !state.originIndicatorVisible })),
       toggleAxisLabelsVisible: () => set((state) => ({ axisLabelsVisible: !state.axisLabelsVisible })),
       setLanguage: (language) => set({ language }),
+      toggleAutosave: () => set((state) => ({ autosaveEnabled: !state.autosaveEnabled })),
       replaceAll: (values) => set(values),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),

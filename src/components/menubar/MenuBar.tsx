@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Box,
+  Check,
   Crosshair,
   Eye,
   FileInput,
   FileOutput,
   FilePlus2,
   FolderOpen,
+  History,
   Layers,
   ListChecks,
   Minus,
@@ -22,9 +24,11 @@ import {
 } from "lucide-react";
 
 import { isCommandAvailable, runCommand } from "@/commands/commandRegistry";
+import { hasAutosaveSnapshot, runRestoreAutosave } from "@/commands/documentIO";
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
+import { useSettingsStore } from "@/state/settingsStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
 import { NewDocumentDialog } from "../document/NewDocumentDialog";
@@ -123,7 +127,20 @@ function useDismiss(open: boolean, ref: React.RefObject<HTMLElement | null>, onD
 }
 
 /** A text menu-bar button (File, Edit, …) that opens a dropdown of commands on click. */
-function TextMenu({ menuId, label, items }: { menuId: string; label: string; items: MenuItemSpec[] }) {
+function TextMenu({
+  menuId,
+  label,
+  items,
+  extraItems,
+}: {
+  menuId: string;
+  label: string;
+  items: MenuItemSpec[];
+  /** Trailing dropdown content that isn't a plain ribbon-backed command — the File
+   * menu's own Autosave toggle and Restore Autosave action, which have no ribbon
+   * counterpart to reuse the way every other item here does. */
+  extraItems?: (close: () => void) => ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const close = () => setOpen(false);
@@ -164,6 +181,7 @@ function TextMenu({ menuId, label, items }: { menuId: string; label: string; ite
               {t(commandId, itemLabel)}
             </button>
           ))}
+          {extraItems?.(close)}
         </div>
       )}
     </div>
@@ -211,6 +229,8 @@ export function MenuBar() {
   const appInfo = useAppInfo();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { t } = useTranslation();
+  const autosaveEnabled = useSettingsStore((state) => state.autosaveEnabled);
+  const toggleAutosave = useSettingsStore((state) => state.toggleAutosave);
 
   return (
     <div className={styles.menubar}>
@@ -223,7 +243,46 @@ export function MenuBar() {
 
       <nav className={styles.menus} aria-label="Application menu">
         {MENUS.map((menu) => (
-          <TextMenu key={menu.id} menuId={menu.id} label={menu.label} items={menu.items} />
+          <TextMenu
+            key={menu.id}
+            menuId={menu.id}
+            label={menu.label}
+            items={menu.items}
+            extraItems={
+              menu.id === "file"
+                ? (close) => (
+                    <>
+                      <div className={styles.menuDivider} role="separator" />
+                      <button
+                        type="button"
+                        role="menuitemcheckbox"
+                        aria-checked={autosaveEnabled}
+                        className={styles.dropdownItem}
+                        onClick={toggleAutosave}
+                      >
+                        <span className={styles.checkSlot} aria-hidden="true">
+                          {autosaveEnabled && <Check size={14} strokeWidth={2} />}
+                        </span>
+                        {t("menu.autosave", "Autosave")}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={styles.dropdownItem}
+                        disabled={!hasAutosaveSnapshot()}
+                        onClick={() => {
+                          runRestoreAutosave();
+                          close();
+                        }}
+                      >
+                        <History size={14} strokeWidth={1.75} />
+                        {t("menu.restore-autosave", "Restore Autosave")}…
+                      </button>
+                    </>
+                  )
+                : undefined
+            }
+          />
         ))}
 
         <CustomMenu label={t("menu.tools", "Tools")}>

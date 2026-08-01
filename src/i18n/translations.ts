@@ -176,6 +176,8 @@ export const sk: Record<string, string> = {
   "menu.window": "Okno",
   "menu.help": "Pomocník",
   "menu.options": "Možnosti",
+  "menu.autosave": "Automatické ukladanie",
+  "menu.restore-autosave": "Obnoviť automatické uloženie",
 
   // ---------------------------------------------------------------------- status bar
   "status.fully-defined": "Plne definované",
