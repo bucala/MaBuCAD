@@ -340,6 +340,54 @@ export function measure(sketch: Sketch, kind: DimensionKind, points: string[], e
 }
 
 /**
+ * Where a dimension's label sits before any drag offset is applied — mirrors
+ * `SketchDimensions.tsx`'s own per-kind anchor logic (a circle/arc's rim point, an
+ * angle's shared-vertex-ish centroid, a distance's midpoint) closely enough to seed a
+ * sensible `labelOffset` when the Inventor-style Smart Dimension flow commits a pending
+ * proposal at wherever the user's final click landed (`sketchStore.ts`'s
+ * `commitPendingDimension`) — not pixel-identical to the render-time anchor (that one
+ * also nudges perpendicular to a distance's line, which this skips), just close enough
+ * that the committed label ends up under the cursor rather than at a visible offset.
+ */
+export function defaultDimensionAnchor(
+  sketch: Sketch,
+  kind: DimensionKind,
+  points: string[],
+  entities: string[],
+): { x: number; y: number } | null {
+  if (kind === "radius" || kind === "diameter") {
+    const entity = entities[0] ? entityById(sketch, entities[0]) : undefined;
+    if (entity?.kind !== "circle" && entity?.kind !== "arc") return null;
+    const centre = pointById(sketch, entity.center);
+    if (!centre) return null;
+    return {
+      x: centre.x + entity.radius * Math.SQRT1_2,
+      y: centre.y + entity.radius * Math.SQRT1_2,
+    };
+  }
+
+  if (kind === "angle") {
+    const [firstId, secondId] = entities;
+    const a = firstId ? entityById(sketch, firstId) : undefined;
+    const b = secondId ? entityById(sketch, secondId) : undefined;
+    const endpoints = [a, b]
+      .filter((line): line is Extract<typeof line, { kind: "line" }> => line?.kind === "line")
+      .flatMap((line) => [pointById(sketch, line.start), pointById(sketch, line.end)])
+      .filter((point): point is NonNullable<typeof point> => Boolean(point));
+    if (endpoints.length === 0) return null;
+    return {
+      x: endpoints.reduce((sum, point) => sum + point.x, 0) / endpoints.length,
+      y: endpoints.reduce((sum, point) => sum + point.y, 0) / endpoints.length,
+    };
+  }
+
+  const first = points[0] ? pointById(sketch, points[0]) : undefined;
+  const second = points[1] ? pointById(sketch, points[1]) : undefined;
+  if (!first || !second) return null;
+  return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+}
+
+/**
  * Chooses the dimension a Smart Dimension click should create from what is selected,
  * mirroring how SolidWorks infers intent rather than asking.
  */

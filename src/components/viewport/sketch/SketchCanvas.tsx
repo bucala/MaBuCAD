@@ -42,6 +42,10 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const beginDrag = useSketchStore((state) => state.beginDrag);
   const dragPoint = useSketchStore((state) => state.dragPoint);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
+  const pendingDimension = useSketchStore((state) => state.pendingDimension);
+  const commitPendingDimension = useSketchStore((state) => state.commitPendingDimension);
+  const cancelPendingDimension = useSketchStore((state) => state.cancelPendingDimension);
+  const setHoverPosition = useSketchStore((state) => state.setHoverPosition);
   const snapTolerance = useSettingsStore((state) => state.snapTolerance);
   const snapToGridEnabled = useViewportStore((state) => state.snapToGridEnabled);
 
@@ -113,6 +117,10 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
     const local = toSketch(event);
     setCursor(local);
+    // Feeds `SmartDimensionPreview.tsx`, which has no pointer events of its own to track
+    // this from — only meaningful while a proposal is pending, but cheap enough to just
+    // always keep current rather than gate it on tool/pendingDimension.
+    setHoverPosition(worldToSketch(sketch.planeId, event.point));
 
     if (draggingPointId.current) {
       // Deliberately not `toSketch`'s point-snapping here — snapping a dragged point onto
@@ -131,7 +139,14 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     if (event.button !== 0) return;
 
     if (!isDrawingTool) {
-      // A click on empty canvas clears the selection, as in any sketcher.
+      // A click on empty canvas while a Smart Dimension proposal is pending is the
+      // "place it here" gesture the Inventor-style flow ends on — see
+      // `commitPendingDimension`'s own doc comment. Otherwise, same as any sketcher: a
+      // click on empty canvas clears the selection.
+      if (tool === "smart-dimension" && pendingDimension) {
+        commitPendingDimension(toSketch(event));
+        return;
+      }
       clearSelection();
       return;
     }
@@ -218,6 +233,13 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
           // Stop the browser/OS's own right-click menu — our menu (or the finish-chain
           // shortcut below) is meant to be the only one that appears here.
           event.nativeEvent.preventDefault();
+
+          if (tool === "smart-dimension" && pendingDimension) {
+            // Same shortcut as mid-draw below: right-click cancels the in-progress thing
+            // (here, the pending proposal) rather than opening a menu over it.
+            cancelPendingDimension();
+            return;
+          }
 
           const isMidDraw = anchor !== null || arcStart !== null || splinePoints.length > 0;
           if (isMidDraw) {

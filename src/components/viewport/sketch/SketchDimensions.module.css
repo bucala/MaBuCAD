@@ -27,3 +27,28 @@
   color: var(--text-on-accent);
   background: var(--accent);
 }
+
+/* drei's `Html` `pointerEvents` prop only takes effect in `transform` mode, which this
+   isn't using — its outer wrapper div otherwise defaults to `pointer-events: auto`
+   regardless of that prop, silently swallowing the next pick this preview follows the
+   cursor toward. `wrapperClass` is the documented way to style that outer div directly. */
+.previewWrapper {
+  pointer-events: none;
+}
+
+/* Smart Dimension's uncommitted proposal — dashed border and reduced opacity mark it as
+   "not placed yet", following the cursor until a click on empty space commits it. */
+.preview {
+  padding: 1px var(--space-2);
+  border: 1px dashed var(--status-defined);
+  border-radius: 3px;
+  background: var(--bg-solid);
+  color: var(--status-defined);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
+  opacity: 0.75;
+  pointer-events: none;
+}

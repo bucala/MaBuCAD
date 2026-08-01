@@ -12,7 +12,7 @@ import { mixHex } from "@/utils/colorMix";
 import { DOCUMENT_SCALE, VIEWPORT_BG_APPROX } from "../constants";
 import { SketchCanvas } from "./SketchCanvas";
 import { SketchConstraintGlyphs } from "./SketchConstraintGlyphs";
-import { SketchDimensions } from "./SketchDimensions";
+import { SketchDimensions, SmartDimensionPreview } from "./SketchDimensions";
 import { SketchGeometry } from "./SketchGeometry";
 
 /**
@@ -58,6 +58,7 @@ export function SketchScene() {
       <SketchCanvas sketch={sketch} />
       <SketchGeometry sketch={sketch} isDark={isDark} />
       <SketchDimensions sketch={sketch} />
+      <SmartDimensionPreview sketch={sketch} />
       <SketchConstraintGlyphs sketch={sketch} />
     </group>
   );

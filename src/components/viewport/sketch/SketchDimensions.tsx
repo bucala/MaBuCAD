@@ -6,7 +6,7 @@ import { Plane, Raycaster, Vector2, Vector3 } from "three";
 import { DimensionValueField } from "@/components/shared/DimensionValueField";
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
-import { pointById } from "@/sketch/sketchModel";
+import { defaultDimensionAnchor, pointById } from "@/sketch/sketchModel";
 import type { Dimension, Sketch } from "@/sketch/types";
 import { useSketchStore } from "@/state/sketchStore";
 
@@ -32,6 +32,70 @@ export function SketchDimensions({ sketch }: SketchDimensionsProps) {
       {sketch.dimensions.map((dimension) => (
         <DimensionView key={dimension.id} dimension={dimension} sketch={sketch} />
       ))}
+    </group>
+  );
+}
+
+/**
+ * Smart Dimension's uncommitted proposal, following the cursor until a click on empty
+ * sketch space commits it — see `sketchStore.ts`'s `PendingDimension` doc comment for
+ * the whole flow. Deliberately a much simpler render than `DimensionView` below: no
+ * witness lines beyond a single dashed leader to the cursor, no drag/edit interaction,
+ * since none of that applies to something that isn't part of the sketch yet.
+ */
+export function SmartDimensionPreview({ sketch }: { sketch: Sketch }) {
+  const pendingDimension = useSketchStore((state) => state.pendingDimension);
+  const hoverPosition = useSketchStore((state) => state.hoverPosition);
+
+  if (!pendingDimension || !hoverPosition) return null;
+
+  const anchor = defaultDimensionAnchor(
+    sketch,
+    pendingDimension.kind,
+    pendingDimension.points,
+    pendingDimension.entities,
+  );
+  if (!anchor) return null;
+
+  const text =
+    pendingDimension.kind === "diameter"
+      ? `⌀${pendingDimension.value.toFixed(2)}`
+      : pendingDimension.kind === "radius"
+        ? `R${pendingDimension.value.toFixed(2)}`
+        : pendingDimension.kind === "angle"
+          ? `${pendingDimension.value.toFixed(1)}°`
+          : pendingDimension.value.toFixed(2);
+
+  return (
+    <group>
+      <Line
+        points={[
+          [anchor.x, anchor.y, 0.04],
+          [hoverPosition.x, hoverPosition.y, 0.04],
+        ]}
+        color={DIMENSION_COLOR}
+        lineWidth={1}
+        dashed
+        dashSize={2}
+        gapSize={1.5}
+        transparent
+        opacity={0.6}
+        // Otherwise this leader — which can run right across whatever the user is trying
+        // to pick next (a second line to refine into an angle) — wins the raycast over the
+        // entity underneath it and the pick silently misses.
+        raycast={() => null}
+      />
+      {/* `wrapperClass` (not the `pointerEvents` prop — see `.previewWrapper`'s own doc
+          comment for why that prop doesn't work here) keeps this non-interactive, since it
+          sits exactly where the next pick needs to land as it follows the cursor. */}
+      <Html
+        position={[hoverPosition.x, hoverPosition.y, 0.06]}
+        center
+        zIndexRange={[20, 0]}
+        wrapperClass={styles.previewWrapper}
+      >
+        <div className={styles.preview}>{text}</div>
+      </Html>
     </group>
   );
 }

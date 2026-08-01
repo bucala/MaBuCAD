@@ -33,7 +33,7 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   const accent = useSceneAccentColor();
   const selection = useSketchStore((state) => state.selection);
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
-  const applySmartDimension = useSketchStore((state) => state.applySmartDimension);
+  const pickForSmartDimension = useSketchStore((state) => state.pickForSmartDimension);
   const trimAt = useSketchStore((state) => state.trimAt);
   const tool = useSketchStore((state) => state.tool);
   // Invisible pick radius around a point, matching the snap radius the drawing tools use
@@ -47,13 +47,17 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   const isPickMode = tool === "select" || tool === "smart-dimension";
   const isTrimMode = tool === "trim";
 
-  // Smart Dimension stays armed after use (see commandRegistry.ts's own note), so every
-  // pick here also tries to complete a dimension from the selection-so-far — succeeding
-  // clears the selection and leaves the tool active for the next one; picking too little
-  // so far (e.g. one endpoint of a two-point distance) just leaves it selected and waits.
+  // Smart Dimension stays armed after use (see commandRegistry.ts's own note). Unlike
+  // Select, a pick here always accumulates (see `pickForSmartDimension`'s own doc
+  // comment on `PendingDimension`) rather than replacing the selection — that's what
+  // lets a second, compatible pick refine a proposal (two lines -> angle) instead of the
+  // first one committing immediately and leaving no room for a second pick to matter.
   const pick = (id: string, additive: boolean) => {
+    if (tool === "smart-dimension") {
+      pickForSmartDimension(id);
+      return;
+    }
     toggleSelection(id, additive);
-    if (tool === "smart-dimension") applySmartDimension();
   };
 
   const baseColor = isDark ? STATIC_COLORS.geometryDark : STATIC_COLORS.geometry;

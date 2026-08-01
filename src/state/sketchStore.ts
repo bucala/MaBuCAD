@@ -10,6 +10,7 @@ import {
   addRectangle,
   addSpline,
   createSketch,
+  defaultDimensionAnchor,
   entityById,
   entityPoints,
   hasClosedProfile,
@@ -64,6 +65,21 @@ const IDLE_DIAGNOSTICS: SketchDiagnostics = {
  * the document's feature history. */
 const SKETCH_HISTORY_LIMIT = 30;
 
+/**
+ * A Smart Dimension proposal that hasn't been committed to the sketch yet — the
+ * Inventor-style flow this drives: picking one entity proposes this and it follows the
+ * cursor (`hoverPosition` below) rather than landing immediately; picking a second,
+ * compatible entity re-infers it (e.g. a second non-parallel line turns a length
+ * proposal into an angle one); a click on empty sketch space commits it wherever that
+ * click landed. Escape, `deleteSelection`, or leaving the tool discards it.
+ */
+interface PendingDimension {
+  kind: DimensionKind;
+  points: string[];
+  entities: string[];
+  value: number;
+}
+
 interface SketchStore {
   /** Feature id of the sketch being edited, or null outside sketch mode. */
   activeSketchId: string | null;
@@ -82,6 +98,15 @@ interface SketchStore {
    * what lets a component outside the canvas see this state.
    */
   contextMenu: { x: number; y: number } | null;
+
+  /** An uncommitted Smart Dimension proposal, or null. See `PendingDimension`'s own doc
+   * comment. */
+  pendingDimension: PendingDimension | null;
+  /** Live cursor position in sketch coordinates, kept live by `SketchCanvas.tsx`'s
+   * pointer-move handler purely so a pending dimension's preview can follow it —
+   * unrelated to the drawing tools' own local `cursor` state, which already does the
+   * same tracking for their own rubber-band previews. */
+  hoverPosition: Point2 | null;
 
   /** Undo history for the sketch currently being edited — reset on every entry into
    * sketch editing (`beginSketch`/`resumeSketch`) and on exit, so its scope is one
@@ -120,7 +145,17 @@ interface SketchStore {
   mirrorSelection: () => boolean;
   offsetSelection: (distance: number) => boolean;
   patternSelection: (options: PatternOptions) => boolean;
-  applySmartDimension: () => boolean;
+  /** Picks (or accumulates picking) `id` toward a Smart Dimension proposal — see
+   * `PendingDimension`'s own doc comment for the full flow. */
+  pickForSmartDimension: (id: string) => void;
+  /** Commits the current pending proposal into the sketch, with its label placed at
+   * `position` (a click on empty sketch space while proposing — see `SketchCanvas.tsx`).
+   * A no-op if nothing is pending. */
+  commitPendingDimension: (position: Point2) => void;
+  /** Discards the current pending proposal without creating a dimension — Escape, or
+   * switching away from the Smart Dimension tool. */
+  cancelPendingDimension: () => void;
+  setHoverPosition: (position: Point2 | null) => void;
   applyOrdinateDimension: (axis: "both" | "x" | "y") => boolean;
   setDimensionValue: (dimensionId: string, value: number) => void;
   setDimensionLabelOffset: (dimensionId: string, offset: Point2) => void;
@@ -195,6 +230,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     tool: "select",
     selection: [],
     contextMenu: null,
+    pendingDimension: null,
+    hoverPosition: null,
     past: [],
     future: [],
 
@@ -212,6 +249,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         tool: "line",
         selection: [],
         contextMenu: null,
+        pendingDimension: null,
+        hoverPosition: null,
         past: [],
         future: [],
       }));
@@ -226,6 +265,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         tool: "select",
         selection: [],
         contextMenu: null,
+        pendingDimension: null,
+        hoverPosition: null,
         past: [],
         future: [],
       });
@@ -238,6 +279,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
+        pendingDimension: null,
+        hoverPosition: null,
         past: [],
         future: [],
       }),
@@ -250,11 +293,16 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
+        pendingDimension: null,
+        hoverPosition: null,
         past: [],
         future: [],
       }),
 
-    setTool: (tool) => set({ tool, selection: [] }),
+    // A pending Smart Dimension proposal only makes sense while that tool stays active —
+    // switching to any other tool (including re-arming Smart Dimension itself, which goes
+    // through this same setter) discards it rather than leaving a ghost proposal behind.
+    setTool: (tool) => set({ tool, selection: [], pendingDimension: null }),
     setSelection: (ids) => set({ selection: ids }),
     clearSelection: () => set({ selection: [] }),
 
@@ -379,25 +427,61 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       return true;
     },
 
-    applySmartDimension: () => {
-      const { activeSketchId, sketches } = get();
+    pickForSmartDimension: (id) => {
+      const { activeSketchId, sketches, selection } = get();
       const sketch = activeSketchId ? sketches[activeSketchId] : undefined;
-      if (!sketch) return false;
+      if (!sketch) return;
 
-      const { entities, points } = partitionSelection(sketch);
+      const nextSelection = selection.includes(id) ? selection : [...selection, id];
+      const entities = nextSelection.filter((candidate) => entityById(sketch, candidate));
+      const points = nextSelection.filter((candidate) => pointById(sketch, candidate));
+
       const inferred = inferSmartDimension(sketch, entities, points);
-      if (!inferred) return false;
+      if (!inferred) {
+        // Not conclusive yet (e.g. a lone point with no partner) — keep accumulating and
+        // wait for the next pick, same as before this flow deferred the actual commit.
+        set({ selection: nextSelection });
+        return;
+      }
 
-      edit((current) => {
-        const value = roundDimensionValue(
-          measure(current, inferred.kind, inferred.points, inferred.entities),
+      const value = roundDimensionValue(measure(sketch, inferred.kind, inferred.points, inferred.entities));
+      set({
+        selection: nextSelection,
+        pendingDimension: { kind: inferred.kind, points: inferred.points, entities: inferred.entities, value },
+      });
+    },
+
+    commitPendingDimension: (position) => {
+      const { pendingDimension } = get();
+      if (!pendingDimension) return;
+
+      edit((sketch) => {
+        const anchor = defaultDimensionAnchor(
+          sketch,
+          pendingDimension.kind,
+          pendingDimension.points,
+          pendingDimension.entities,
         );
-        return addDimension(current, inferred.kind, value, inferred.points, inferred.entities).sketch;
+        const labelOffset = anchor
+          ? { x: position.x - anchor.x, y: position.y - anchor.y }
+          : { x: 0, y: 0 };
+
+        return addDimension(
+          sketch,
+          pendingDimension.kind,
+          pendingDimension.value,
+          pendingDimension.points,
+          pendingDimension.entities,
+          labelOffset,
+        ).sketch;
       });
 
-      set({ selection: [] });
-      return true;
+      set({ selection: [], pendingDimension: null });
     },
+
+    cancelPendingDimension: () => set({ pendingDimension: null, selection: [] }),
+
+    setHoverPosition: (position) => set({ hoverPosition: position }),
 
     applyOrdinateDimension: (axis) => {
       const { activeSketchId, sketches } = get();
