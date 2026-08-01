@@ -6,6 +6,7 @@ import { BufferAttribute, BufferGeometry, Euler, LineSegments, Quaternion } from
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { selectBuiltFeatures, useDocumentStore } from "@/state/documentStore";
 import { GEOMETRY_FEATURE_KINDS, useGeometryStore } from "@/state/geometryStore";
+import { useSettingsStore } from "@/state/settingsStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
@@ -37,6 +38,8 @@ export function SolidModel() {
   const updateParameters = useDocumentStore((state) => state.updateParameters);
   const displayMode = useViewportStore((state) => state.displayMode);
   const hiddenFeatureIds = useViewportStore((state) => state.hiddenFeatureIds);
+  const modelColorOverride = useSettingsStore((state) => state.modelColor);
+  const modelEdgeColorOverride = useSettingsStore((state) => state.modelEdgeColor);
   const cadDocument = useDocumentStore((state) => state.document);
   const sketches = useSketchStore((state) => state.sketches);
   const features = cadDocument.features;
@@ -154,7 +157,16 @@ export function SolidModel() {
   // has to ask for a frame explicitly.
   useEffect(() => {
     invalidate();
-  }, [geometry, edgeGeometry, displayMode, isBodyHidden, pickingFeature, invalidate]);
+  }, [
+    geometry,
+    edgeGeometry,
+    displayMode,
+    isBodyHidden,
+    pickingFeature,
+    modelColorOverride,
+    modelEdgeColorOverride,
+    invalidate,
+  ]);
 
   // Geometry is owned by this component; release the GPU buffers when it is replaced.
   useEffect(() => {
@@ -184,7 +196,7 @@ export function SolidModel() {
       >
         {showShadedMaterial ? (
           <meshStandardMaterial
-            color={isDark ? "#b8c4d0" : "#c9d4e0"}
+            color={modelColorOverride ?? (isDark ? "#b8c4d0" : "#c9d4e0")}
             metalness={0.12}
             roughness={0.55}
             flatShading={false}
@@ -204,7 +216,9 @@ export function SolidModel() {
           raycast={pickingFeature ? LineSegments.prototype.raycast : () => null}
           onClick={pickingFeature ? handleEdgeClick : undefined}
         >
-          <lineBasicMaterial color={pickingFeature ? "#f5c542" : isDark ? "#1b1f24" : "#2b3138"} />
+          <lineBasicMaterial
+            color={pickingFeature ? "#f5c542" : (modelEdgeColorOverride ?? (isDark ? "#1b1f24" : "#2b3138"))}
+          />
         </lineSegments>
       )}
 

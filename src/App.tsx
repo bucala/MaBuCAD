@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { useAutosave } from "@/hooks/useAutosave";
 import { useDisableNativeContextMenu } from "@/hooks/useDisableNativeContextMenu";
 import { useEscapeToDeselect } from "@/hooks/useEscapeToDeselect";
 import { useRebuild } from "@/hooks/useRebuild";
@@ -12,6 +13,7 @@ export default function App() {
   useRebuild();
   useEscapeToDeselect();
   useDisableNativeContextMenu();
+  useAutosave();
 
   // Rebuild failures belong on the feature that caused them, so the tree can badge it.
   const errors = useGeometryStore((state) => state.errors);

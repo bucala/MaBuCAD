@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n/useTranslation";
 import type { RibbonGroup as RibbonGroupModel, RibbonItem } from "@/types/ui";
 
 import { RibbonButton } from "./RibbonButton";
@@ -20,6 +21,8 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 export function RibbonGroup({ group, onInvoke }: RibbonGroupProps) {
+  const { t } = useTranslation();
+  const label = t(group.id, group.label);
   const largeItems = group.items.filter((item) => item.size === "large");
   const smallColumns = chunk(
     group.items.filter((item) => item.size === "small"),
@@ -27,7 +30,7 @@ export function RibbonGroup({ group, onInvoke }: RibbonGroupProps) {
   );
 
   return (
-    <section className={styles.group} aria-label={group.label}>
+    <section className={styles.group} aria-label={label}>
       <div className={styles.items}>
         {largeItems.map((item) => (
           <RibbonButton key={item.id} item={item} onInvoke={onInvoke} />
@@ -42,7 +45,7 @@ export function RibbonGroup({ group, onInvoke }: RibbonGroupProps) {
         ))}
       </div>
 
-      <div className={styles.label}>{group.label}</div>
+      <div className={styles.label}>{label}</div>
     </section>
   );
 }

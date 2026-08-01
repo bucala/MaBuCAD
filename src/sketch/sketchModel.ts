@@ -84,19 +84,23 @@ export function addLine(
   sketch: Sketch,
   from: { x: number; y: number },
   to: { x: number; y: number },
-  options: { construction?: boolean; tolerance?: number } = {},
+  options: { construction?: boolean; isAxis?: boolean; tolerance?: number } = {},
 ): { sketch: Sketch; entityId: string; startId: string; endId: string } {
   const tolerance = options.tolerance ?? 0;
 
   const start = ensurePoint(sketch, from.x, from.y, tolerance);
   const end = ensurePoint(start.sketch, to.x, to.y, tolerance);
 
+  // An axis line is always also a construction line — see LineEntity's own doc comment on
+  // `isAxis` — so callers only need to pass `isAxis: true` and the profile-exclusion side
+  // of it comes along for free through the existing `!entity.construction` filters.
   const entity: SketchEntity = {
     id: uid("line"),
     kind: "line",
     start: start.pointId,
     end: end.pointId,
-    construction: options.construction ?? false,
+    construction: (options.construction ?? false) || (options.isAxis ?? false),
+    isAxis: options.isAxis ?? false,
   };
 
   return {

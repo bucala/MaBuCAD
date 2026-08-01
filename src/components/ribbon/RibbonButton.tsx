@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n/useTranslation";
 import type { RibbonItem } from "@/types/ui";
 
 import styles from "./RibbonButton.module.css";
@@ -8,8 +9,12 @@ interface RibbonButtonProps {
 }
 
 export function RibbonButton({ item, onInvoke }: RibbonButtonProps) {
-  const { icon: Icon, label, size, description, enabled = true } = item;
+  const { icon: Icon, label: englishLabel, size, description, enabled = true } = item;
   const isLarge = size === "large";
+  const { t } = useTranslation();
+  // The command's own `id` doubles as its translation key — see `translations.ts`'s doc
+  // comment on why that needed no new keys invented for the whole ribbon.
+  const label = t(item.id, englishLabel);
 
   return (
     <button

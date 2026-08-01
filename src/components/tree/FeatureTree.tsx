@@ -62,6 +62,16 @@ export function FeatureTree() {
   const rolledBackCount = document.features.length - document.rollbackIndex;
   const isRootSelected = selectedFeatureIds.includes(document.id);
 
+  // How many other features currently consume each sketch as input — surfaced on the row
+  // so "one sketch feeding several features" (selecting it, then running another command)
+  // is visible after the fact, not just something that happens to work.
+  const sketchUsageCounts = new Map<string, number>();
+  for (const feature of document.features) {
+    for (const parentId of feature.parents) {
+      sketchUsageCounts.set(parentId, (sketchUsageCounts.get(parentId) ?? 0) + 1);
+    }
+  }
+
   return (
     <div className={styles.tree}>
       <div className={styles.toolbar}>
@@ -174,6 +184,7 @@ export function FeatureTree() {
                   isSelected={selectedFeatureIds.includes(feature.id)}
                   isRolledBack={index >= document.rollbackIndex}
                   isHidden={hiddenFeatureIds.includes(feature.id)}
+                  usedByCount={sketchUsageCounts.get(feature.id) ?? 0}
                   onSelect={selectFeature}
                   onRename={renameFeature}
                   onDelete={deleteFeature}
@@ -240,8 +251,12 @@ function RollbackBar({ onDrag }: { onDrag: (clientY: number) => void }) {
       role="separator"
       aria-label="Rollback bar"
       data-testid="rollback-bar"
+      // The whole bar shows the ns-resize cursor, so the drag needs to start from anywhere
+      // along it — not just the small "ROLLBACK" text, which used to be the only element
+      // with a handler — or that cursor is a lie the majority of its own width.
+      onPointerDown={handlePointerDown}
     >
-      <span className={styles.rollbackGrip} onPointerDown={handlePointerDown}>
+      <span className={styles.rollbackGrip}>
         Rollback
       </span>
       <span className={styles.rollbackLine} />

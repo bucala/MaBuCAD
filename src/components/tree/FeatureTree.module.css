@@ -168,6 +168,21 @@
   color: var(--status-over);
 }
 
+.usageBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1;
+}
+
 /* Row actions appear on hover, keeping the resting tree uncluttered. */
 .rowActions {
   display: none;

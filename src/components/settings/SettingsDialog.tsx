@@ -3,6 +3,9 @@ import type { CSSProperties } from "react";
 import { X } from "lucide-react";
 
 import { runExportSettings, runImportSettings } from "@/commands/settingsIO";
+import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
+import { LANGUAGES } from "@/i18n/languages";
+import { useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
 import { ACCENT_PRESETS, useSettingsStore, type ThemePreference } from "@/state/settingsStore";
 import { useViewportStore } from "@/state/viewportStore";
@@ -17,7 +20,7 @@ const UNIT_SYSTEMS: UnitSystem[] = [
   { id: "IPS", label: "IPS", description: "Inch, pound, second" },
 ];
 
-const TABS = ["General", "Display", "Sketch", "File"] as const;
+const TABS = ["General", "Colours", "Display", "Sketch", "File"] as const;
 type TabId = (typeof TABS)[number];
 
 /** Toggle-button row shared by every tab. */
@@ -49,13 +52,114 @@ function ToggleRow<T extends string>({
 }
 
 function GeneralTab() {
+  const confirmBeforeDiscard = useSettingsStore((state) => state.confirmBeforeDiscard);
+  const setConfirmBeforeDiscard = useSettingsStore((state) => state.setConfirmBeforeDiscard);
+  const resetToDefaults = useSettingsStore((state) => state.resetToDefaults);
+  const language = useSettingsStore((state) => state.language);
+  const setLanguage = useSettingsStore((state) => state.setLanguage);
+  const { t } = useTranslation();
+
+  return (
+    <>
+      <div className={styles.section}>
+        <span className={styles.sectionTitle}>{t("settings.language", "Language")}</span>
+        <select
+          className={styles.numberInput}
+          style={{ width: "100%", textAlign: "left" }}
+          value={language}
+          onChange={(event) => setLanguage(event.target.value as typeof language)}
+          aria-label={t("settings.language", "Language")}
+        >
+          {LANGUAGES.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.nativeName}
+              {option.id !== "en" ? ` — ${option.englishName}` : ""}
+            </option>
+          ))}
+        </select>
+        <p className={styles.sectionHint}>
+          Only English and Slovak are fully translated so far — the rest fall back to
+          English one string at a time as they're translated.
+        </p>
+      </div>
+
+      <div className={styles.section}>
+        <span className={styles.sectionTitle}>Prompting</span>
+        <label className={styles.checkboxField}>
+          <input
+            type="checkbox"
+            checked={confirmBeforeDiscard}
+            onChange={(event) => setConfirmBeforeDiscard(event.target.checked)}
+          />
+          Confirm before discarding unsaved changes (New / Open)
+        </label>
+      </div>
+
+      <div className={styles.section}>
+        <button type="button" className={styles.footerButton} onClick={resetToDefaults}>
+          Reset to Defaults
+        </button>
+      </div>
+    </>
+  );
+}
+
+// Mirrors `SolidModel.tsx`'s own hardcoded fallbacks — shown as the swatch's resting
+// colour whenever the matching override is `null` ("Automatic").
+const AUTO_MODEL_COLOR = { light: "#c9d4e0", dark: "#b8c4d0" };
+const AUTO_MODEL_EDGE_COLOR = { light: "#2b3138", dark: "#1b1f24" };
+
+/** A colour swatch backed by a native colour picker, with a button to fall back to the
+ * app's own automatic (theme-matched) default — used for every override in this tab that
+ * isn't one of the fixed `ACCENT_PRESETS` swatches. */
+function ColorField({
+  label,
+  hint,
+  value,
+  autoValue,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: string | null;
+  autoValue: string;
+  onChange: (hex: string | null) => void;
+}) {
+  return (
+    <div className={styles.section}>
+      <span className={styles.sectionTitle}>{label}</span>
+      <div className={styles.colorFieldRow}>
+        <input
+          type="color"
+          className={styles.colorInput}
+          value={value ?? autoValue}
+          aria-label={label}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button
+          type="button"
+          className={styles.footerButton}
+          disabled={value === null}
+          onClick={() => onChange(null)}
+        >
+          Automatic
+        </button>
+      </div>
+      <p className={styles.sectionHint}>{hint}</p>
+    </div>
+  );
+}
+
+function ColoursTab() {
+  const isDark = useIsDarkTheme();
   const theme = useSettingsStore((state) => state.theme);
   const setTheme = useSettingsStore((state) => state.setTheme);
   const accentColor = useSettingsStore((state) => state.accentColor);
   const setAccentColor = useSettingsStore((state) => state.setAccentColor);
-  const confirmBeforeDiscard = useSettingsStore((state) => state.confirmBeforeDiscard);
-  const setConfirmBeforeDiscard = useSettingsStore((state) => state.setConfirmBeforeDiscard);
-  const resetToDefaults = useSettingsStore((state) => state.resetToDefaults);
+  const modelColor = useSettingsStore((state) => state.modelColor);
+  const setModelColor = useSettingsStore((state) => state.setModelColor);
+  const modelEdgeColor = useSettingsStore((state) => state.modelEdgeColor);
+  const setModelEdgeColor = useSettingsStore((state) => state.setModelEdgeColor);
 
   return (
     <>
@@ -94,23 +198,21 @@ function GeneralTab() {
         </p>
       </div>
 
-      <div className={styles.section}>
-        <span className={styles.sectionTitle}>Prompting</span>
-        <label className={styles.checkboxField}>
-          <input
-            type="checkbox"
-            checked={confirmBeforeDiscard}
-            onChange={(event) => setConfirmBeforeDiscard(event.target.checked)}
-          />
-          Confirm before discarding unsaved changes (New / Open)
-        </label>
-      </div>
+      <ColorField
+        label="Model Colour"
+        hint="The shaded solid's surface colour. Automatic picks a neutral grey tuned for the current theme."
+        value={modelColor}
+        autoValue={isDark ? AUTO_MODEL_COLOR.dark : AUTO_MODEL_COLOR.light}
+        onChange={setModelColor}
+      />
 
-      <div className={styles.section}>
-        <button type="button" className={styles.footerButton} onClick={resetToDefaults}>
-          Reset to Defaults
-        </button>
-      </div>
+      <ColorField
+        label="Model Edge Colour"
+        hint="The B-Rep edge overlay drawn on top of the solid in Shaded with Edges and Wireframe."
+        value={modelEdgeColor}
+        autoValue={isDark ? AUTO_MODEL_EDGE_COLOR.dark : AUTO_MODEL_EDGE_COLOR.light}
+        onChange={setModelEdgeColor}
+      />
     </>
   );
 }
@@ -120,6 +222,15 @@ function DisplayTab() {
   const setProjection = useViewportStore((state) => state.setProjection);
   const linePickTolerance = useSettingsStore((state) => state.linePickTolerance);
   const setLinePickTolerance = useSettingsStore((state) => state.setLinePickTolerance);
+
+  const zoomToCursor = useSettingsStore((state) => state.zoomToCursor);
+  const toggleZoomToCursor = useSettingsStore((state) => state.toggleZoomToCursor);
+  const viewCubeVisible = useSettingsStore((state) => state.viewCubeVisible);
+  const toggleViewCubeVisible = useSettingsStore((state) => state.toggleViewCubeVisible);
+  const originIndicatorVisible = useSettingsStore((state) => state.originIndicatorVisible);
+  const toggleOriginIndicatorVisible = useSettingsStore((state) => state.toggleOriginIndicatorVisible);
+  const axisLabelsVisible = useSettingsStore((state) => state.axisLabelsVisible);
+  const toggleAxisLabelsVisible = useSettingsStore((state) => state.toggleAxisLabelsVisible);
 
   return (
     <>
@@ -157,6 +268,43 @@ function DisplayTab() {
           as a hit — higher makes clicking easier at the cost of precision when lines run close
           together.
         </p>
+      </div>
+
+      <div className={styles.section}>
+        <span className={styles.sectionTitle}>3D Navigation</span>
+
+        <label className={styles.checkboxField}>
+          <input type="checkbox" checked={zoomToCursor} onChange={toggleZoomToCursor} />
+          Zoom to cursor
+        </label>
+        <p className={styles.sectionHint}>
+          The scroll wheel zooms toward whatever is under the pointer instead of the centre of
+          the viewport.
+        </p>
+
+        <label className={styles.checkboxField}>
+          <input type="checkbox" checked={viewCubeVisible} onChange={toggleViewCubeVisible} />
+          Show ViewCube
+        </label>
+
+        <label className={styles.checkboxField}>
+          <input
+            type="checkbox"
+            checked={originIndicatorVisible}
+            onChange={toggleOriginIndicatorVisible}
+          />
+          Show Origin 3D indicator
+        </label>
+
+        <label className={styles.checkboxField}>
+          <input
+            type="checkbox"
+            checked={axisLabelsVisible}
+            disabled={!originIndicatorVisible}
+            onChange={toggleAxisLabelsVisible}
+          />
+          Show Origin XYZ axis labels
+        </label>
       </div>
     </>
   );
@@ -233,6 +381,7 @@ function FileTab() {
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<TabId>("General");
   const dialogRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!open) return;
@@ -254,7 +403,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     >
       <div ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-label="Application Options">
         <div className={styles.header}>
-          <h2 className={styles.title}>Application Options</h2>
+          <h2 className={styles.title}>{t("settings.title", "Application Options")}</h2>
           <button type="button" className={styles.closeButton} aria-label="Close Application Options" onClick={onClose}>
             <X size={16} strokeWidth={1.75} />
           </button>
@@ -270,13 +419,14 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
             >
-              {tab}
+              {t(`settings.tab.${tab.toLowerCase()}`, tab)}
             </button>
           ))}
         </div>
 
         <div className={styles.body}>
           {activeTab === "General" && <GeneralTab />}
+          {activeTab === "Colours" && <ColoursTab />}
           {activeTab === "Display" && <DisplayTab />}
           {activeTab === "Sketch" && <SketchTab />}
           {activeTab === "File" && <FileTab />}

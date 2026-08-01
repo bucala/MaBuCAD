@@ -115,8 +115,10 @@ interface RevolveAxis {
 }
 
 /**
- * Finds the revolve axis for a sketch: the first construction line's endpoints, or the
- * sketch's local Y axis through the origin when none exists.
+ * Finds the revolve axis for a sketch: a line explicitly marked as an axis line takes
+ * priority (unambiguous even when the sketch also has an ordinary construction line doing
+ * something else, e.g. a mirror axis); otherwise the first construction line's endpoints;
+ * otherwise the sketch's local Y axis through the origin.
  *
  * The fallback matters more than it looks: replicad defaults an omitted revolve axis to
  * the sketch plane's own normal, which is coplanar with (not swept around by) a profile
@@ -124,9 +126,13 @@ interface RevolveAxis {
  * explicit in-plane axis must always be supplied.
  */
 function revolveAxis(sketch: Sketch): RevolveAxis {
-  const axisLine = sketch.entities.find(
-    (entity): entity is LineEntity => entity.kind === "line" && entity.construction,
-  );
+  const axisLine =
+    sketch.entities.find(
+      (entity): entity is LineEntity => entity.kind === "line" && entity.construction && !!entity.isAxis,
+    ) ??
+    sketch.entities.find(
+      (entity): entity is LineEntity => entity.kind === "line" && entity.construction,
+    );
 
   if (axisLine) {
     const start = pointById(sketch, axisLine.start);

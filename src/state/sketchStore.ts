@@ -42,6 +42,7 @@ export type SketchTool =
   | "circle"
   | "spline"
   | "construction-line"
+  | "axis-line"
   | "point"
   | "arc"
   | "trim"
@@ -93,7 +94,7 @@ interface SketchStore {
   toggleSelection: (id: string, additive: boolean) => void;
   clearSelection: () => void;
 
-  drawLine: (from: Point2, to: Point2, construction?: boolean) => void;
+  drawLine: (from: Point2, to: Point2, construction?: boolean, isAxis?: boolean) => void;
   drawRectangle: (corner: Point2, opposite: Point2) => void;
   drawCircle: (centre: Point2, radius: number) => void;
   drawSpline: (positions: Point2[]) => void;
@@ -108,6 +109,7 @@ interface SketchStore {
   applySmartDimension: () => boolean;
   applyOrdinateDimension: (axis: "both" | "x" | "y") => boolean;
   setDimensionValue: (dimensionId: string, value: number) => void;
+  setDimensionLabelOffset: (dimensionId: string, offset: Point2) => void;
   deleteDimension: (dimensionId: string) => void;
 
   dragPoint: (pointId: string, position: Point2) => void;
@@ -215,8 +217,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         };
       }),
 
-    drawLine: (from, to, construction = false) =>
-      edit((sketch) => addLine(sketch, from, to, { construction, tolerance: snapTolerance() }).sketch),
+    drawLine: (from, to, construction = false, isAxis = false) =>
+      edit((sketch) => addLine(sketch, from, to, { construction, isAxis, tolerance: snapTolerance() }).sketch),
 
     drawRectangle: (corner, opposite) =>
       edit((sketch) => addRectangle(sketch, corner, opposite, { tolerance: snapTolerance() }).sketch),
@@ -389,6 +391,28 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           dimension.id === dimensionId ? { ...dimension, value } : dimension,
         ),
       })),
+
+    // Repositioning a label is display-only — it does not change what the dimension
+    // measures or drive a re-solve, so this writes directly rather than going through
+    // `edit()` (which re-solves and updates `diagnostics`, neither of which apply here).
+    setDimensionLabelOffset: (dimensionId, offset) => {
+      const { activeSketchId, sketches } = get();
+      if (!activeSketchId) return;
+      const current = sketches[activeSketchId];
+      if (!current) return;
+
+      set({
+        sketches: {
+          ...sketches,
+          [activeSketchId]: {
+            ...current,
+            dimensions: current.dimensions.map((dimension) =>
+              dimension.id === dimensionId ? { ...dimension, labelOffset: offset } : dimension,
+            ),
+          },
+        },
+      });
+    },
 
     deleteDimension: (dimensionId) =>
       edit((sketch) => ({

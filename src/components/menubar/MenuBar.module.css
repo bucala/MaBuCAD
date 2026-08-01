@@ -96,6 +96,20 @@
   color: var(--text-disabled);
 }
 
+.menuDivider {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background: var(--stroke-divider);
+}
+
+.checkSlot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  color: var(--accent);
+}
+
 .spacer {
   flex: 1 1 auto;
 }

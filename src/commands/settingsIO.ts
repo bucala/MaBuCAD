@@ -29,12 +29,39 @@ function isSavedSettings(value: unknown): value is SavedSettings {
 
 export async function runExportSettings(): Promise<void> {
   const { showToast } = useGeometryStore.getState();
-  const { theme, accentColor, confirmBeforeDiscard, snapTolerance, linePickTolerance } =
-    useSettingsStore.getState();
+  const {
+    theme,
+    accentColor,
+    confirmBeforeDiscard,
+    snapTolerance,
+    linePickTolerance,
+    modelColor,
+    modelEdgeColor,
+    zoomToCursor,
+    viewCubeVisible,
+    originIndicatorVisible,
+    axisLabelsVisible,
+    language,
+    autosaveEnabled,
+  } = useSettingsStore.getState();
 
   const payload: SavedSettings = {
     formatVersion: FORMAT_VERSION,
-    settings: { theme, accentColor, confirmBeforeDiscard, snapTolerance, linePickTolerance },
+    settings: {
+      theme,
+      accentColor,
+      confirmBeforeDiscard,
+      snapTolerance,
+      linePickTolerance,
+      modelColor,
+      modelEdgeColor,
+      zoomToCursor,
+      viewCubeVisible,
+      originIndicatorVisible,
+      axisLabelsVisible,
+      language,
+      autosaveEnabled,
+    },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
 

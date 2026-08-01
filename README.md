@@ -103,8 +103,8 @@ manufacturing hand-off. Both import back into the document as real features.
 ### 🎨 Three skins, five accents
 
 Light, Gray or Dark, each re-tinted live by any of five accent colours (or the original
-Fluent blue) via `color-mix()` — one Settings swatch recolours the whole app, viewport
-included.
+Fluent blue) via `color-mix()`, plus Model Colour / Model Edge Colour overrides — all
+gathered into their own Settings ▸ Colours tab.
 
   </td>
   <td width="33%" valign="top">
@@ -121,6 +121,33 @@ Mica backdrop — Fluent 2 design tokens throughout, not an imitation.
 
 60+ Playwright scripts drive the actual app end to end — sketch solving, every PartDesign
 feature, undo/redo, import/export — not just typecheck and hope.
+
+  </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+
+### 🌍 9 languages
+
+A language switcher for English, Slovak, Czech, German, French, Italian, Spanish, Russian
+and Chinese. English and Slovak are fully translated today; the rest fall back to English
+string-by-string until translated.
+
+  </td>
+  <td width="33%" valign="top">
+
+### 🧭 Real 3D Navigation controls
+
+Zoom-to-cursor, ViewCube visibility, origin indicator and XYZ axis labels — all genuinely
+wired to the viewport, not decorative checkboxes.
+
+  </td>
+  <td width="33%" valign="top">
+
+### 💾 Autosave & recovery
+
+An opt-in `localStorage` recovery snapshot every 60s while there are unsaved changes, with
+File ▸ Restore Autosave to bring it back — no native save dialog interrupting you.
 
   </td>
   </tr>
@@ -371,14 +398,19 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Dress-up | Fillet, Chamfer, Shell, Draft, Rib — with edge-selective Fillet/Chamfer | ✅ |
 | Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft | ✅ |
 | Pattern/Mirror (feature-level) | Linear Pattern, Circular Pattern, Mirror | ✅ |
-| Theming | Light/Gray/Dark skins, 5 live accent colours via `color-mix()` | ✅ |
+| Theming | Light/Gray/Dark skins, 5 live accent colours, Model/Edge colour overrides | ✅ |
+| 3D Navigation | Zoom-to-cursor, ViewCube toggle, origin indicator + axis labels | ✅ |
+| Autosave | Opt-in periodic recovery snapshot, restorable from the File menu | ✅ |
+| New Document picker | Visual Part/Assembly/Drawing chooser (Part wired, rest "coming soon") | ✅ |
+| Localisation | 9-language switcher; English and Slovak fully translated | 🟡 |
 | Boundary surface | Guide-curve boundary blending | ⬜ |
 | Assembly | Components, mates, exploded views | ⬜ |
 | Drawing | 2D sheets, projected/section/detail views, annotations, BOM | ⬜ |
 | Inspect | Measure, mass properties, curvature and draft analysis | ⬜ |
 
-<sub>✅ done &nbsp;•&nbsp; ⬜ planned — see [`CHANGELOG.md`](./CHANGELOG.md) for the full
-dated history, including bugs found and fixed along the way.</sub>
+<sub>✅ done &nbsp;•&nbsp; 🟡 partial &nbsp;•&nbsp; ⬜ planned — see
+[`CHANGELOG.md`](./CHANGELOG.md) for the full dated history, including bugs found and fixed
+along the way.</sub>
 
 ---
 

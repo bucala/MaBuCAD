@@ -4,7 +4,7 @@ import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
-import { runNewDocument, runOpenDocument, runSaveDocument } from "./documentIO";
+import { runOpenDocument, runSaveDocument } from "./documentIO";
 import { runExport, runImport } from "./interchange";
 
 /**
@@ -287,7 +287,7 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "file.export-step": () => void runExport("step"),
   "file.export-stl": () => void runExport("stl-binary"),
 
-  "doc.new": runNewDocument,
+  "doc.new": () => useDocumentStore.getState().openNewDocumentDialog(),
   "doc.open": () => void runOpenDocument(),
   "doc.save": () => void runSaveDocument(),
 
@@ -306,7 +306,11 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "sketch.new": beginSketch,
   "sketch.exit": () => useSketchStore.getState().exitSketch(),
 
-  "dimension.smart": () => useSketchStore.getState().applySmartDimension(),
+  // Arms the tool rather than dimensioning the current selection once: Smart Dimension
+  // stays active across clicks (see SketchGeometry.tsx/SketchDimensions.tsx's own
+  // handling of the "smart-dimension" tool), the same "stays armed until you pick
+  // something else" convention every drawing tool already follows.
+  "dimension.smart": () => useSketchStore.getState().setTool("smart-dimension"),
   "dimension.ordinate": () => useSketchStore.getState().applyOrdinateDimension("both"),
   "dimension.horizontal-ordinate": () => useSketchStore.getState().applyOrdinateDimension("x"),
   "dimension.vertical-ordinate": () => useSketchStore.getState().applyOrdinateDimension("y"),

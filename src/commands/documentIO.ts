@@ -64,7 +64,12 @@ export async function runSaveDocument(): Promise<void> {
 
   try {
     const saved = await saveBlob(blob, `${document.name}.${EXTENSION}`, [EXTENSION]);
-    if (saved) showToast(`Saved ${document.name}.${EXTENSION}`);
+    if (saved) {
+      showToast(`Saved ${document.name}.${EXTENSION}`);
+      // A real save just wrote this exact state to disk, so the recovery snapshot has
+      // nothing left to offer that Open wouldn't already give back.
+      clearAutosaveSnapshot();
+    }
   } catch (error) {
     showToast(`Save failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
   }
@@ -101,4 +106,83 @@ export function runNewDocument(): void {
   releaseAllImportedShapes();
   useDocumentStore.getState().newDocument();
   useSketchStore.getState().loadSketches({});
+}
+
+/**
+ * Autosave: a `localStorage` recovery snapshot, not a file-system save.
+ *
+ * Every real Save needs a path the user picks (`io/files.ts`'s `saveBlob` opens a native
+ * dialog inside Tauri, a download prompt in the browser) — a background timer popping
+ * that dialog every few minutes would be worse than not autosaving at all. This instead
+ * writes the same document shape `runSaveDocument` does straight to `localStorage` under
+ * one fixed key, so it never needs a path and never interrupts anything; `useAutosave.ts`
+ * is what actually calls `writeAutosaveSnapshot` on an interval when Settings ▸ Autosave
+ * (`settingsStore.autosaveEnabled`) is on.
+ */
+const AUTOSAVE_STORAGE_KEY = "mabucad-autosave";
+
+interface AutosaveSnapshot extends SavedDocument {
+  savedAt: string;
+}
+
+export function writeAutosaveSnapshot(): void {
+  const { document, unitSystem } = useDocumentStore.getState();
+  const { sketches } = useSketchStore.getState();
+
+  const snapshot: AutosaveSnapshot = {
+    formatVersion: FORMAT_VERSION,
+    document,
+    sketches,
+    unitSystem,
+    savedAt: new Date().toISOString(),
+  };
+
+  try {
+    window.localStorage.setItem(AUTOSAVE_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // A full or unavailable localStorage (private browsing, quota) just means this tick's
+    // snapshot is skipped — the next interval tries again, and nothing the user asked for
+    // (the real Save/Export flows) depends on this succeeding.
+  }
+}
+
+function readAutosaveSnapshot(): AutosaveSnapshot | null {
+  try {
+    const raw = window.localStorage.getItem(AUTOSAVE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    return isSavedDocument(parsed) && "savedAt" in parsed ? (parsed as AutosaveSnapshot) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function hasAutosaveSnapshot(): boolean {
+  return readAutosaveSnapshot() !== null;
+}
+
+function clearAutosaveSnapshot(): void {
+  try {
+    window.localStorage.removeItem(AUTOSAVE_STORAGE_KEY);
+  } catch {
+    // Same reasoning as writeAutosaveSnapshot's own catch — best-effort only.
+  }
+}
+
+export function runRestoreAutosave(): void {
+  const { showToast } = useGeometryStore.getState();
+  const snapshot = readAutosaveSnapshot();
+  if (!snapshot) {
+    showToast("No autosave snapshot found");
+    return;
+  }
+
+  if (!confirmDiscard("Discard unsaved changes and restore the autosaved version?")) return;
+
+  releaseAllImportedShapes();
+  useDocumentStore.getState().loadDocument(snapshot.document);
+  useSketchStore.getState().loadSketches(snapshot.sketches);
+  useDocumentStore.getState().setUnitSystem(snapshot.unitSystem ?? "MMGS");
+
+  showToast(`Restored autosave from ${new Date(snapshot.savedAt).toLocaleString()}`);
 }

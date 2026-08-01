@@ -21,9 +21,26 @@
   white-space: nowrap;
 }
 
-.coordinates {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-tertiary);
+}
+
+.iconButton:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
+
+.iconButton[aria-pressed="false"] {
+  color: var(--text-tertiary);
+  opacity: 0.6;
 }
 
 .divider {

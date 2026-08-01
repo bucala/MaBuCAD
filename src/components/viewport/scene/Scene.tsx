@@ -1,14 +1,19 @@
+import { useEffect } from "react";
 import { GizmoHelper, GizmoViewcube } from "@react-three/drei";
+import { useThree } from "@react-three/fiber";
 
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 
+import { useSettingsStore } from "@/state/settingsStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
+import { useViewportStore } from "@/state/viewportStore";
 
 import { CadControls } from "../controls/CadControls";
 import { SolidModel } from "../model/SolidModel";
 import { SketchScene } from "../sketch/SketchScene";
 import { CameraRig, type ProjectionMode } from "./CameraRig";
+import { InactiveSketches } from "./InactiveSketches";
 import { Origin } from "./Origin";
 import { RaycasterTuning } from "./RaycasterTuning";
 import { ReferencePlanes } from "./ReferencePlanes";
@@ -29,7 +34,17 @@ interface SceneProps {
 export function Scene({ projection }: SceneProps) {
   const isDark = useIsDarkTheme();
   const isSketchMode = useSketchStore(selectIsSketchMode);
+  const gridVisible = useViewportStore((state) => state.gridVisible);
+  const viewCubeVisible = useSettingsStore((state) => state.viewCubeVisible);
   const accent = useSceneAccentColor();
+  const invalidate = useThree((state) => state.invalidate);
+
+  // Both toggles are flipped from the DOM (the status bar, the Settings dialog) rather
+  // than from inside this render loop, so under `frameloop="demand"` the mount/unmount
+  // they cause needs an explicit repaint — see `Origin.tsx`'s own note on the same gap.
+  useEffect(() => {
+    invalidate();
+  }, [gridVisible, viewCubeVisible, invalidate]);
 
   return (
     <>
@@ -47,21 +62,24 @@ export function Scene({ projection }: SceneProps) {
 
       {/* The ground grid competes with the sketch's own in-plane grid, so it steps
           aside while a sketch is open. */}
-      {!isSketchMode && <ViewportGrid />}
+      {!isSketchMode && gridVisible && <ViewportGrid />}
       <ReferencePlanes />
       <UserReferenceGeometry />
+      <InactiveSketches />
       <Origin />
       <SolidModel />
       {isSketchMode && <SketchScene />}
 
-      <GizmoHelper alignment="top-right" margin={[86, 86]}>
-        <GizmoViewcube
-          color={isDark ? "#3a3f45" : "#e8ecf0"}
-          textColor={isDark ? "#ffffff" : "#1a1a1a"}
-          strokeColor={isDark ? "#7b8593" : "#5d6b7a"}
-          hoverColor={accent}
-        />
-      </GizmoHelper>
+      {viewCubeVisible && (
+        <GizmoHelper alignment="top-right" margin={[86, 86]}>
+          <GizmoViewcube
+            color={isDark ? "#3a3f45" : "#e8ecf0"}
+            textColor={isDark ? "#ffffff" : "#1a1a1a"}
+            strokeColor={isDark ? "#7b8593" : "#5d6b7a"}
+            hoverColor={accent}
+          />
+        </GizmoHelper>
+      )}
     </>
   );
 }

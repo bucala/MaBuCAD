@@ -42,6 +42,9 @@ interface ViewportStore {
    * this feature" the same way `hiddenFeatureIds` already crosses that same sibling boundary.
    */
   edgePickModeFeatureId: string | null;
+  /** Ground grid in the 3D viewport (not the sketcher's own in-plane grid, which is
+   * unaffected). Defaults on, matching every other CAD viewport. */
+  gridVisible: boolean;
 
   cycleDisplayMode: () => void;
   toggleFeatureVisibility: (id: string) => void;
@@ -49,6 +52,7 @@ interface ViewportStore {
   setProjection: (mode: ProjectionMode) => void;
   toggleConstraintsVisible: () => void;
   setEdgePickMode: (featureId: string | null) => void;
+  toggleGridVisible: () => void;
 }
 
 export const useViewportStore = create<ViewportStore>((set) => ({
@@ -58,6 +62,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   projection: "orthographic",
   constraintsVisible: true,
   edgePickModeFeatureId: null,
+  gridVisible: true,
 
   cycleDisplayMode: () =>
     set((state) => {
@@ -80,4 +85,6 @@ export const useViewportStore = create<ViewportStore>((set) => ({
     set((state) => ({ constraintsVisible: !state.constraintsVisible })),
 
   setEdgePickMode: (featureId) => set({ edgePickModeFeatureId: featureId }),
+
+  toggleGridVisible: () => set((state) => ({ gridVisible: !state.gridVisible })),
 }));
