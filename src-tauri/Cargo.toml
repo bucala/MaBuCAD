@@ -1,6 +1,6 @@
 [package]
 name = "mabucad"
-version = "0.1.0"
+version = "0.2.0"
 description = "Parametric 3D/2D CAD system for Windows 11 x64"
 authors = ["Bucala"]
 edition = "2021"
