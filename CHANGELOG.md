@@ -5,6 +5,86 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
+## 2026-08-01 — Smart Dimension, axis lines, sketch persistence, colours, 3D Navigation, New Document, i18n, autosave
+
+A 12-item batch of real-world feedback, mostly against reference screenshots of another
+CAD tool's own Display Appearance and Application Options dialogs.
+
+### Added
+- **Smart Dimension stays armed after use.** It used to fire once against whatever was
+  already selected and drop back to Select; now activating it arms `"smart-dimension"` as
+  a persistent tool the way Select/Line/Trim already are, so picking entities one after
+  another keeps producing dimensions without re-clicking the ribbon button each time.
+- **A dimension label can be dragged, and double-clicked to edit its value inline.**
+  `SketchDimensions.tsx` converts a drag's screen coordinates into sketch-plane coordinates
+  by ray–plane intersection (correct under both orthographic and perspective projection, at
+  any zoom) and stores the result in `Dimension.labelOffset`, which every dimension kind now
+  reads as a nudge on top of its own computed default anchor — including angle dimensions,
+  whose label previously always rendered at the sketch origin regardless of the angle's real
+  geometry, a latent bug this fix incidentally closed. Double-clicking swaps the label for
+  the same `DimensionValueField` the Property Manager already used for typing a value
+  (extracted to `components/shared/` so both places share it), with `,`/`.` decimal input.
+- **The Line tool cycles through three variants**: Line → Construction → Axis Line → Line,
+  via a single button in the sketch panel (the dedicated Construction button still exists
+  alongside it). An axis line is a construction line specifically flagged `isAxis` — drawn
+  dash-dot, the CAD convention for a centreline — and Revolve now prefers an explicit axis
+  line over "just the first construction line found" when a sketch has more than one,
+  removing the ambiguity when one construction line means a mirror axis and another means
+  the revolve axis.
+- **Sketch geometry stays visible after Exit Sketch**, drawn dimmed and click-through
+  (`InactiveSketches.tsx`) instead of vanishing the instant you leave it — there was
+  previously nothing left on screen to show what you'd drawn, or to reference when picking
+  a sketch as input for another feature. Respects the existing per-feature hide/show.
+- **A sketch already fully supported being reused as input for more than one feature**
+  (select it in the tree, then run a second Extrude/Revolve/etc. — `resolveTargetSketchId()`
+  already prioritised an explicit selection over "the most recent sketch") but nothing made
+  that discoverable. The feature tree now shows a small badge on a sketch row counting how
+  many other features currently consume it, with a tooltip explaining the click-then-run
+  gesture.
+- **The rollback bar can be dragged from anywhere along it, not just the small "ROLLBACK"
+  text label** — the whole bar already showed the `ns-resize` cursor implying it was
+  draggable everywhere, but the pointer handler was wired to the label span alone, so
+  dragging from the line itself (the vast majority of the bar's own width, and the most
+  natural place to grab it) silently did nothing.
+- **Settings ▸ Display gains a real 3D Navigation section**: zoom-to-cursor (passed straight
+  through to `OrbitControls`' own prop), ViewCube visibility, origin-indicator visibility,
+  and new small X/Y/Z axis labels on the origin triad. Fixed a `frameloop="demand"` gap
+  uncovered while wiring these up: toggling visibility from outside the canvas (the Settings
+  dialog, the status bar, the feature tree) left the last frame on screen instead of
+  repainting, affecting the origin, the default reference planes, user-created reference
+  geometry, and the new inactive-sketch rendering — all now request a fresh frame when their
+  visibility inputs change.
+- **A new Settings ▸ Colours tab**: Theme and Accent Colour moved there from General, plus
+  new Model Colour / Model Edge Colour overrides (each with an "Automatic" reset back to the
+  theme-matched default) — the two pieces of the reference dialog's "Display Appearance"
+  honestly achievable in this app's flat-shaded pipeline. Deliberately excludes anything this
+  renderer can't actually do (Watercolor/Realistic Shading/Ground Reflections/Textures) —
+  no toggle here does nothing.
+- **New Document opens a visual Part / Assembly / Drawing picker** instead of creating a
+  document immediately. Part works exactly as before; Assembly and Drawing are shown as
+  disabled cards labelled "Coming soon" rather than hidden or silently doing nothing, since
+  neither has a working ribbon tab yet.
+- **A language switcher** (Settings ▸ General ▸ Language) lists all nine requested languages
+  — English (default), Slovak, Czech, German, French, Italian, Spanish, Russian, Chinese.
+  English and Slovak are fully translated for the app's chrome: every ribbon tab, group and
+  command, the menu bar, the status bar, the Settings dialog's own tabs, and the New Document
+  dialog. `i18n/translations.ts` needed no new keys invented for the ribbon — a command's own
+  `id` already uniquely identifies it, so `t(item.id, englishLabel)` in `RibbonButton.tsx`
+  was the whole wiring. The other seven languages are listed now and fall back to English
+  string-by-string until translated, a documented next step rather than a placeholder.
+- **File ▸ Autosave**, off by default. When on, a `localStorage` recovery snapshot of the
+  document is written every 60 seconds while there are unsaved changes — deliberately not a
+  file-system save, since every real Save needs a path the user picks (a native dialog inside
+  Tauri, a download prompt in the browser) and a background timer popping that every few
+  minutes would be worse than no autosave at all. **File ▸ Restore Autosave…** brings a
+  snapshot back; a real Save clears it, since the file on disk is then the authoritative copy.
+
+### Fixed
+- The bottom status bar's cursor-coordinate readout was never wired to a live cursor
+  position — it always read the literal text "X 0.00 Y 0.00 Z 0.00" regardless of where the
+  pointer was. Replaced with two toggles that actually do something: cycling the Visual
+  Style and showing/hiding the ground grid.
+
 ## 2026-07-31 — Regenerated the Tauri icon set from a sharper source
 
 ### Fixed
