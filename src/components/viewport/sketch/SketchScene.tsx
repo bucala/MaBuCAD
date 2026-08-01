@@ -10,6 +10,7 @@ import { useViewportStore } from "@/state/viewportStore";
 import { mixHex } from "@/utils/colorMix";
 
 import { DOCUMENT_SCALE, VIEWPORT_BG_APPROX } from "../constants";
+import { DragSnapIndicator } from "./DragSnapIndicator";
 import { SketchCanvas } from "./SketchCanvas";
 import { SketchConstraintGlyphs } from "./SketchConstraintGlyphs";
 import { SketchDimensions, SmartDimensionPreview } from "./SketchDimensions";
@@ -59,6 +60,7 @@ export function SketchScene() {
       <SketchGeometry sketch={sketch} isDark={isDark} />
       <SketchDimensions sketch={sketch} />
       <SmartDimensionPreview sketch={sketch} />
+      <DragSnapIndicator />
       <SketchConstraintGlyphs sketch={sketch} />
     </group>
   );

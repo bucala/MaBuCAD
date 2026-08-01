@@ -14,6 +14,7 @@ import {
   entityById,
   entityPoints,
   hasClosedProfile,
+  inferDragSnap,
   inferSmartDimension,
   measure,
   mirrorEntities,
@@ -24,7 +25,7 @@ import {
   pointById,
   trimLineAt,
 } from "@/sketch/sketchModel";
-import type { PatternOptions } from "@/sketch/sketchModel";
+import type { DragSnapSuggestion, PatternOptions } from "@/sketch/sketchModel";
 import { sketchStatusFromDiagnostics, solveSketch } from "@/sketch/solver";
 import type {
   DimensionKind,
@@ -102,6 +103,10 @@ interface SketchStore {
   /** An uncommitted Smart Dimension proposal, or null. See `PendingDimension`'s own doc
    * comment. */
   pendingDimension: PendingDimension | null;
+  /** "Constrains smart" — a relation the point currently being dragged is close enough
+   * to for `commitDragSnap` to apply on release. See `DragSnapSuggestion`'s own doc
+   * comment in `sketchModel.ts`. */
+  dragSnapSuggestion: DragSnapSuggestion | null;
   /** Live cursor position in sketch coordinates, kept live by `SketchCanvas.tsx`'s
    * pointer-move handler purely so a pending dimension's preview can follow it —
    * unrelated to the drawing tools' own local `cursor` state, which already does the
@@ -174,6 +179,10 @@ interface SketchStore {
    * every intermediate `dragPoint` call during the drag becoming its own step. */
   beginDrag: () => void;
   dragPoint: (pointId: string, position: Point2) => void;
+  /** Applies the current `dragSnapSuggestion` (if any) for the point that was just
+   * dragged, and clears it — called from `SketchCanvas.tsx`'s pointer-up, once the drag
+   * gesture actually ends. A no-op with nothing suggested. */
+  commitDragSnap: (pointId: string) => void;
   deleteSelection: () => void;
 
   undo: () => void;
@@ -231,6 +240,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     selection: [],
     contextMenu: null,
     pendingDimension: null,
+    dragSnapSuggestion: null,
     hoverPosition: null,
     past: [],
     future: [],
@@ -250,6 +260,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         contextMenu: null,
         pendingDimension: null,
+        dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
         future: [],
@@ -266,6 +277,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         contextMenu: null,
         pendingDimension: null,
+        dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
         future: [],
@@ -280,6 +292,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
         pendingDimension: null,
+        dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
         future: [],
@@ -294,6 +307,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
         pendingDimension: null,
+        dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
         future: [],
@@ -302,7 +316,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     // A pending Smart Dimension proposal only makes sense while that tool stays active —
     // switching to any other tool (including re-arming Smart Dimension itself, which goes
     // through this same setter) discards it rather than leaving a ghost proposal behind.
-    setTool: (tool) => set({ tool, selection: [], pendingDimension: null }),
+    setTool: (tool) => set({ tool, selection: [], pendingDimension: null, dragSnapSuggestion: null }),
     setSelection: (ids) => set({ selection: ids }),
     clearSelection: () => set({ selection: [] }),
 
@@ -625,10 +639,51 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       // Re-solve without the pin so the reported diagnostics describe the real sketch
       // rather than one with a temporary extra constraint.
       const final = solveSketch(settled);
+
+      // "Constrains smart": suggested from the point's actual post-solve position (other
+      // constraints may have pulled it away from where the cursor literally is), so the
+      // highlight always matches where the point really ended up.
+      const settledPoint = pointById(final.sketch, pointId);
+      const suggestion = settledPoint
+        ? inferDragSnap(final.sketch, pointId, settledPoint, snapTolerance())
+        : null;
+
       set({
         sketches: { ...sketches, [activeSketchId]: final.sketch },
         diagnostics: final.diagnostics,
+        dragSnapSuggestion: suggestion,
       });
+    },
+
+    commitDragSnap: (pointId) => {
+      const { dragSnapSuggestion } = get();
+      if (!dragSnapSuggestion) return;
+
+      edit((sketch) => {
+        if (dragSnapSuggestion.kind === "tangent") {
+          return addConstraint(
+            sketch,
+            "tangent",
+            [dragSnapSuggestion.lineEntityId, dragSnapSuggestion.circleEntityId],
+            [],
+          );
+        }
+
+        const snapped: Sketch = {
+          ...sketch,
+          points: sketch.points.map((point) =>
+            point.id === pointId
+              ? { ...point, x: dragSnapSuggestion.position.x, y: dragSnapSuggestion.position.y }
+              : point,
+          ),
+        };
+
+        return dragSnapSuggestion.kind === "coincident"
+          ? addConstraint(snapped, "coincident", [], [pointId, dragSnapSuggestion.targetPointId])
+          : snapped;
+      });
+
+      set({ dragSnapSuggestion: null });
     },
 
     deleteSelection: () => {

@@ -41,6 +41,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const clearSelection = useSketchStore((state) => state.clearSelection);
   const beginDrag = useSketchStore((state) => state.beginDrag);
   const dragPoint = useSketchStore((state) => state.dragPoint);
+  const commitDragSnap = useSketchStore((state) => state.commitDragSnap);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
   const pendingDimension = useSketchStore((state) => state.pendingDimension);
   const commitPendingDimension = useSketchStore((state) => state.commitPendingDimension);
@@ -132,6 +133,9 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   };
 
   const handlePointerUp = () => {
+    // "Constrains smart": applies whatever relation the drag ended up close to (see
+    // `commitDragSnap`'s own doc comment) — a no-op when nothing was suggested.
+    if (draggingPointId.current) commitDragSnap(draggingPointId.current);
     draggingPointId.current = null;
   };
 
