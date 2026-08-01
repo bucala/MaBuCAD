@@ -429,7 +429,7 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft | ✅ |
 | Pattern/Mirror (feature-level) | Linear Pattern, Circular Pattern, Mirror | ✅ |
 | Theming | Light/Gray/Dark skins, 5 live accent colours, Model/Edge colour overrides | ✅ |
-| 3D Navigation | Zoom-to-cursor, ViewCube toggle, origin indicator + axis labels | ✅ |
+| 3D Navigation | Zoom-to-cursor, ViewCube toggle + navigation arrows, origin indicator + axis labels | ✅ |
 | Autosave | Opt-in periodic recovery snapshot, restorable from the File menu | ✅ |
 | New Document picker | Visual Part/Assembly/Drawing chooser (Part wired, rest "coming soon") | ✅ |
 | Localisation | 9-language switcher; English and Slovak fully translated | 🟡 |

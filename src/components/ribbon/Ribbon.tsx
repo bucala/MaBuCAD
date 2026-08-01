@@ -79,10 +79,15 @@ export function Ribbon() {
               ...group,
               // A command is live once it is registered and applicable to the current
               // mode, so the ribbon reflects both what is built and what makes sense now.
-              items: group.items.map((item) => ({
-                ...item,
-                enabled: isCommandAvailable(item.id, isSketchMode),
-              })),
+              // "New Sketch" is hidden rather than merely disabled while already inside a
+              // sketch: a greyed-out large button next to "Exit Sketch"/"Select" reads as a
+              // redundant control rather than a clear affordance.
+              items: group.items
+                .filter((item) => !(isSketchMode && item.id === "sketch.new"))
+                .map((item) => ({
+                  ...item,
+                  enabled: isCommandAvailable(item.id, isSketchMode),
+                })),
             }}
             onInvoke={handleInvoke}
           />

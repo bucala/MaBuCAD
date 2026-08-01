@@ -192,42 +192,65 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
 
   // Every kind below computes a sensible default anchor first, then the user's drag
   // (`dimension.labelOffset`, see `handlePointerMove`) nudges the label from there —
-  // dragging works the same way regardless of what kind of dimension it is.
+  // dragging works the same way regardless of what kind of dimension it is. The witness
+  // lines are always rebuilt from that same nudge (rather than a fixed offset with the
+  // label alone drifting away from it), so the label stays visually attached to its own
+  // dimension line and the two move together as a single rigid unit, matching other CAD
+  // tools — a plain fixed offset here is what let the label detach from its line before.
   const nudge = dimension.labelOffset;
 
   if (isOrdinate && first && second) {
     // Ordinate dimensions run back to the datum along one axis, which is what makes a
-    // chain of them share a single zero rather than accumulating tolerance.
+    // chain of them share a single zero rather than accumulating tolerance. The nudge
+    // component along that axis grows or shrinks the shared offset (so witness lines and
+    // label move out together); the cross-axis component just slides the label along its
+    // own dimension line.
     const alongX = dimension.kind === "ordinate-x";
-    const offset = 6;
+    const baseOffset = 6;
 
     if (alongX) {
+      const offset = baseOffset - nudge.y;
       leader = [
         [second.x, second.y, 0],
         [second.x, first.y - offset, 0],
         [first.x, first.y - offset, 0],
       ];
-      labelPosition = [second.x + nudge.x, first.y - offset - 3 + nudge.y, 0.05];
+      labelPosition = [second.x + nudge.x, first.y - offset - 3, 0.05];
     } else {
+      const offset = baseOffset - nudge.x;
       leader = [
         [second.x, second.y, 0],
         [first.x - offset, second.y, 0],
         [first.x - offset, first.y, 0],
       ];
-      labelPosition = [first.x - offset - 3 + nudge.x, second.y + nudge.y, 0.05];
+      labelPosition = [first.x - offset - 3, second.y + nudge.y, 0.05];
     }
 
     text = `${dimension.value.toFixed(2)}`;
   } else if (first && second) {
-    const midX = (first.x + second.x) / 2 + nudge.x;
-    const midY = (first.y + second.y) / 2 + nudge.y;
     const normalX = -(second.y - first.y);
     const normalY = second.x - first.x;
     const normalLength = Math.hypot(normalX, normalY) || 1;
-    const offset = 5;
+    const nx = normalX / normalLength;
+    const ny = normalY / normalLength;
+    const lineDx = second.x - first.x;
+    const lineDy = second.y - first.y;
+    const lineLength = Math.hypot(lineDx, lineDy) || 1;
+    const dirX = lineDx / lineLength;
+    const dirY = lineDy / lineLength;
 
-    const shiftX = (normalX / normalLength) * offset;
-    const shiftY = (normalY / normalLength) * offset;
+    // Split the drag into how far it moved the dimension line away from the measured
+    // points (perpendicular) versus how far it slid the label along that line (parallel)
+    // — the perpendicular component drives both witness lines and the label identically.
+    const nudgeNormal = nudge.x * nx + nudge.y * ny;
+    const nudgeAlong = nudge.x * dirX + nudge.y * dirY;
+    const baseOffset = 5;
+    const offset = baseOffset + nudgeNormal;
+    const shiftX = nx * offset;
+    const shiftY = ny * offset;
+
+    const midX = (first.x + second.x) / 2 + dirX * nudgeAlong;
+    const midY = (first.y + second.y) / 2 + dirY * nudgeAlong;
 
     leader = [
       [first.x, first.y, 0],
@@ -241,14 +264,19 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     const centre = pointById(sketch, entity.center);
     if (!centre) return null;
 
-    const edgeX = centre.x + entity.radius * Math.SQRT1_2;
-    const edgeY = centre.y + entity.radius * Math.SQRT1_2;
+    const baseEdgeX = centre.x + entity.radius * Math.SQRT1_2;
+    const baseEdgeY = centre.y + entity.radius * Math.SQRT1_2;
+    const labelX = baseEdgeX + 6 + nudge.x;
+    const labelY = baseEdgeY + 6 + nudge.y;
 
+    // The leader always runs straight from the centre to the label itself, rather than to
+    // a fixed point near the original edge, so it tracks the label wherever it is dragged
+    // instead of leaving it visually disconnected.
     leader = [
       [centre.x, centre.y, 0],
-      [edgeX + 4, edgeY + 4, 0],
+      [labelX, labelY, 0],
     ];
-    labelPosition = [edgeX + 6 + nudge.x, edgeY + 6 + nudge.y, 0.05];
+    labelPosition = [labelX, labelY, 0.05];
     text = `${dimension.kind === "diameter" ? "⌀" : "R"}${dimension.value.toFixed(2)}`;
   } else if (dimension.kind === "angle") {
     // No single pair of points defines an angle (it's stored as two line entities), so the

@@ -50,6 +50,12 @@ interface ViewportStore {
    * `toSketch`). Off by default: existing point/entity snapping already covers the common
    * case, and forcing every click onto the grid would surprise anyone not expecting it. */
   snapToGridEnabled: boolean;
+  /** Set by the ViewCube's navigation arrows (a plain DOM overlay, outside the r3f tree —
+   * see `ZoomToFit.tsx`'s own doc comment for why a request object here, rather than a
+   * direct call, is how DOM controls reach the camera). `null` until the first click; the
+   * `nonce` is what the in-canvas handler actually watches, since two consecutive clicks in
+   * the same direction still need to trigger a step each time. */
+  rotateStepRequest: { direction: "up" | "down" | "left" | "right"; nonce: number } | null;
 
   cycleDisplayMode: () => void;
   toggleFeatureVisibility: (id: string) => void;
@@ -59,6 +65,7 @@ interface ViewportStore {
   setEdgePickMode: (featureId: string | null) => void;
   toggleGridVisible: () => void;
   toggleSnapToGrid: () => void;
+  requestRotateStep: (direction: "up" | "down" | "left" | "right") => void;
 }
 
 export const useViewportStore = create<ViewportStore>((set) => ({
@@ -70,6 +77,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   edgePickModeFeatureId: null,
   gridVisible: true,
   snapToGridEnabled: false,
+  rotateStepRequest: null,
 
   cycleDisplayMode: () =>
     set((state) => {
@@ -95,4 +103,9 @@ export const useViewportStore = create<ViewportStore>((set) => ({
 
   toggleGridVisible: () => set((state) => ({ gridVisible: !state.gridVisible })),
   toggleSnapToGrid: () => set((state) => ({ snapToGridEnabled: !state.snapToGridEnabled })),
+
+  requestRotateStep: (direction) =>
+    set((state) => ({
+      rotateStepRequest: { direction, nonce: (state.rotateStepRequest?.nonce ?? 0) + 1 },
+    })),
 }));

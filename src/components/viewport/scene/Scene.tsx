@@ -20,6 +20,7 @@ import { RaycasterTuning } from "./RaycasterTuning";
 import { ReferencePlanes } from "./ReferencePlanes";
 import { UserReferenceGeometry } from "./UserReferenceGeometry";
 import { ViewportGrid } from "./ViewportGrid";
+import { ViewRotationSteps } from "./ViewRotationSteps";
 import { ZoomToFit } from "./ZoomToFit";
 
 interface SceneProps {
@@ -52,6 +53,7 @@ export function Scene({ projection }: SceneProps) {
       <CameraRig mode={projection} />
       <CadControls />
       <ZoomToFit />
+      <ViewRotationSteps />
       <RaycasterTuning />
 
       {/* Sketch and reference geometry are unlit, so this lighting exists purely to shade
@@ -85,12 +87,21 @@ export function Scene({ projection }: SceneProps) {
       {/* Replaces the old bottom-left legend, a static SVG drawn outside the Canvas that
           never actually rotated with the camera despite looking like it should — this one
           is a real 3D object GizmoHelper keeps in sync with the main camera, the same way
-          the ViewCube above already is. */}
-      <GizmoHelper alignment="bottom-left" margin={[64, 64]}>
+          the ViewCube above already is.
+          `renderPriority={2}` is required here: drei's `Hud` re-clears and redraws the
+          *entire* main scene whenever it sees the default `renderPriority` of 1, so a
+          second `GizmoHelper` left at the default fights the ViewCube's — whichever one's
+          frame callback runs last wins and the other's overlay gets wiped before the frame
+          ever reaches the screen. A distinct, higher priority makes this one layer on top
+          instead of clearing and redrawing everything again. Purely a visual orientation
+          reference, not a control surface — the ViewCube above is where alignment clicks
+          belong — `disabled` turns off GizmoViewport's own hover/click-to-snap behaviour. */}
+      <GizmoHelper alignment="bottom-left" margin={[64, 64]} renderPriority={2}>
         <GizmoViewport
           axisColors={[AXIS_COLORS.x, AXIS_COLORS.y, AXIS_COLORS.z]}
           labelColor="#0a0a0a"
           hideNegativeAxes
+          disabled
         />
       </GizmoHelper>
     </>
