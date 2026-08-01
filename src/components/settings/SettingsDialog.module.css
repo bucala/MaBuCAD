@@ -217,6 +217,19 @@
   border-color: var(--accent);
 }
 
+.rangeInput {
+  flex: 1 1 auto;
+  accent-color: var(--accent);
+}
+
+.backgroundPreview {
+  height: 48px;
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background-size: cover;
+  background-position: center;
+}
+
 .footer {
   display: flex;
   align-items: center;

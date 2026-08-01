@@ -6,7 +6,7 @@ import { Plane, Raycaster, Vector2, Vector3 } from "three";
 import { DimensionValueField } from "@/components/shared/DimensionValueField";
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
-import { pointById } from "@/sketch/sketchModel";
+import { defaultDimensionAnchor, pointById } from "@/sketch/sketchModel";
 import type { Dimension, Sketch } from "@/sketch/types";
 import { useSketchStore } from "@/state/sketchStore";
 
@@ -36,11 +36,76 @@ export function SketchDimensions({ sketch }: SketchDimensionsProps) {
   );
 }
 
+/**
+ * Smart Dimension's uncommitted proposal, following the cursor until a click on empty
+ * sketch space commits it — see `sketchStore.ts`'s `PendingDimension` doc comment for
+ * the whole flow. Deliberately a much simpler render than `DimensionView` below: no
+ * witness lines beyond a single dashed leader to the cursor, no drag/edit interaction,
+ * since none of that applies to something that isn't part of the sketch yet.
+ */
+export function SmartDimensionPreview({ sketch }: { sketch: Sketch }) {
+  const pendingDimension = useSketchStore((state) => state.pendingDimension);
+  const hoverPosition = useSketchStore((state) => state.hoverPosition);
+
+  if (!pendingDimension || !hoverPosition) return null;
+
+  const anchor = defaultDimensionAnchor(
+    sketch,
+    pendingDimension.kind,
+    pendingDimension.points,
+    pendingDimension.entities,
+  );
+  if (!anchor) return null;
+
+  const text =
+    pendingDimension.kind === "diameter"
+      ? `⌀${pendingDimension.value.toFixed(2)}`
+      : pendingDimension.kind === "radius"
+        ? `R${pendingDimension.value.toFixed(2)}`
+        : pendingDimension.kind === "angle"
+          ? `${pendingDimension.value.toFixed(1)}°`
+          : pendingDimension.value.toFixed(2);
+
+  return (
+    <group>
+      <Line
+        points={[
+          [anchor.x, anchor.y, 0.04],
+          [hoverPosition.x, hoverPosition.y, 0.04],
+        ]}
+        color={DIMENSION_COLOR}
+        lineWidth={1}
+        dashed
+        dashSize={2}
+        gapSize={1.5}
+        transparent
+        opacity={0.6}
+        // Otherwise this leader — which can run right across whatever the user is trying
+        // to pick next (a second line to refine into an angle) — wins the raycast over the
+        // entity underneath it and the pick silently misses.
+        raycast={() => null}
+      />
+      {/* `wrapperClass` (not the `pointerEvents` prop — see `.previewWrapper`'s own doc
+          comment for why that prop doesn't work here) keeps this non-interactive, since it
+          sits exactly where the next pick needs to land as it follows the cursor. */}
+      <Html
+        position={[hoverPosition.x, hoverPosition.y, 0.06]}
+        center
+        zIndexRange={[20, 0]}
+        wrapperClass={styles.previewWrapper}
+      >
+        <div className={styles.preview}>{text}</div>
+      </Html>
+    </group>
+  );
+}
+
 function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sketch }) {
   const selection = useSketchStore((state) => state.selection);
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
   const setDimensionValue = useSketchStore((state) => state.setDimensionValue);
   const setDimensionLabelOffset = useSketchStore((state) => state.setDimensionLabelOffset);
+  const openContextMenu = useSketchStore((state) => state.openContextMenu);
   // Dimension labels are real DOM buttons layered over the canvas via drei's Html, so
   // they intercept a click before it ever reaches the WebGL raycaster underneath — if one
   // happens to sit where the user is trying to draw, `pointer-events: none` lets that
@@ -232,7 +297,13 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
             }`}
             style={isSelectMode ? undefined : { pointerEvents: "none" }}
             data-dimension-id={dimension.id}
-            title="Drag to move, double-click to edit the value"
+            title={
+              dimension.kind === "radius" || dimension.kind === "diameter"
+                ? "Drag to move, double-click to edit the value, right-click for Radius/Diameter"
+                : dimension.kind === "angle"
+                  ? "Drag to move, double-click to edit the value, right-click to flip the angle"
+                  : "Drag to move, double-click to edit the value"
+            }
             onClick={(event) => {
               event.stopPropagation();
               if (didDrag.current) {
@@ -244,6 +315,12 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
             onDoubleClick={(event) => {
               event.stopPropagation();
               setIsEditing(true);
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              toggleSelection(dimension.id, false);
+              openContextMenu(event.clientX, event.clientY);
             }}
             onPointerDown={handleLabelPointerDown}
             onPointerMove={handleLabelPointerMove}

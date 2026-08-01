@@ -56,7 +56,9 @@ live in the Feature Manager tree.
 
 Line/rectangle/circle/arc/spline/construction/point, trim, offset, mirror, linear/circular
 pattern, 9 geometric relations and smart/ordinate dimensioning, solved by a damped-Newton
-solver that reports live degrees of freedom.
+solver that reports live degrees of freedom. Smart Dimension follows an Inventor-style
+propose-then-commit flow, and dragging a point suggests coincident/tangent/midpoint
+relations live ("constrains smart") — both shown as a preview until you commit to them.
 
   </td>
   <td width="33%" valign="top">
@@ -148,6 +150,34 @@ wired to the viewport, not decorative checkboxes.
 
 An opt-in `localStorage` recovery snapshot every 60s while there are unsaved changes, with
 File ▸ Restore Autosave to bring it back — no native save dialog interrupting you.
+
+  </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+
+### ⌨️ Rebindable keyboard shortcuts
+
+Esc/Del/Space and Undo/Redo work as bare-key shortcuts out of the box, with a Settings ▸
+Shortcuts tab to rebind any of them by pressing a key.
+
+  </td>
+  <td width="33%" valign="top">
+
+### 🖼️ Custom viewport backgrounds
+
+Settings ▸ Colours ▸ Viewport Background: solid colour, a gradient from centre or bottom
+with an intensity slider, or an uploaded image with its own opacity slider — on top of the
+existing theme-matched default.
+
+  </td>
+  <td width="33%" valign="top">
+
+### 🪲 Debug Mode
+
+An opt-in diagnostic log (Settings ▸ General) that captures uncaught errors, unhandled
+rejections, console warnings and rebuild failures to a plain-text file next to the
+installed executable — attach it when reporting a problem.
 
   </td>
   </tr>

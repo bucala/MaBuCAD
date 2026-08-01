@@ -5,8 +5,6 @@ import {
   ChevronRight,
   ChevronsDown,
   ChevronUp,
-  Redo2,
-  Undo2,
 } from "lucide-react";
 
 import { useDocumentStore } from "@/state/documentStore";
@@ -26,8 +24,6 @@ import styles from "./FeatureTree.module.css";
 export function FeatureTree() {
   const document = useDocumentStore((state) => state.document);
   const selectedFeatureIds = useDocumentStore((state) => state.selectedFeatureIds);
-  const past = useDocumentStore((state) => state.past);
-  const future = useDocumentStore((state) => state.future);
 
   const selectFeature = useDocumentStore((state) => state.selectFeature);
   const renameFeature = useDocumentStore((state) => state.renameFeature);
@@ -38,8 +34,6 @@ export function FeatureTree() {
   const rollForwardOne = useDocumentStore((state) => state.rollForwardOne);
   const rollToEnd = useDocumentStore((state) => state.rollToEnd);
   const setRollbackIndex = useDocumentStore((state) => state.setRollbackIndex);
-  const undo = useDocumentStore((state) => state.undo);
-  const redo = useDocumentStore((state) => state.redo);
   const openContextMenu = useDocumentStore((state) => state.openContextMenu);
   const resumeSketch = useSketchStore((state) => state.resumeSketch);
   const hiddenFeatureIds = useViewportStore((state) => state.hiddenFeatureIds);
@@ -75,32 +69,10 @@ export function FeatureTree() {
   return (
     <div className={styles.tree}>
       <div className={styles.toolbar}>
-        <button
-          type="button"
-          className={styles.toolButton}
-          title="Undo"
-          aria-label="Undo"
-          disabled={past.length === 0}
-          onClick={undo}
-        >
-          <Undo2 size={14} />
-        </button>
-        <button
-          type="button"
-          className={styles.toolButton}
-          title="Redo"
-          aria-label="Redo"
-          disabled={future.length === 0}
-          onClick={redo}
-        >
-          <Redo2 size={14} />
-        </button>
-
-        <div className={styles.toolSpacer} />
-
         {rolledBackCount > 0 && (
           <span className={styles.rollbackCount}>{rolledBackCount} rolled back</span>
         )}
+        <div className={styles.toolSpacer} />
 
         <button
           type="button"

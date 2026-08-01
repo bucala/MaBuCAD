@@ -1,4 +1,4 @@
-import { Eye, Grid3x3 } from "lucide-react";
+import { Eye, Grid3x3, Magnet } from "lucide-react";
 
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -63,6 +63,8 @@ export function StatusBar() {
   const cycleDisplayMode = useViewportStore((state) => state.cycleDisplayMode);
   const gridVisible = useViewportStore((state) => state.gridVisible);
   const toggleGridVisible = useViewportStore((state) => state.toggleGridVisible);
+  const snapToGridEnabled = useViewportStore((state) => state.snapToGridEnabled);
+  const toggleSnapToGrid = useViewportStore((state) => state.toggleSnapToGrid);
   const { t } = useTranslation();
 
   return (
@@ -106,6 +108,19 @@ export function StatusBar() {
       >
         <Grid3x3 size={13} strokeWidth={1.75} />
       </button>
+
+      {isSketchMode && (
+        <button
+          type="button"
+          className={styles.iconButton}
+          aria-pressed={snapToGridEnabled}
+          title={snapToGridEnabled ? "Snap to grid: on" : "Snap to grid: off"}
+          aria-label={snapToGridEnabled ? "Snap to grid: on" : "Snap to grid: off"}
+          onClick={toggleSnapToGrid}
+        >
+          <Magnet size={13} strokeWidth={1.75} />
+        </button>
+      )}
 
       {(toast || geometryStatus !== "empty" || geometryMessage) && (
         <>

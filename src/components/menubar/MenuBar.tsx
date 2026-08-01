@@ -145,6 +145,7 @@ function TextMenu({
   const wrapRef = useRef<HTMLDivElement>(null);
   const close = () => setOpen(false);
   const isSketchMode = useSketchStore(selectIsSketchMode);
+  const { canUndo, canRedo } = useUndoRedoAvailability();
   const { t } = useTranslation();
 
   useDismiss(open, wrapRef, close);
@@ -171,7 +172,11 @@ function TextMenu({
               type="button"
               role="menuitem"
               className={styles.dropdownItem}
-              disabled={!isCommandAvailable(commandId, isSketchMode)}
+              disabled={
+                !isCommandAvailable(commandId, isSketchMode) ||
+                (commandId === "edit.undo" && !canUndo) ||
+                (commandId === "edit.redo" && !canRedo)
+              }
               onClick={() => {
                 runCommand(commandId);
                 close();
@@ -186,6 +191,22 @@ function TextMenu({
       )}
     </div>
   );
+}
+
+/** Whether Undo/Redo have anything to act on right now — the sketch's own history while
+ * a sketch is open (see `sketchStore.ts`'s `past`/`future`), the document's otherwise,
+ * matching `commandRegistry.ts`'s own "sketch mode redirects the command" split for
+ * `edit.undo`/`edit.redo`. */
+function useUndoRedoAvailability() {
+  const isSketchMode = useSketchStore(selectIsSketchMode);
+  const docCanUndo = useDocumentStore((state) => state.past.length > 0);
+  const docCanRedo = useDocumentStore((state) => state.future.length > 0);
+  const sketchCanUndo = useSketchStore((state) => state.past.length > 0);
+  const sketchCanRedo = useSketchStore((state) => state.future.length > 0);
+
+  return isSketchMode
+    ? { canUndo: sketchCanUndo, canRedo: sketchCanRedo }
+    : { canUndo: docCanUndo, canRedo: docCanRedo };
 }
 
 /** A text menu-bar button with free-form content instead of a plain command list —
@@ -231,6 +252,7 @@ export function MenuBar() {
   const { t } = useTranslation();
   const autosaveEnabled = useSettingsStore((state) => state.autosaveEnabled);
   const toggleAutosave = useSettingsStore((state) => state.toggleAutosave);
+  const { canUndo, canRedo } = useUndoRedoAvailability();
 
   return (
     <div className={styles.menubar}>
@@ -339,6 +361,7 @@ export function MenuBar() {
             className={styles.quickButton}
             title={t(id, label)}
             aria-label={t(id, label)}
+            disabled={(id === "edit.undo" && !canUndo) || (id === "edit.redo" && !canRedo)}
             onClick={() => runCommand(id)}
           >
             <Icon size={15} strokeWidth={1.75} />

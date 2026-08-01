@@ -10,8 +10,9 @@ import { findPointNear } from "@/sketch/sketchModel";
 import type { Sketch } from "@/sketch/types";
 import { useSettingsStore } from "@/state/settingsStore";
 import { useSketchStore } from "@/state/sketchStore";
+import { useViewportStore } from "@/state/viewportStore";
 
-import { DOCUMENT_SCALE } from "../constants";
+import { DOCUMENT_SCALE, SKETCH_GRID_SIZE } from "../constants";
 
 interface Point2 {
   x: number;
@@ -38,9 +39,16 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const drawPoint = useSketchStore((state) => state.drawPoint);
   const drawArc = useSketchStore((state) => state.drawArc);
   const clearSelection = useSketchStore((state) => state.clearSelection);
+  const beginDrag = useSketchStore((state) => state.beginDrag);
   const dragPoint = useSketchStore((state) => state.dragPoint);
+  const commitDragSnap = useSketchStore((state) => state.commitDragSnap);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
+  const pendingDimension = useSketchStore((state) => state.pendingDimension);
+  const commitPendingDimension = useSketchStore((state) => state.commitPendingDimension);
+  const cancelPendingDimension = useSketchStore((state) => state.cancelPendingDimension);
+  const setHoverPosition = useSketchStore((state) => state.setHoverPosition);
   const snapTolerance = useSettingsStore((state) => state.snapTolerance);
+  const snapToGridEnabled = useViewportStore((state) => state.snapToGridEnabled);
 
   /** Anchor for the entity being drawn: line start, rectangle corner, circle/arc centre. */
   const [anchor, setAnchor] = useState<Point2 | null>(null);
@@ -78,11 +86,19 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     tool === "spline" || tool === "construction-line" || tool === "axis-line" ||
     tool === "point" || tool === "arc";
 
-  /** Converts an event to sketch coordinates, snapping to a nearby existing point. */
+  const snapToGrid = (point: Point2): Point2 => ({
+    x: Math.round(point.x / SKETCH_GRID_SIZE) * SKETCH_GRID_SIZE,
+    y: Math.round(point.y / SKETCH_GRID_SIZE) * SKETCH_GRID_SIZE,
+  });
+
+  /** Converts an event to sketch coordinates, snapping to a nearby existing point first
+   * and, failing that, to the sketch grid when that toggle is on — existing geometry
+   * always wins over the grid, the same priority every other CAD sketcher uses. */
   const toSketch = (event: ThreeEvent<PointerEvent | MouseEvent>): Point2 => {
     const local = worldToSketch(sketch.planeId, event.point);
     const snapped = findPointNear(sketch, local.x, local.y, snapTolerance);
-    return snapped ? { x: snapped.x, y: snapped.y } : local;
+    if (snapped) return { x: snapped.x, y: snapped.y };
+    return snapToGridEnabled ? snapToGrid(local) : local;
   };
 
   const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
@@ -91,6 +107,9 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     const local = worldToSketch(sketch.planeId, event.point);
     const hit = findPointNear(sketch, local.x, local.y, snapTolerance);
     if (hit) {
+      // One history entry per drag gesture, not per pointer-move — see `beginDrag`'s own
+      // doc comment for why `dragPoint` below does not push its own history.
+      beginDrag();
       draggingPointId.current = hit.id;
       event.stopPropagation();
     }
@@ -99,13 +118,24 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
     const local = toSketch(event);
     setCursor(local);
+    // Feeds `SmartDimensionPreview.tsx`, which has no pointer events of its own to track
+    // this from — only meaningful while a proposal is pending, but cheap enough to just
+    // always keep current rather than gate it on tool/pendingDimension.
+    setHoverPosition(worldToSketch(sketch.planeId, event.point));
 
     if (draggingPointId.current) {
-      dragPoint(draggingPointId.current, worldToSketch(sketch.planeId, event.point));
+      // Deliberately not `toSketch`'s point-snapping here — snapping a dragged point onto
+      // whatever other point it passes near would fight the drag. Grid-snapping is fine to
+      // share, though: it only rounds, it never jumps to unrelated geometry.
+      const dragged = worldToSketch(sketch.planeId, event.point);
+      dragPoint(draggingPointId.current, snapToGridEnabled ? snapToGrid(dragged) : dragged);
     }
   };
 
   const handlePointerUp = () => {
+    // "Constrains smart": applies whatever relation the drag ended up close to (see
+    // `commitDragSnap`'s own doc comment) — a no-op when nothing was suggested.
+    if (draggingPointId.current) commitDragSnap(draggingPointId.current);
     draggingPointId.current = null;
   };
 
@@ -113,7 +143,14 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     if (event.button !== 0) return;
 
     if (!isDrawingTool) {
-      // A click on empty canvas clears the selection, as in any sketcher.
+      // A click on empty canvas while a Smart Dimension proposal is pending is the
+      // "place it here" gesture the Inventor-style flow ends on — see
+      // `commitPendingDimension`'s own doc comment. Otherwise, same as any sketcher: a
+      // click on empty canvas clears the selection.
+      if (tool === "smart-dimension" && pendingDimension) {
+        commitPendingDimension(toSketch(event));
+        return;
+      }
       clearSelection();
       return;
     }
@@ -200,6 +237,13 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
           // Stop the browser/OS's own right-click menu — our menu (or the finish-chain
           // shortcut below) is meant to be the only one that appears here.
           event.nativeEvent.preventDefault();
+
+          if (tool === "smart-dimension" && pendingDimension) {
+            // Same shortcut as mid-draw below: right-click cancels the in-progress thing
+            // (here, the pending proposal) rather than opening a menu over it.
+            cancelPendingDimension();
+            return;
+          }
 
           const isMidDraw = anchor !== null || arcStart !== null || splinePoints.length > 0;
           if (isMidDraw) {

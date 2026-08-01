@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { GizmoHelper, GizmoViewcube } from "@react-three/drei";
+import { GizmoHelper, GizmoViewcube, GizmoViewport } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
@@ -9,6 +9,7 @@ import { useSettingsStore } from "@/state/settingsStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
+import { AXIS_COLORS } from "../constants";
 import { CadControls } from "../controls/CadControls";
 import { SolidModel } from "../model/SolidModel";
 import { SketchScene } from "../sketch/SketchScene";
@@ -80,6 +81,18 @@ export function Scene({ projection }: SceneProps) {
           />
         </GizmoHelper>
       )}
+
+      {/* Replaces the old bottom-left legend, a static SVG drawn outside the Canvas that
+          never actually rotated with the camera despite looking like it should — this one
+          is a real 3D object GizmoHelper keeps in sync with the main camera, the same way
+          the ViewCube above already is. */}
+      <GizmoHelper alignment="bottom-left" margin={[64, 64]}>
+        <GizmoViewport
+          axisColors={[AXIS_COLORS.x, AXIS_COLORS.y, AXIS_COLORS.z]}
+          labelColor="#0a0a0a"
+          hideNegativeAxes
+        />
+      </GizmoHelper>
     </>
   );
 }

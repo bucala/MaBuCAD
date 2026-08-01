@@ -10,9 +10,11 @@ import {
   addRectangle,
   addSpline,
   createSketch,
+  defaultDimensionAnchor,
   entityById,
   entityPoints,
   hasClosedProfile,
+  inferDragSnap,
   inferSmartDimension,
   measure,
   mirrorEntities,
@@ -23,7 +25,7 @@ import {
   pointById,
   trimLineAt,
 } from "@/sketch/sketchModel";
-import type { PatternOptions } from "@/sketch/sketchModel";
+import type { DragSnapSuggestion, PatternOptions } from "@/sketch/sketchModel";
 import { sketchStatusFromDiagnostics, solveSketch } from "@/sketch/solver";
 import type {
   DimensionKind,
@@ -59,6 +61,26 @@ const IDLE_DIAGNOSTICS: SketchDiagnostics = {
   iterations: 0,
 };
 
+/** Matches `documentStore.ts`'s own cap — same "last 30 steps" budget, applied here too
+ * since sketch edits (draw, constrain, dimension) get their own history, separate from
+ * the document's feature history. */
+const SKETCH_HISTORY_LIMIT = 30;
+
+/**
+ * A Smart Dimension proposal that hasn't been committed to the sketch yet — the
+ * Inventor-style flow this drives: picking one entity proposes this and it follows the
+ * cursor (`hoverPosition` below) rather than landing immediately; picking a second,
+ * compatible entity re-infers it (e.g. a second non-parallel line turns a length
+ * proposal into an angle one); a click on empty sketch space commits it wherever that
+ * click landed. Escape, `deleteSelection`, or leaving the tool discards it.
+ */
+interface PendingDimension {
+  kind: DimensionKind;
+  points: string[];
+  entities: string[];
+  value: number;
+}
+
 interface SketchStore {
   /** Feature id of the sketch being edited, or null outside sketch mode. */
   activeSketchId: string | null;
@@ -77,6 +99,28 @@ interface SketchStore {
    * what lets a component outside the canvas see this state.
    */
   contextMenu: { x: number; y: number } | null;
+
+  /** An uncommitted Smart Dimension proposal, or null. See `PendingDimension`'s own doc
+   * comment. */
+  pendingDimension: PendingDimension | null;
+  /** "Constrains smart" — a relation the point currently being dragged is close enough
+   * to for `commitDragSnap` to apply on release. See `DragSnapSuggestion`'s own doc
+   * comment in `sketchModel.ts`. */
+  dragSnapSuggestion: DragSnapSuggestion | null;
+  /** Live cursor position in sketch coordinates, kept live by `SketchCanvas.tsx`'s
+   * pointer-move handler purely so a pending dimension's preview can follow it —
+   * unrelated to the drawing tools' own local `cursor` state, which already does the
+   * same tracking for their own rubber-band previews. */
+  hoverPosition: Point2 | null;
+
+  /** Undo history for the sketch currently being edited — reset on every entry into
+   * sketch editing (`beginSketch`/`resumeSketch`) and on exit, so its scope is one
+   * editing session rather than persisting across sketches. Separate from
+   * `documentStore`'s own `past`/`future`: sketch geometry never lives in `CadDocument`
+   * (see `sketches` above), so the document's history never captured these edits at all —
+   * this is what actually makes Undo work for drawing and dimensioning. */
+  past: Sketch[];
+  future: Sketch[];
 
   beginSketch: (featureId: string, planeId: string) => void;
   resumeSketch: (featureId: string) => void;
@@ -106,14 +150,43 @@ interface SketchStore {
   mirrorSelection: () => boolean;
   offsetSelection: (distance: number) => boolean;
   patternSelection: (options: PatternOptions) => boolean;
-  applySmartDimension: () => boolean;
+  /** Picks (or accumulates picking) `id` toward a Smart Dimension proposal — see
+   * `PendingDimension`'s own doc comment for the full flow. */
+  pickForSmartDimension: (id: string) => void;
+  /** Commits the current pending proposal into the sketch, with its label placed at
+   * `position` (a click on empty sketch space while proposing — see `SketchCanvas.tsx`).
+   * A no-op if nothing is pending. */
+  commitPendingDimension: (position: Point2) => void;
+  /** Discards the current pending proposal without creating a dimension — Escape, or
+   * switching away from the Smart Dimension tool. */
+  cancelPendingDimension: () => void;
+  setHoverPosition: (position: Point2 | null) => void;
   applyOrdinateDimension: (axis: "both" | "x" | "y") => boolean;
   setDimensionValue: (dimensionId: string, value: number) => void;
   setDimensionLabelOffset: (dimensionId: string, offset: Point2) => void;
   deleteDimension: (dimensionId: string) => void;
+  /** Radius <-> diameter on a circle/arc dimension, converting the driving value (2x or
+   * /2) so the circle it drives doesn't jump size. A no-op for any other dimension kind. */
+  toggleDimensionRadiusDiameter: (dimensionId: string) => void;
+  /** The other of the two angles two intersecting lines actually form (θ and its
+   * supplement, 180-θ) — the two numerically distinct choices at that vertex; the other
+   * two visual quadrants are one of these two values again, by vertical angles. A no-op
+   * for any other dimension kind. */
+  flipAngleDimension: (dimensionId: string) => void;
 
+  /** Snapshots the active sketch onto the undo stack without changing it — called once
+   * when a point-drag gesture starts, so the whole drag undoes in one step rather than
+   * every intermediate `dragPoint` call during the drag becoming its own step. */
+  beginDrag: () => void;
   dragPoint: (pointId: string, position: Point2) => void;
+  /** Applies the current `dragSnapSuggestion` (if any) for the point that was just
+   * dragged, and clears it — called from `SketchCanvas.tsx`'s pointer-up, once the drag
+   * gesture actually ends. A no-op with nothing suggested. */
+  commitDragSnap: (pointId: string) => void;
   deleteSelection: () => void;
+
+  undo: () => void;
+  redo: () => void;
 }
 
 interface Point2 {
@@ -127,6 +200,15 @@ export const useSketchStore = create<SketchStore>((set, get) => {
    * is already open takes effect on the very next click rather than needing a re-entry. */
   const snapTolerance = () => useSettingsStore.getState().snapTolerance;
 
+  /** Snapshots `sketch` onto the undo stack and clears redo — the same shape as
+   * `documentStore.ts`'s `commit()`, kept separate because it caps a different history. */
+  const pushHistory = (sketch: Sketch) => {
+    set((state) => ({
+      past: [...state.past, sketch].slice(-SKETCH_HISTORY_LIMIT),
+      future: [],
+    }));
+  };
+
   /** Applies an edit, re-solves, and stores both the geometry and the diagnostics. */
   const edit = (mutate: (sketch: Sketch) => Sketch) => {
     const { activeSketchId, sketches } = get();
@@ -136,6 +218,9 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     if (!current) return;
 
     const { sketch, diagnostics } = solveSketch(mutate(current));
+    if (sketch === current) return;
+
+    pushHistory(current);
     set({ sketches: { ...sketches, [activeSketchId]: sketch }, diagnostics });
   };
 
@@ -154,6 +239,11 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     tool: "select",
     selection: [],
     contextMenu: null,
+    pendingDimension: null,
+    dragSnapSuggestion: null,
+    hoverPosition: null,
+    past: [],
+    future: [],
 
     openContextMenu: (x, y) => set({ contextMenu: { x, y } }),
     closeContextMenu: () => set({ contextMenu: null }),
@@ -169,6 +259,11 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         tool: "line",
         selection: [],
         contextMenu: null,
+        pendingDimension: null,
+        dragSnapSuggestion: null,
+        hoverPosition: null,
+        past: [],
+        future: [],
       }));
     },
 
@@ -181,6 +276,11 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         tool: "select",
         selection: [],
         contextMenu: null,
+        pendingDimension: null,
+        dragSnapSuggestion: null,
+        hoverPosition: null,
+        past: [],
+        future: [],
       });
     },
 
@@ -191,6 +291,11 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
+        pendingDimension: null,
+        dragSnapSuggestion: null,
+        hoverPosition: null,
+        past: [],
+        future: [],
       }),
 
     loadSketches: (sketches) =>
@@ -201,9 +306,17 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
+        pendingDimension: null,
+        dragSnapSuggestion: null,
+        hoverPosition: null,
+        past: [],
+        future: [],
       }),
 
-    setTool: (tool) => set({ tool, selection: [] }),
+    // A pending Smart Dimension proposal only makes sense while that tool stays active —
+    // switching to any other tool (including re-arming Smart Dimension itself, which goes
+    // through this same setter) discards it rather than leaving a ghost proposal behind.
+    setTool: (tool) => set({ tool, selection: [], pendingDimension: null, dragSnapSuggestion: null }),
     setSelection: (ids) => set({ selection: ids }),
     clearSelection: () => set({ selection: [] }),
 
@@ -328,25 +441,61 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       return true;
     },
 
-    applySmartDimension: () => {
-      const { activeSketchId, sketches } = get();
+    pickForSmartDimension: (id) => {
+      const { activeSketchId, sketches, selection } = get();
       const sketch = activeSketchId ? sketches[activeSketchId] : undefined;
-      if (!sketch) return false;
+      if (!sketch) return;
 
-      const { entities, points } = partitionSelection(sketch);
+      const nextSelection = selection.includes(id) ? selection : [...selection, id];
+      const entities = nextSelection.filter((candidate) => entityById(sketch, candidate));
+      const points = nextSelection.filter((candidate) => pointById(sketch, candidate));
+
       const inferred = inferSmartDimension(sketch, entities, points);
-      if (!inferred) return false;
+      if (!inferred) {
+        // Not conclusive yet (e.g. a lone point with no partner) — keep accumulating and
+        // wait for the next pick, same as before this flow deferred the actual commit.
+        set({ selection: nextSelection });
+        return;
+      }
 
-      edit((current) => {
-        const value = roundDimensionValue(
-          measure(current, inferred.kind, inferred.points, inferred.entities),
+      const value = roundDimensionValue(measure(sketch, inferred.kind, inferred.points, inferred.entities));
+      set({
+        selection: nextSelection,
+        pendingDimension: { kind: inferred.kind, points: inferred.points, entities: inferred.entities, value },
+      });
+    },
+
+    commitPendingDimension: (position) => {
+      const { pendingDimension } = get();
+      if (!pendingDimension) return;
+
+      edit((sketch) => {
+        const anchor = defaultDimensionAnchor(
+          sketch,
+          pendingDimension.kind,
+          pendingDimension.points,
+          pendingDimension.entities,
         );
-        return addDimension(current, inferred.kind, value, inferred.points, inferred.entities).sketch;
+        const labelOffset = anchor
+          ? { x: position.x - anchor.x, y: position.y - anchor.y }
+          : { x: 0, y: 0 };
+
+        return addDimension(
+          sketch,
+          pendingDimension.kind,
+          pendingDimension.value,
+          pendingDimension.points,
+          pendingDimension.entities,
+          labelOffset,
+        ).sketch;
       });
 
-      set({ selection: [] });
-      return true;
+      set({ selection: [], pendingDimension: null });
     },
+
+    cancelPendingDimension: () => set({ pendingDimension: null, selection: [] }),
+
+    setHoverPosition: (position) => set({ hoverPosition: position }),
 
     applyOrdinateDimension: (axis) => {
       const { activeSketchId, sketches } = get();
@@ -420,6 +569,31 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         dimensions: sketch.dimensions.filter((dimension) => dimension.id !== dimensionId),
       })),
 
+    toggleDimensionRadiusDiameter: (dimensionId) =>
+      edit((sketch) => ({
+        ...sketch,
+        dimensions: sketch.dimensions.map((dimension) => {
+          if (dimension.id !== dimensionId) return dimension;
+          if (dimension.kind === "radius") {
+            return { ...dimension, kind: "diameter", value: dimension.value * 2 };
+          }
+          if (dimension.kind === "diameter") {
+            return { ...dimension, kind: "radius", value: dimension.value / 2 };
+          }
+          return dimension;
+        }),
+      })),
+
+    flipAngleDimension: (dimensionId) =>
+      edit((sketch) => ({
+        ...sketch,
+        dimensions: sketch.dimensions.map((dimension) =>
+          dimension.id === dimensionId && dimension.kind === "angle"
+            ? { ...dimension, value: 180 - dimension.value }
+            : dimension,
+        ),
+      })),
+
     /**
      * Drags a point by re-solving with it pinned to the cursor.
      *
@@ -427,6 +601,13 @@ export const useSketchStore = create<SketchStore>((set, get) => {
      * the rest of the sketch consistent: constrained neighbours follow, and a fully
      * defined sketch refuses to move at all.
      */
+    beginDrag: () => {
+      const { activeSketchId, sketches } = get();
+      const current = activeSketchId ? sketches[activeSketchId] : undefined;
+      if (!current) return;
+      pushHistory(current);
+    },
+
     dragPoint: (pointId, position) => {
       const { activeSketchId, sketches } = get();
       if (!activeSketchId) return;
@@ -458,10 +639,51 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       // Re-solve without the pin so the reported diagnostics describe the real sketch
       // rather than one with a temporary extra constraint.
       const final = solveSketch(settled);
+
+      // "Constrains smart": suggested from the point's actual post-solve position (other
+      // constraints may have pulled it away from where the cursor literally is), so the
+      // highlight always matches where the point really ended up.
+      const settledPoint = pointById(final.sketch, pointId);
+      const suggestion = settledPoint
+        ? inferDragSnap(final.sketch, pointId, settledPoint, snapTolerance())
+        : null;
+
       set({
         sketches: { ...sketches, [activeSketchId]: final.sketch },
         diagnostics: final.diagnostics,
+        dragSnapSuggestion: suggestion,
       });
+    },
+
+    commitDragSnap: (pointId) => {
+      const { dragSnapSuggestion } = get();
+      if (!dragSnapSuggestion) return;
+
+      edit((sketch) => {
+        if (dragSnapSuggestion.kind === "tangent") {
+          return addConstraint(
+            sketch,
+            "tangent",
+            [dragSnapSuggestion.lineEntityId, dragSnapSuggestion.circleEntityId],
+            [],
+          );
+        }
+
+        const snapped: Sketch = {
+          ...sketch,
+          points: sketch.points.map((point) =>
+            point.id === pointId
+              ? { ...point, x: dragSnapSuggestion.position.x, y: dragSnapSuggestion.position.y }
+              : point,
+          ),
+        };
+
+        return dragSnapSuggestion.kind === "coincident"
+          ? addConstraint(snapped, "coincident", [], [pointId, dragSnapSuggestion.targetPointId])
+          : snapped;
+      });
+
+      set({ dragSnapSuggestion: null });
     },
 
     deleteSelection: () => {
@@ -488,13 +710,19 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           ...sketch,
           entities,
           points: sketch.points.filter((point) => survivingPoints.has(point.id)),
+          // A constraint or dimension can also be selected and deleted directly (its own
+          // id in `removed`, not just an id it references) — clicking a constraint glyph
+          // or a dimension label selects that glyph/label itself, not the geometry it
+          // annotates, so this check is what actually lets Delete remove either one.
           constraints: sketch.constraints.filter(
             (constraint) =>
+              !removed.has(constraint.id) &&
               !constraint.entities.some((id) => removed.has(id)) &&
               constraint.points.every((id) => survivingPoints.has(id)),
           ),
           dimensions: sketch.dimensions.filter(
             (dimension) =>
+              !removed.has(dimension.id) &&
               !dimension.entities.some((id) => removed.has(id)) &&
               dimension.points.every((id) => survivingPoints.has(id)),
           ),
@@ -502,6 +730,38 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       });
 
       set({ selection: [] });
+    },
+
+    undo: () => {
+      const { activeSketchId, sketches, past, future } = get();
+      if (!activeSketchId) return;
+      const current = sketches[activeSketchId];
+      const previous = past[past.length - 1];
+      if (!current || !previous) return;
+
+      set({
+        sketches: { ...sketches, [activeSketchId]: previous },
+        diagnostics: solveSketch(previous).diagnostics,
+        past: past.slice(0, -1),
+        future: [current, ...future].slice(0, SKETCH_HISTORY_LIMIT),
+        selection: [],
+      });
+    },
+
+    redo: () => {
+      const { activeSketchId, sketches, past, future } = get();
+      if (!activeSketchId) return;
+      const current = sketches[activeSketchId];
+      const [next, ...rest] = future;
+      if (!current || !next) return;
+
+      set({
+        sketches: { ...sketches, [activeSketchId]: next },
+        diagnostics: solveSketch(next).diagnostics,
+        past: [...past, current].slice(-SKETCH_HISTORY_LIMIT),
+        future: rest,
+        selection: [],
+      });
     },
   };
 });

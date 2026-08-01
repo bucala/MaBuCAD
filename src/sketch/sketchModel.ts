@@ -340,6 +340,137 @@ export function measure(sketch: Sketch, kind: DimensionKind, points: string[], e
 }
 
 /**
+ * Where a dimension's label sits before any drag offset is applied — mirrors
+ * `SketchDimensions.tsx`'s own per-kind anchor logic (a circle/arc's rim point, an
+ * angle's shared-vertex-ish centroid, a distance's midpoint) closely enough to seed a
+ * sensible `labelOffset` when the Inventor-style Smart Dimension flow commits a pending
+ * proposal at wherever the user's final click landed (`sketchStore.ts`'s
+ * `commitPendingDimension`) — not pixel-identical to the render-time anchor (that one
+ * also nudges perpendicular to a distance's line, which this skips), just close enough
+ * that the committed label ends up under the cursor rather than at a visible offset.
+ */
+export function defaultDimensionAnchor(
+  sketch: Sketch,
+  kind: DimensionKind,
+  points: string[],
+  entities: string[],
+): { x: number; y: number } | null {
+  if (kind === "radius" || kind === "diameter") {
+    const entity = entities[0] ? entityById(sketch, entities[0]) : undefined;
+    if (entity?.kind !== "circle" && entity?.kind !== "arc") return null;
+    const centre = pointById(sketch, entity.center);
+    if (!centre) return null;
+    return {
+      x: centre.x + entity.radius * Math.SQRT1_2,
+      y: centre.y + entity.radius * Math.SQRT1_2,
+    };
+  }
+
+  if (kind === "angle") {
+    const [firstId, secondId] = entities;
+    const a = firstId ? entityById(sketch, firstId) : undefined;
+    const b = secondId ? entityById(sketch, secondId) : undefined;
+    const endpoints = [a, b]
+      .filter((line): line is Extract<typeof line, { kind: "line" }> => line?.kind === "line")
+      .flatMap((line) => [pointById(sketch, line.start), pointById(sketch, line.end)])
+      .filter((point): point is NonNullable<typeof point> => Boolean(point));
+    if (endpoints.length === 0) return null;
+    return {
+      x: endpoints.reduce((sum, point) => sum + point.x, 0) / endpoints.length,
+      y: endpoints.reduce((sum, point) => sum + point.y, 0) / endpoints.length,
+    };
+  }
+
+  const first = points[0] ? pointById(sketch, points[0]) : undefined;
+  const second = points[1] ? pointById(sketch, points[1]) : undefined;
+  if (!first || !second) return null;
+  return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+}
+
+/**
+ * A relation a point drag is close enough to suggest — inferred live as the drag moves
+ * (`sketchStore.ts`'s `dragPoint`), rendered as a highlight (`DragSnapIndicator.tsx`),
+ * and only actually applied on release (`commitDragSnap`), so a suggestion never fights
+ * the drag itself, only what happens when the user lets go near one.
+ *
+ * `"midpoint"` is a positional snap only — there is no midpoint constraint kind in
+ * `GeometricConstraintKind`, and no solver support for one, so this just moves the point
+ * exactly onto the midpoint rather than adding a persisted relation. The other two reuse
+ * existing constraint kinds the solver already knows: `"coincident"` also covers "drag a
+ * point onto a circle's centre", since a circle's centre is a plain point in this model,
+ * and `"tangent"` reuses the same line-circle residual `applyConstraint`'s own Tangent
+ * button already drives.
+ */
+export type DragSnapSuggestion =
+  | { kind: "coincident"; targetPointId: string; position: { x: number; y: number } }
+  | { kind: "midpoint"; lineEntityId: string; position: { x: number; y: number } }
+  | { kind: "tangent"; lineEntityId: string; circleEntityId: string; position: { x: number; y: number } };
+
+/**
+ * What a point at `position` (mid-drag) is close enough to for `pickForSmartDimension`'s
+ * sibling flow — "constrains smart" — to suggest. Checked in priority order (coincident,
+ * then midpoint, then tangent) and returns the first match rather than the closest one
+ * across categories; only one category is realistically in tolerance at once in practice,
+ * since they're spatially distinct (a vertex, a line's middle, a circle's rim).
+ */
+export function inferDragSnap(
+  sketch: Sketch,
+  draggedPointId: string,
+  position: { x: number; y: number },
+  tolerance: number,
+): DragSnapSuggestion | null {
+  for (const point of sketch.points) {
+    if (point.id === draggedPointId) continue;
+    if (Math.hypot(point.x - position.x, point.y - position.y) <= tolerance) {
+      return { kind: "coincident", targetPointId: point.id, position: { x: point.x, y: point.y } };
+    }
+  }
+
+  // The line the dragged point is itself an endpoint of is excluded — its own midpoint
+  // trivially follows the drag and would otherwise always "win".
+  const ownLineId = sketch.entities.find(
+    (entity) => entity.kind === "line" && (entity.start === draggedPointId || entity.end === draggedPointId),
+  )?.id;
+
+  for (const entity of sketch.entities) {
+    if (entity.kind !== "line" || entity.id === ownLineId) continue;
+    const start = pointById(sketch, entity.start);
+    const end = pointById(sketch, entity.end);
+    if (!start || !end) continue;
+
+    const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    if (Math.hypot(midpoint.x - position.x, midpoint.y - position.y) <= tolerance) {
+      return { kind: "midpoint", lineEntityId: entity.id, position: midpoint };
+    }
+  }
+
+  if (ownLineId) {
+    const line = sketch.entities.find((entity) => entity.id === ownLineId);
+    const otherEndId = line?.kind === "line" ? (line.start === draggedPointId ? line.end : line.start) : undefined;
+    const otherEnd = otherEndId ? pointById(sketch, otherEndId) : undefined;
+
+    if (otherEnd) {
+      for (const entity of sketch.entities) {
+        if (entity.kind !== "circle") continue;
+        const centre = pointById(sketch, entity.center);
+        if (!centre) continue;
+
+        const u = { x: position.x - otherEnd.x, y: position.y - otherEnd.y };
+        const denominator = Math.max(Math.hypot(u.x, u.y), 1e-9);
+        const toCentre = { x: centre.x - otherEnd.x, y: centre.y - otherEnd.y };
+        const distance = Math.abs(u.x * toCentre.y - u.y * toCentre.x) / denominator;
+
+        if (Math.abs(distance - entity.radius) <= tolerance) {
+          return { kind: "tangent", lineEntityId: ownLineId, circleEntityId: entity.id, position };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Chooses the dimension a Smart Dimension click should create from what is selected,
  * mirroring how SolidWorks infers intent rather than asking.
  */

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { Circle, Minus, MousePointer2, Route, Scan, Square, Trash2 } from "lucide-react";
+import { Circle, FlipHorizontal2, Minus, MousePointer2, Route, Scan, Square, Trash2 } from "lucide-react";
 
-import { useSketchStore, type SketchTool } from "@/state/sketchStore";
+import { selectActiveSketch, useSketchStore, type SketchTool } from "@/state/sketchStore";
 
 import styles from "../ContextMenu.module.css";
 
@@ -38,9 +38,19 @@ export function SketchContextMenu() {
   const closeContextMenu = useSketchStore((state) => state.closeContextMenu);
   const tool = useSketchStore((state) => state.tool);
   const setTool = useSketchStore((state) => state.setTool);
-  const selectionCount = useSketchStore((state) => state.selection.length);
+  const selection = useSketchStore((state) => state.selection);
+  const selectionCount = selection.length;
   const deleteSelection = useSketchStore((state) => state.deleteSelection);
   const exitSketch = useSketchStore((state) => state.exitSketch);
+  const sketch = useSketchStore(selectActiveSketch);
+  const toggleDimensionRadiusDiameter = useSketchStore((state) => state.toggleDimensionRadiusDiameter);
+  const flipAngleDimension = useSketchStore((state) => state.flipAngleDimension);
+
+  // Only meaningful with exactly one dimension selected — a right-click on a dimension
+  // label selects it alone first (see `SketchDimensions.tsx`'s own `onContextMenu`), so
+  // this is what lets the menu offer the right action for that one dimension's kind.
+  const selectedDimension =
+    selection.length === 1 ? sketch?.dimensions.find((dimension) => dimension.id === selection[0]) : undefined;
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -94,6 +104,42 @@ export function SketchContextMenu() {
           {label}
         </button>
       ))}
+
+      {selectedDimension && (selectedDimension.kind === "radius" || selectedDimension.kind === "diameter") && (
+        <>
+          <div className={styles.divider} />
+          <button
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            onClick={() => {
+              toggleDimensionRadiusDiameter(selectedDimension.id);
+              closeContextMenu();
+            }}
+          >
+            <FlipHorizontal2 size={14} strokeWidth={1.75} />
+            {selectedDimension.kind === "radius" ? "Show as Diameter" : "Show as Radius"}
+          </button>
+        </>
+      )}
+
+      {selectedDimension && selectedDimension.kind === "angle" && (
+        <>
+          <div className={styles.divider} />
+          <button
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            onClick={() => {
+              flipAngleDimension(selectedDimension.id);
+              closeContextMenu();
+            }}
+          >
+            <FlipHorizontal2 size={14} strokeWidth={1.75} />
+            Flip Angle
+          </button>
+        </>
+      )}
 
       <div className={styles.divider} />
 

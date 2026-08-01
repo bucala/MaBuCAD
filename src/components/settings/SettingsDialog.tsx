@@ -2,12 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { X } from "lucide-react";
 
+import { normalizeKeyEvent, SHORTCUT_ACTIONS } from "@/commands/keyboardShortcuts";
 import { runExportSettings, runImportSettings } from "@/commands/settingsIO";
+import { resolveDebugLogPath } from "@/debug/logger";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { LANGUAGES } from "@/i18n/languages";
 import { useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
-import { ACCENT_PRESETS, useSettingsStore, type ThemePreference } from "@/state/settingsStore";
+import {
+  ACCENT_PRESETS,
+  useSettingsStore,
+  type ThemePreference,
+  type ViewportBackground,
+} from "@/state/settingsStore";
 import { useViewportStore } from "@/state/viewportStore";
 import type { UnitSystem, UnitSystemId } from "@/types/ui";
 
@@ -20,7 +27,7 @@ const UNIT_SYSTEMS: UnitSystem[] = [
   { id: "IPS", label: "IPS", description: "Inch, pound, second" },
 ];
 
-const TABS = ["General", "Colours", "Display", "Sketch", "File"] as const;
+const TABS = ["General", "Colours", "Display", "Sketch", "Shortcuts", "File"] as const;
 type TabId = (typeof TABS)[number];
 
 /** Toggle-button row shared by every tab. */
@@ -57,6 +64,8 @@ function GeneralTab() {
   const resetToDefaults = useSettingsStore((state) => state.resetToDefaults);
   const language = useSettingsStore((state) => state.language);
   const setLanguage = useSettingsStore((state) => state.setLanguage);
+  const debugModeEnabled = useSettingsStore((state) => state.debugModeEnabled);
+  const toggleDebugMode = useSettingsStore((state) => state.toggleDebugMode);
   const { t } = useTranslation();
 
   return (
@@ -96,11 +105,49 @@ function GeneralTab() {
       </div>
 
       <div className={styles.section}>
+        <span className={styles.sectionTitle}>Debugging</span>
+        <label className={styles.checkboxField}>
+          <input type="checkbox" checked={debugModeEnabled} onChange={toggleDebugMode} />
+          Debug Mode — log to a file for troubleshooting
+        </label>
+        {debugModeEnabled && <DebugLogPathHint />}
+        <p className={styles.sectionHint}>
+          Captures errors, warnings and rebuild failures to a log file next to the installed
+          app while this is on. Attach that file when reporting a problem.
+        </p>
+      </div>
+
+      <div className={styles.section}>
         <button type="button" className={styles.footerButton} onClick={resetToDefaults}>
           Reset to Defaults
         </button>
       </div>
     </>
+  );
+}
+
+/** Resolved lazily (only while Debug Mode is on) rather than eagerly on every Settings
+ * open — it's an IPC round trip that's pointless when the toggle is off. */
+function DebugLogPathHint() {
+  const [path, setPath] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    void resolveDebugLogPath().then((resolved) => {
+      if (!cancelled) setPath(resolved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (path === undefined) return null;
+  return (
+    <p className={styles.sectionHint}>
+      {path
+        ? `Log file: ${path}`
+        : "Log file only exists in the packaged app — browser preview has nowhere to write it."}
+    </p>
   );
 }
 
@@ -146,6 +193,112 @@ function ColorField({
         </button>
       </div>
       <p className={styles.sectionHint}>{hint}</p>
+    </div>
+  );
+}
+
+const BACKGROUND_MODES: { id: ViewportBackground["mode"]; label: string; title?: string }[] = [
+  { id: "theme", label: "Theme", title: "The current theme's default gradient" },
+  { id: "solid", label: "Solid" },
+  { id: "gradient-center", label: "Gradient (centre)" },
+  { id: "gradient-bottom", label: "Gradient (bottom)" },
+  { id: "image", label: "Image" },
+];
+
+/** Settings > Colours' "Viewport Background" section — see `Viewport.tsx`'s own
+ * `backgroundStyle` for how each mode actually renders. */
+function ViewportBackgroundField() {
+  const background = useSettingsStore((state) => state.viewportBackground);
+  const setViewportBackground = useSettingsStore((state) => state.setViewportBackground);
+
+  const handleImageFile = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setViewportBackground({ imageDataUrl: reader.result });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className={styles.section}>
+      <span className={styles.sectionTitle}>Viewport Background</span>
+      <ToggleRow<ViewportBackground["mode"]>
+        value={background.mode}
+        onChange={(mode) => setViewportBackground({ mode })}
+        options={BACKGROUND_MODES}
+      />
+
+      {background.mode !== "theme" && (
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>Colour</span>
+          <input
+            type="color"
+            className={styles.colorInput}
+            value={background.color}
+            aria-label="Viewport background colour"
+            onChange={(event) => setViewportBackground({ color: event.target.value })}
+          />
+        </div>
+      )}
+
+      {(background.mode === "gradient-center" || background.mode === "gradient-bottom") && (
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>Intensity</span>
+          <input
+            type="range"
+            className={styles.rangeInput}
+            min={0}
+            max={100}
+            value={Math.round(background.intensity * 100)}
+            aria-label="Gradient intensity"
+            onChange={(event) => setViewportBackground({ intensity: Number(event.target.value) / 100 })}
+          />
+        </div>
+      )}
+
+      {background.mode === "image" && (
+        <>
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>Image</span>
+            <label className={styles.footerButton}>
+              Choose…
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(event) => handleImageFile(event.target.files?.[0])}
+              />
+            </label>
+          </div>
+          {background.imageDataUrl && (
+            <>
+              <div
+                className={styles.backgroundPreview}
+                style={{ backgroundImage: `url(${background.imageDataUrl})`, opacity: background.imageOpacity }}
+              />
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Opacity</span>
+                <input
+                  type="range"
+                  className={styles.rangeInput}
+                  min={0}
+                  max={100}
+                  value={Math.round(background.imageOpacity * 100)}
+                  aria-label="Image opacity"
+                  onChange={(event) => setViewportBackground({ imageOpacity: Number(event.target.value) / 100 })}
+                />
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      <p className={styles.sectionHint}>
+        Overrides the current theme's default gradient in the 3D and sketch viewport.
+      </p>
     </div>
   );
 }
@@ -213,6 +366,8 @@ function ColoursTab() {
         autoValue={isDark ? AUTO_MODEL_EDGE_COLOR.dark : AUTO_MODEL_EDGE_COLOR.light}
         onChange={setModelEdgeColor}
       />
+
+      <ViewportBackgroundField />
     </>
   );
 }
@@ -348,6 +503,53 @@ function SketchTab() {
   );
 }
 
+function ShortcutsTab() {
+  const shortcuts = useSettingsStore((state) => state.keyboardShortcuts);
+  const setShortcutKey = useSettingsStore((state) => state.setShortcutKey);
+  const [listeningFor, setListeningFor] = useState<(typeof SHORTCUT_ACTIONS)[number]["id"] | null>(null);
+
+  // Capturing phase + `stopPropagation` so this intercepts the key before the app's own
+  // global shortcut listener (`useKeyboardShortcuts.ts`) or this dialog's own Escape-to-
+  // close handler ever see it — otherwise pressing "Delete" to rebind it would also
+  // delete the current selection, and Escape would close the dialog instead of just
+  // cancelling the capture.
+  useEffect(() => {
+    if (!listeningFor) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key !== "Escape") setShortcutKey(listeningFor, normalizeKeyEvent(event));
+      setListeningFor(null);
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [listeningFor, setShortcutKey]);
+
+  return (
+    <div className={styles.section}>
+      <span className={styles.sectionTitle}>Shortcuts</span>
+      {SHORTCUT_ACTIONS.map((action) => (
+        <div key={action.id} className={styles.field}>
+          <span className={styles.fieldLabel}>{action.label}</span>
+          <button
+            type="button"
+            className={styles.toggleButton}
+            aria-pressed={listeningFor === action.id}
+            onClick={() => setListeningFor(action.id)}
+          >
+            {listeningFor === action.id ? "Press a key…" : shortcuts[action.id] || "Not set"}
+          </button>
+        </div>
+      ))}
+      <p className={styles.sectionHint}>
+        Click a shortcut, then press the key (or combination) to bind it. Escape cancels
+        without changing it. Binding a key already used by another shortcut here clears it
+        from that one.
+      </p>
+    </div>
+  );
+}
+
 function FileTab() {
   const unitSystem = useDocumentStore((state) => state.unitSystem);
   const setUnitSystem = useDocumentStore((state) => state.setUnitSystem);
@@ -429,6 +631,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           {activeTab === "Colours" && <ColoursTab />}
           {activeTab === "Display" && <DisplayTab />}
           {activeTab === "Sketch" && <SketchTab />}
+          {activeTab === "Shortcuts" && <ShortcutsTab />}
           {activeTab === "File" && <FileTab />}
         </div>
 

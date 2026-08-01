@@ -6,11 +6,14 @@ import { Vector3 } from "three";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { planeBasis } from "@/sketch/planeBasis";
 import { selectActiveSketch, useSketchStore } from "@/state/sketchStore";
+import { useViewportStore } from "@/state/viewportStore";
+import { mixHex } from "@/utils/colorMix";
 
-import { DOCUMENT_SCALE } from "../constants";
+import { DOCUMENT_SCALE, VIEWPORT_BG_APPROX } from "../constants";
+import { DragSnapIndicator } from "./DragSnapIndicator";
 import { SketchCanvas } from "./SketchCanvas";
 import { SketchConstraintGlyphs } from "./SketchConstraintGlyphs";
-import { SketchDimensions } from "./SketchDimensions";
+import { SketchDimensions, SmartDimensionPreview } from "./SketchDimensions";
 import { SketchGeometry } from "./SketchGeometry";
 
 /**
@@ -20,36 +23,44 @@ import { SketchGeometry } from "./SketchGeometry";
 export function SketchScene() {
   const sketch = useSketchStore(selectActiveSketch);
   const isDark = useIsDarkTheme();
+  const gridVisible = useViewportStore((state) => state.gridVisible);
 
   if (!sketch) return null;
 
   const basis = planeBasis(sketch.planeId);
+  const bg = isDark ? VIEWPORT_BG_APPROX.dark : VIEWPORT_BG_APPROX.light;
 
   return (
     <group rotation={basis.rotation as unknown as [number, number, number]}>
       <SketchCameraAlignment planeId={sketch.planeId} />
 
-      {/* Grid drawn in the sketch plane rather than on the ground, so it reads as
-          graph paper under the profile. */}
-      <Grid
-        rotation={[Math.PI / 2, 0, 0]}
-        position={[0, 0, -0.05]}
-        infiniteGrid
-        cellSize={DOCUMENT_SCALE / 20}
-        cellThickness={0.6}
-        cellColor={isDark ? "#4c525a" : "#c3cdd8"}
-        sectionSize={DOCUMENT_SCALE / 2}
-        sectionThickness={1}
-        sectionColor={isDark ? "#69737f" : "#9bacbd"}
-        fadeDistance={DOCUMENT_SCALE * 10}
-        fadeStrength={1}
-        side={2}
-        raycast={() => null}
-      />
+      {/* Grid drawn in the sketch plane rather than on the ground, so it reads as graph
+          paper under the profile. Shares the status bar's grid-hide toggle with the 3D
+          viewport's own ground grid, rather than having its own — they're never both
+          visible at once, so one switch is enough. */}
+      {gridVisible && (
+        <Grid
+          rotation={[Math.PI / 2, 0, 0]}
+          position={[0, 0, -0.05]}
+          infiniteGrid
+          cellSize={DOCUMENT_SCALE / 20}
+          cellThickness={0.6}
+          cellColor={mixHex(isDark ? "#4c525a" : "#c3cdd8", bg, 0.5)}
+          sectionSize={DOCUMENT_SCALE / 2}
+          sectionThickness={1}
+          sectionColor={mixHex(isDark ? "#69737f" : "#9bacbd", bg, 0.5)}
+          fadeDistance={DOCUMENT_SCALE * 10}
+          fadeStrength={1}
+          side={2}
+          raycast={() => null}
+        />
+      )}
 
       <SketchCanvas sketch={sketch} />
       <SketchGeometry sketch={sketch} isDark={isDark} />
       <SketchDimensions sketch={sketch} />
+      <SmartDimensionPreview sketch={sketch} />
+      <DragSnapIndicator />
       <SketchConstraintGlyphs sketch={sketch} />
     </group>
   );

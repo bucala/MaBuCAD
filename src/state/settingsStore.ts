@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { DEFAULT_SHORTCUT_KEYS, type ShortcutActionId } from "@/commands/keyboardShortcuts";
 import { DEFAULT_LANGUAGE, type Language } from "@/i18n/languages";
 
 /** "system" tracks the OS light/dark preference; "gray" is a third explicit skin between
@@ -84,7 +85,49 @@ interface SettingsValues {
    * (`io/files.ts`'s `saveBlob`), and a background save that popped a native file dialog
    * every few minutes would be worse than no autosave at all. */
   autosaveEnabled: boolean;
+  /** Key bound to each of `keyboardShortcuts.ts`'s fixed action list — Settings ▸
+   * Shortcuts is the UI for rebinding these; `useKeyboardShortcuts.ts` is what reads
+   * them live. */
+  keyboardShortcuts: Record<ShortcutActionId, string>;
+  /** The 3D viewport's own backdrop, overriding the theme's default top/bottom gradient
+   * (`Viewport.module.css`'s `--bg-viewport-top`/`-bottom`) — see `ViewportBackground`'s
+   * own doc comment for the mode set. */
+  viewportBackground: ViewportBackground;
+  /** Off by default. When on, `useDebugLogging.ts` captures uncaught errors, unhandled
+   * rejections, console.error/warn calls and rebuild failures to a log file next to the
+   * installed app — see `debug/logger.ts`'s own doc comment for the line format. Meant
+   * to be turned on only while reproducing a problem to report, not left on: it patches
+   * `console.error`/`warn` for as long as it's active. */
+  debugModeEnabled: boolean;
 }
+
+/**
+ * `"theme"` keeps the existing light/dark/gray gradient (`Viewport.module.css`) and
+ * ignores every other field here — it's the default, so choosing a custom backdrop is
+ * opt-in. The other four modes are rendered in `Viewport.tsx`:
+ * - `"solid"`: `color` alone.
+ * - `"gradient-center"` / `"gradient-bottom"`: `color` mixed toward white by `intensity`
+ *   (0 = flat `color`, 1 = white) as the gradient's near/top stop, fading to `color`.
+ * - `"image"`: `imageDataUrl` (a data: URL — small enough images to be worth persisting
+ *   inline in `localStorage` rather than needing real file storage) drawn behind the
+ *   (transparent) canvas at `imageOpacity`, with `color` showing through wherever the
+ *   image doesn't fully cover.
+ */
+export interface ViewportBackground {
+  mode: "theme" | "solid" | "gradient-center" | "gradient-bottom" | "image";
+  color: string;
+  intensity: number;
+  imageDataUrl: string | null;
+  imageOpacity: number;
+}
+
+export const DEFAULT_VIEWPORT_BACKGROUND: ViewportBackground = {
+  mode: "theme",
+  color: "#33383e",
+  intensity: 0.35,
+  imageDataUrl: null,
+  imageOpacity: 0.6,
+};
 
 interface SettingsStore extends SettingsValues {
   setTheme: (theme: ThemePreference) => void;
@@ -100,6 +143,16 @@ interface SettingsStore extends SettingsValues {
   toggleAxisLabelsVisible: () => void;
   setLanguage: (language: Language) => void;
   toggleAutosave: () => void;
+  /** Binds `key` (a `normalizeKeyEvent` string) to `id`. If another action already owns
+   * that key, it loses the binding first — two actions racing for the same keypress
+   * would otherwise only ever fire whichever one `SHORTCUT_ACTIONS` happens to list
+   * first, silently. */
+  setShortcutKey: (id: ShortcutActionId, key: string) => void;
+  /** Merges into `viewportBackground` rather than replacing it — every control in
+   * Settings ▸ Colours' "Viewport Background" section only ever changes one field at a
+   * time (the mode, the colour, the intensity slider, ...). */
+  setViewportBackground: (patch: Partial<ViewportBackground>) => void;
+  toggleDebugMode: () => void;
   /** Replaces every value at once — what Import Settings uses, so an imported file fully
    * determines the result rather than merging over whatever was already set. */
   replaceAll: (values: SettingsValues) => void;
@@ -120,6 +173,9 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   axisLabelsVisible: true,
   language: DEFAULT_LANGUAGE,
   autosaveEnabled: false,
+  keyboardShortcuts: { ...DEFAULT_SHORTCUT_KEYS },
+  viewportBackground: { ...DEFAULT_VIEWPORT_BACKGROUND },
+  debugModeEnabled: false,
 };
 
 /**
@@ -151,6 +207,18 @@ export const useSettingsStore = create<SettingsStore>()(
       toggleAxisLabelsVisible: () => set((state) => ({ axisLabelsVisible: !state.axisLabelsVisible })),
       setLanguage: (language) => set({ language }),
       toggleAutosave: () => set((state) => ({ autosaveEnabled: !state.autosaveEnabled })),
+      setShortcutKey: (id, key) =>
+        set((state) => {
+          const next = { ...state.keyboardShortcuts };
+          for (const otherId of Object.keys(next) as ShortcutActionId[]) {
+            if (otherId !== id && next[otherId] === key) next[otherId] = "";
+          }
+          next[id] = key;
+          return { keyboardShortcuts: next };
+        }),
+      setViewportBackground: (patch) =>
+        set((state) => ({ viewportBackground: { ...state.viewportBackground, ...patch } })),
+      toggleDebugMode: () => set((state) => ({ debugModeEnabled: !state.debugModeEnabled })),
       replaceAll: (values) => set(values),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),
