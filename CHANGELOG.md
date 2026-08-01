@@ -5,7 +5,87 @@ All notable changes to MaBuCAD are documented in this file, newest first. The fo
 semantic versioning (still `0.1.0` in `package.json`), so entries are grouped by date and by
 the commit that introduced them instead of by release tag.
 
-## 2026-08-01 — Smart Dimension, axis lines, sketch persistence, colours, 3D Navigation, New Document, i18n, autosave
+## 2026-08-01 — CSP crash fix, live gizmo, Inventor-style Smart Dimension, smart constrains, keyboard shortcuts, viewport backgrounds, Debug Mode
+
+A second round of real-world feedback on the previous batch, including one critical bug
+report: activating a feature (Extrude, etc.) inside the real packaged Tauri app — not
+reproducible in this session's own dev/browser testing — threw a CSP `SecurityError` the
+moment OpenCASCADE tried to report any internal exception, breaking feature activation and
+sketch selection outright.
+
+### Fixed
+- **CSP `'unsafe-eval'` violation breaking OpenCASCADE error reporting (critical).**
+  Emscripten's embind runtime names its generated Error subclasses (`BindingError`,
+  `InternalError`, and the one that actually bit here — whatever class it wraps a genuine
+  OpenCASCADE exception in) via `new Function(...)`, purely to give the class a readable
+  `.name`. That needs `'unsafe-eval'`, which `tauri.conf.json`'s CSP deliberately doesn't
+  grant (`'wasm-unsafe-eval'` only covers WASM instantiation). Inside Tauri's WebView this
+  threw the instant the kernel needed to report *any* internal error, surfacing as a much
+  more confusing failure — a broken rebuild, an unselectable sketch — with no message,
+  since the code path meant to construct that message was what got blocked. This is why it
+  never showed up in this session's own testing: the CSP is enforced only by the real
+  packaged WebView2 runtime, not the Vite dev server or Playwright-in-plain-Chromium.
+  Fixed with a build-time Vite plugin (`patchEmbindNamedFunction` in `vite.config.ts`) that
+  replaces the eval-requiring implementation with an `Object.defineProperty`-based
+  equivalent in the dependency's own source during the build, rather than hand-patching
+  `node_modules` (wiped by `npm install`) or weakening the CSP app-wide.
+- **Undo/redo didn't work for anything done inside a sketch — drawing, dimensioning,
+  dragging.** Sketch geometry lives in its own store and is never written into the
+  document, so `documentStore`'s undo history never captured it. `sketchStore` now keeps
+  its own bounded 30-step history for the sketch currently being edited; Undo/Redo route to
+  it while a sketch is open and fall back to the document's history otherwise. Also removes
+  the second Undo/Redo button pair that duplicated the menu bar's, sitting above the
+  feature tree, and drops the document history cap from 50 to 30 steps.
+- **`deleteSelection()` silently did nothing for a directly-selected constraint or
+  dimension** — it only ever filtered one out by whether the geometry it *referenced* got
+  removed, never by its own id being selected. Selecting a constraint glyph or a dimension
+  label and pressing Delete now actually removes it.
+
+### Added
+- **The bottom-left axis indicator is now a live 3D gizmo**, replacing a static SVG legend
+  that never rotated with the camera despite looking like it should. Reuses the same
+  `GizmoHelper`/`GizmoViewport` mechanism already driving the top-right ViewCube.
+- **Smart Dimension reworked into an Inventor-style propose-then-commit flow.** Picking an
+  entity used to commit a dimension immediately, which also made a two-line angle
+  unreachable — a single selected line always resolved to a length, with no chance to add a
+  second line first. It now proposes instead: the pick follows the cursor as a dashed,
+  uncommitted preview; a second, compatible pick re-infers it (two non-parallel lines
+  refine a length into an angle); a click on empty sketch space commits it there. Escape or
+  a tool switch discards the proposal.
+- **"Constrains smart"**: dragging a sketch point now suggests a relation live, shown as a
+  ring and label that follows the drag and applies only on release. Another point nearby
+  (including a circle/arc's own centre point) suggests Coincident; a line's midpoint
+  suggests a Midpoint snap (positional only — there's no midpoint constraint kind to
+  persist); an endpoint drag that leaves its line near-tangent to a circle suggests
+  Tangent. Dragging a whole *line* onto a circle isn't covered — the sketcher only supports
+  dragging individual points today — and there's no "point constrained to a circle's rim"
+  relation yet, since that needs a new constraint kind and solver residual.
+- **Constraint glyphs are clickable and deletable** — Select mode only, same convention as
+  a dimension label: click to select, Delete to remove. They were purely decorative before.
+- **Radius ↔ Diameter toggle and angle flip**, both via a dimension's right-click menu.
+  Radius/Diameter converts the driving value (×2 or ÷2), not just the label. Flip Angle
+  switches to the other of the two numerically distinct angles two intersecting lines form
+  (θ and its supplement, 180−θ).
+- **Esc/Del/Space keyboard shortcuts**, plus a new Settings ▸ Shortcuts tab to rebind any of
+  them (Delete, Space for Hide/Show, Undo, Redo) by pressing a key. Escape already worked;
+  Delete and Space had no keyboard binding at all before this, only their ribbon buttons.
+- **The status bar's grid-hide toggle now also hides the sketcher's own in-plane grid** (it
+  previously only affected the 3D viewport's ground grid, which never mattered while
+  sketching since the ground grid already steps aside). A new snap-to-grid toggle (status
+  bar, sketch mode only) snaps drawn and dragged sketch points to the 5 mm grid, layered
+  behind the existing snap-to-nearby-point behaviour rather than fighting it. Both grids'
+  line colours are also dimmed about 50%, mixed toward the viewport background.
+- **Settings ▸ Colours ▸ Viewport Background**: Theme (the existing gradient, unchanged
+  default), Solid, Gradient from centre, Gradient from bottom (both with an intensity
+  slider), or an uploaded Image with its own opacity slider.
+- **Settings ▸ General ▸ Debug Mode**: captures uncaught exceptions, unhandled promise
+  rejections, `console.error`/`warn` calls, and geometry rebuild failures to
+  `mabucad-debug.log` next to the installed executable. One line per event — an ISO-8601
+  timestamp, a level, a short category tag, a message, and an optional structured JSON
+  suffix — plain text and greppable rather than NDJSON. Off by default; meant to be turned
+  on only while reproducing a problem, then the log file attached to the report.
+
+
 
 A 12-item batch of real-world feedback, mostly against reference screenshots of another
 CAD tool's own Display Appearance and Application Options dialogs.
