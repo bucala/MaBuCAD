@@ -97,6 +97,16 @@ interface DocumentStore {
    */
   contextMenu: { x: number; y: number } | null;
   openContextMenu: (x: number, y: number) => void;
+
+  /**
+   * Whether the New Document type picker (Part / Assembly / Drawing) is open. Lives here
+   * rather than as local state in whichever component happens to trigger it, since "New"
+   * is dispatched through `commandRegistry.ts`'s `runCommand` from several places at once
+   * (the ribbon's Document group, the File menu) — same reasoning as `contextMenu` above.
+   */
+  newDocumentDialogOpen: boolean;
+  openNewDocumentDialog: () => void;
+  closeNewDocumentDialog: () => void;
   closeContextMenu: () => void;
 
   renameDocument: (name: string) => void;
@@ -313,6 +323,10 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     contextMenu: null,
     openContextMenu: (x, y) => set({ contextMenu: { x, y } }),
     closeContextMenu: () => set({ contextMenu: null }),
+
+    newDocumentDialogOpen: false,
+    openNewDocumentDialog: () => set({ newDocumentDialogOpen: true }),
+    closeNewDocumentDialog: () => set({ newDocumentDialogOpen: false }),
 
     renameDocument: (name) => {
       const trimmed = name.trim();

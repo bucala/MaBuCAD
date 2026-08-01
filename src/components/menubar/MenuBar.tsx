@@ -26,6 +26,7 @@ import { useAppInfo } from "@/hooks/useAppInfo";
 import { useDocumentStore } from "@/state/documentStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
+import { NewDocumentDialog } from "../document/NewDocumentDialog";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import styles from "./MenuBar.module.css";
 
@@ -297,6 +298,7 @@ export function MenuBar() {
       </div>
 
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <NewDocumentDialog />
     </div>
   );
 }
