@@ -3,13 +3,16 @@ import { Box, Layers, PenTool, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { runNewDocument } from "@/commands/documentIO";
+import { useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
 
 import styles from "./NewDocumentDialog.module.css";
 
 interface DocumentTypeCard {
   id: "part" | "assembly" | "drawing";
+  labelKey: string;
   label: string;
+  descriptionKey: string;
   description: string;
   icon: LucideIcon;
   available: boolean;
@@ -18,21 +21,27 @@ interface DocumentTypeCard {
 const CARDS: DocumentTypeCard[] = [
   {
     id: "part",
+    labelKey: "newdoc.part",
     label: "Part",
+    descriptionKey: "newdoc.part.description",
     description: "A single 3D solid built from sketches and features.",
     icon: Box,
     available: true,
   },
   {
     id: "assembly",
+    labelKey: "newdoc.assembly",
     label: "Assembly",
+    descriptionKey: "newdoc.assembly.description",
     description: "Combine multiple parts with mates. Coming soon.",
     icon: Layers,
     available: false,
   },
   {
     id: "drawing",
+    labelKey: "newdoc.drawing",
     label: "Drawing",
+    descriptionKey: "newdoc.drawing.description",
     description: "2D views and dimensions of a part or assembly. Coming soon.",
     icon: PenTool,
     available: false,
@@ -52,6 +61,7 @@ export function NewDocumentDialog() {
   const open = useDocumentStore((state) => state.newDocumentDialogOpen);
   const close = useDocumentStore((state) => state.closeNewDocumentDialog);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!open) return;
@@ -78,7 +88,7 @@ export function NewDocumentDialog() {
     >
       <div ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-label="New Document">
         <div className={styles.header}>
-          <h2 className={styles.title}>New Document</h2>
+          <h2 className={styles.title}>{t("newdoc.title", "New Document")}</h2>
           <button type="button" className={styles.closeButton} aria-label="Close" onClick={close}>
             <X size={16} strokeWidth={1.75} />
           </button>
@@ -99,9 +109,11 @@ export function NewDocumentDialog() {
                 <span className={styles.cardIcon} aria-hidden="true">
                   <Icon size={32} strokeWidth={1.5} />
                 </span>
-                <span className={styles.cardLabel}>{card.label}</span>
-                <span className={styles.cardDescription}>{card.description}</span>
-                {!card.available && <span className={styles.comingSoon}>Coming soon</span>}
+                <span className={styles.cardLabel}>{t(card.labelKey, card.label)}</span>
+                <span className={styles.cardDescription}>{t(card.descriptionKey, card.description)}</span>
+                {!card.available && (
+                  <span className={styles.comingSoon}>{t("newdoc.coming-soon", "Coming soon")}</span>
+                )}
               </button>
             );
           })}
@@ -109,11 +121,11 @@ export function NewDocumentDialog() {
 
         <div className={styles.footer}>
           <button type="button" className={styles.footerButton} onClick={close}>
-            Cancel
+            {t("newdoc.cancel", "Cancel")}
           </button>
           <div className={styles.footerSpacer} />
           <button type="button" className={styles.primaryButton} onClick={createPart}>
-            Create Part
+            {t("newdoc.create-part", "Create Part")}
           </button>
         </div>
       </div>

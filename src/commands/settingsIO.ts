@@ -41,6 +41,7 @@ export async function runExportSettings(): Promise<void> {
     viewCubeVisible,
     originIndicatorVisible,
     axisLabelsVisible,
+    language,
   } = useSettingsStore.getState();
 
   const payload: SavedSettings = {
@@ -57,6 +58,7 @@ export async function runExportSettings(): Promise<void> {
       viewCubeVisible,
       originIndicatorVisible,
       axisLabelsVisible,
+      language,
     },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });

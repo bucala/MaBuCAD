@@ -23,6 +23,7 @@ import {
 
 import { isCommandAvailable, runCommand } from "@/commands/commandRegistry";
 import { useAppInfo } from "@/hooks/useAppInfo";
+import { useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
@@ -122,11 +123,12 @@ function useDismiss(open: boolean, ref: React.RefObject<HTMLElement | null>, onD
 }
 
 /** A text menu-bar button (File, Edit, …) that opens a dropdown of commands on click. */
-function TextMenu({ label, items }: { label: string; items: MenuItemSpec[] }) {
+function TextMenu({ menuId, label, items }: { menuId: string; label: string; items: MenuItemSpec[] }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const close = () => setOpen(false);
   const isSketchMode = useSketchStore(selectIsSketchMode);
+  const { t } = useTranslation();
 
   useDismiss(open, wrapRef, close);
 
@@ -139,10 +141,13 @@ function TextMenu({ label, items }: { label: string; items: MenuItemSpec[] }) {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        {label}
+        {t(`menu.${menuId}`, label)}
       </button>
       {open && (
         <div className={styles.dropdown} role="menu">
+          {/* Each item's own `commandId` doubles as its translation key — the same ribbon
+              command already has a Slovak entry in `translations.ts`, so a menu entry that
+              points at one gets it for free with no separate key to keep in sync. */}
           {items.map(({ id, label: itemLabel, icon: Icon, commandId }) => (
             <button
               key={id}
@@ -156,7 +161,7 @@ function TextMenu({ label, items }: { label: string; items: MenuItemSpec[] }) {
               }}
             >
               <Icon size={14} strokeWidth={1.75} />
-              {itemLabel}
+              {t(commandId, itemLabel)}
             </button>
           ))}
         </div>
@@ -205,6 +210,7 @@ export function MenuBar() {
   const isModified = useDocumentStore((state) => state.past.length > 0);
   const appInfo = useAppInfo();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const { t } = useTranslation();
 
   return (
     <div className={styles.menubar}>
@@ -217,10 +223,10 @@ export function MenuBar() {
 
       <nav className={styles.menus} aria-label="Application menu">
         {MENUS.map((menu) => (
-          <TextMenu key={menu.id} label={menu.label} items={menu.items} />
+          <TextMenu key={menu.id} menuId={menu.id} label={menu.label} items={menu.items} />
         ))}
 
-        <CustomMenu label="Tools">
+        <CustomMenu label={t("menu.tools", "Tools")}>
           {(close) => (
             <button
               type="button"
@@ -232,12 +238,12 @@ export function MenuBar() {
               }}
             >
               <Settings size={14} strokeWidth={1.75} />
-              Options…
+              {t("menu.options", "Options")}…
             </button>
           )}
         </CustomMenu>
 
-        <CustomMenu label="Window">
+        <CustomMenu label={t("menu.window", "Window")}>
           {() => (
             <button type="button" role="menuitem" className={styles.dropdownItem} disabled aria-pressed="true">
               <Box size={14} strokeWidth={1.75} />
@@ -246,7 +252,7 @@ export function MenuBar() {
           )}
         </CustomMenu>
 
-        <CustomMenu label="Help">
+        <CustomMenu label={t("menu.help", "Help")}>
           {(close) => (
             <button
               type="button"
@@ -272,8 +278,8 @@ export function MenuBar() {
             key={id}
             type="button"
             className={styles.quickButton}
-            title={label}
-            aria-label={label}
+            title={t(id, label)}
+            aria-label={t(id, label)}
             onClick={() => runCommand(id)}
           >
             <Icon size={15} strokeWidth={1.75} />
@@ -283,8 +289,8 @@ export function MenuBar() {
         <button
           type="button"
           className={styles.quickButton}
-          title="Options"
-          aria-label="Options"
+          title={t("menu.options", "Options")}
+          aria-label={t("menu.options", "Options")}
           onClick={() => setSettingsOpen(true)}
         >
           <Settings size={15} strokeWidth={1.75} />

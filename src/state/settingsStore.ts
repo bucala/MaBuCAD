@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { DEFAULT_LANGUAGE, type Language } from "@/i18n/languages";
+
 /** "system" tracks the OS light/dark preference; "gray" is a third explicit skin between
  * light and dark (a neutral, lower-contrast surface for long sketching sessions) — see
  * `useIsDarkTheme.ts` and `tokens.css`'s own `[data-theme]` selectors, which this setting
@@ -70,6 +72,11 @@ interface SettingsValues {
    * `originIndicatorVisible` is also on, since a label with no triad to label makes no
    * sense. */
   axisLabelsVisible: boolean;
+  /** UI language. Only `en` (the default) and `sk` have a real translation dictionary
+   * (`i18n/translations.ts`) yet; the other seven listed in `i18n/languages.ts` fall
+   * back to English string-by-string until they get one, rather than being hidden from
+   * the switcher. */
+  language: Language;
 }
 
 interface SettingsStore extends SettingsValues {
@@ -84,6 +91,7 @@ interface SettingsStore extends SettingsValues {
   toggleViewCubeVisible: () => void;
   toggleOriginIndicatorVisible: () => void;
   toggleAxisLabelsVisible: () => void;
+  setLanguage: (language: Language) => void;
   /** Replaces every value at once — what Import Settings uses, so an imported file fully
    * determines the result rather than merging over whatever was already set. */
   replaceAll: (values: SettingsValues) => void;
@@ -102,6 +110,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   viewCubeVisible: true,
   originIndicatorVisible: true,
   axisLabelsVisible: true,
+  language: DEFAULT_LANGUAGE,
 };
 
 /**
@@ -131,6 +140,7 @@ export const useSettingsStore = create<SettingsStore>()(
       toggleOriginIndicatorVisible: () =>
         set((state) => ({ originIndicatorVisible: !state.originIndicatorVisible })),
       toggleAxisLabelsVisible: () => set((state) => ({ axisLabelsVisible: !state.axisLabelsVisible })),
+      setLanguage: (language) => set({ language }),
       replaceAll: (values) => set(values),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),

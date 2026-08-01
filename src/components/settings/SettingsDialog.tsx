@@ -4,6 +4,8 @@ import { X } from "lucide-react";
 
 import { runExportSettings, runImportSettings } from "@/commands/settingsIO";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
+import { LANGUAGES } from "@/i18n/languages";
+import { useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
 import { ACCENT_PRESETS, useSettingsStore, type ThemePreference } from "@/state/settingsStore";
 import { useViewportStore } from "@/state/viewportStore";
@@ -53,9 +55,34 @@ function GeneralTab() {
   const confirmBeforeDiscard = useSettingsStore((state) => state.confirmBeforeDiscard);
   const setConfirmBeforeDiscard = useSettingsStore((state) => state.setConfirmBeforeDiscard);
   const resetToDefaults = useSettingsStore((state) => state.resetToDefaults);
+  const language = useSettingsStore((state) => state.language);
+  const setLanguage = useSettingsStore((state) => state.setLanguage);
+  const { t } = useTranslation();
 
   return (
     <>
+      <div className={styles.section}>
+        <span className={styles.sectionTitle}>{t("settings.language", "Language")}</span>
+        <select
+          className={styles.numberInput}
+          style={{ width: "100%", textAlign: "left" }}
+          value={language}
+          onChange={(event) => setLanguage(event.target.value as typeof language)}
+          aria-label={t("settings.language", "Language")}
+        >
+          {LANGUAGES.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.nativeName}
+              {option.id !== "en" ? ` — ${option.englishName}` : ""}
+            </option>
+          ))}
+        </select>
+        <p className={styles.sectionHint}>
+          Only English and Slovak are fully translated so far — the rest fall back to
+          English one string at a time as they're translated.
+        </p>
+      </div>
+
       <div className={styles.section}>
         <span className={styles.sectionTitle}>Prompting</span>
         <label className={styles.checkboxField}>
@@ -354,6 +381,7 @@ function FileTab() {
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<TabId>("General");
   const dialogRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!open) return;
@@ -375,7 +403,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     >
       <div ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-label="Application Options">
         <div className={styles.header}>
-          <h2 className={styles.title}>Application Options</h2>
+          <h2 className={styles.title}>{t("settings.title", "Application Options")}</h2>
           <button type="button" className={styles.closeButton} aria-label="Close Application Options" onClick={onClose}>
             <X size={16} strokeWidth={1.75} />
           </button>
@@ -391,7 +419,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
             >
-              {tab}
+              {t(`settings.tab.${tab.toLowerCase()}`, tab)}
             </button>
           ))}
         </div>

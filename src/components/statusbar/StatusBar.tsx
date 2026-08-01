@@ -1,6 +1,7 @@
 import { Eye, Grid3x3 } from "lucide-react";
 
 import { useAppInfo } from "@/hooks/useAppInfo";
+import { useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { selectSketchStatus, useSketchStore } from "@/state/sketchStore";
@@ -15,6 +16,13 @@ const SKETCH_STATUS_LABEL: Record<SketchStatus, string> = {
   "under-defined": "Under Defined",
   "over-defined": "Over Defined",
   "no-sketch": "No active sketch",
+};
+
+const SKETCH_STATUS_KEY: Record<SketchStatus, string> = {
+  "fully-defined": "status.fully-defined",
+  "under-defined": "status.under-defined",
+  "over-defined": "status.over-defined",
+  "no-sketch": "status.no-sketch",
 };
 
 const SKETCH_STATUS_CLASS: Record<SketchStatus, string> = {
@@ -55,6 +63,7 @@ export function StatusBar() {
   const cycleDisplayMode = useViewportStore((state) => state.cycleDisplayMode);
   const gridVisible = useViewportStore((state) => state.gridVisible);
   const toggleGridVisible = useViewportStore((state) => state.toggleGridVisible);
+  const { t } = useTranslation();
 
   return (
     <footer className={styles.statusbar}>
@@ -63,14 +72,14 @@ export function StatusBar() {
         data-testid="sketch-status"
       >
         <span className={styles.statusDot} aria-hidden="true" />
-        {SKETCH_STATUS_LABEL[sketchStatus]}
+        {t(SKETCH_STATUS_KEY[sketchStatus], SKETCH_STATUS_LABEL[sketchStatus])}
       </div>
 
       {isSketchMode && (
         <>
           <div className={styles.divider} aria-hidden="true" />
           <div className={styles.item}>
-            {dof} {dof === 1 ? "DOF" : "DOF"}
+            {dof} {t("status.dof", "DOF")}
           </div>
         </>
       )}
@@ -116,12 +125,12 @@ export function StatusBar() {
       <div className={styles.spacer} />
 
       <div className={styles.item}>
-        {featureCount} {featureCount === 1 ? "feature" : "features"}
+        {featureCount} {t(featureCount === 1 ? "status.feature-one" : "status.feature-many", featureCount === 1 ? "feature" : "features")}
       </div>
 
       <div className={styles.divider} aria-hidden="true" />
 
-      <div className={styles.item}>Editing Part</div>
+      <div className={styles.item}>{t("status.editing-part", "Editing Part")}</div>
 
       <div className={styles.divider} aria-hidden="true" />
 

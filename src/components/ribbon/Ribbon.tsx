@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 
 import { isCommandAvailable, runCommand } from "@/commands/commandRegistry";
 import { RIBBON_TABS } from "@/commands/ribbonConfig";
+import { useTranslation } from "@/i18n/useTranslation";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import type { RibbonItem } from "@/types/ui";
 
@@ -17,6 +18,7 @@ export function Ribbon() {
   const [activeTabId, setActiveTabId] = useState(RIBBON_TABS[0].id);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const isSketchMode = useSketchStore(selectIsSketchMode);
+  const { t } = useTranslation();
 
   const activeTab = RIBBON_TABS.find((tab) => tab.id === activeTabId) ?? RIBBON_TABS[0];
 
@@ -46,7 +48,7 @@ export function Ribbon() {
                 setIsCollapsed(false);
               }}
             >
-              {tab.label}
+              {t(tab.id, tab.label)}
             </button>
           ))}
         </div>
