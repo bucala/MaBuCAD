@@ -14,6 +14,7 @@ import {
 
 import { arcMidpoint, entityById, pointById } from "@/sketch/sketchModel";
 import type { GeometricConstraint, GeometricConstraintKind, Sketch, SketchEntity } from "@/sketch/types";
+import { useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 import styles from "./SketchConstraintGlyphs.module.css";
@@ -91,6 +92,9 @@ function entityMidpoint(sketch: Sketch, entity: SketchEntity): { x: number; y: n
  */
 export function SketchConstraintGlyphs({ sketch }: { sketch: Sketch }) {
   const visible = useViewportStore((state) => state.constraintsVisible);
+  const isSelectMode = useSketchStore((state) => state.tool === "select");
+  const selection = useSketchStore((state) => state.selection);
+  const toggleSelection = useSketchStore((state) => state.toggleSelection);
   if (!visible) return null;
 
   // Constraints that land on (almost) the same spot are staggered rather than stacked
@@ -116,11 +120,22 @@ export function SketchConstraintGlyphs({ sketch }: { sketch: Sketch }) {
         const glyph = GLYPHS[constraint.kind]!;
         const offsetY = 4 + index * 5;
 
+        const isSelected = selection.includes(constraint.id);
+
         return (
           <Html key={constraint.id} position={[anchor.x, anchor.y + offsetY, 0.06]} center zIndexRange={[15, 0]}>
-            <span className={styles.constraintGlyph} title={glyph.label}>
+            <button
+              type="button"
+              className={`${styles.constraintGlyph} ${isSelected ? styles.selected : ""}`}
+              title={`${glyph.label} — click to select, Delete to remove`}
+              style={isSelectMode ? undefined : { pointerEvents: "none" }}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleSelection(constraint.id, event.ctrlKey || event.metaKey);
+              }}
+            >
               <glyph.icon size={10} strokeWidth={2} />
-            </span>
+            </button>
           </Html>
         );
       })}

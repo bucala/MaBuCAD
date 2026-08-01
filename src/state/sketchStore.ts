@@ -655,13 +655,19 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           ...sketch,
           entities,
           points: sketch.points.filter((point) => survivingPoints.has(point.id)),
+          // A constraint or dimension can also be selected and deleted directly (its own
+          // id in `removed`, not just an id it references) — clicking a constraint glyph
+          // or a dimension label selects that glyph/label itself, not the geometry it
+          // annotates, so this check is what actually lets Delete remove either one.
           constraints: sketch.constraints.filter(
             (constraint) =>
+              !removed.has(constraint.id) &&
               !constraint.entities.some((id) => removed.has(id)) &&
               constraint.points.every((id) => survivingPoints.has(id)),
           ),
           dimensions: sketch.dimensions.filter(
             (dimension) =>
+              !removed.has(dimension.id) &&
               !dimension.entities.some((id) => removed.has(id)) &&
               dimension.points.every((id) => survivingPoints.has(id)),
           ),
