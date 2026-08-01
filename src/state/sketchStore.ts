@@ -59,6 +59,11 @@ const IDLE_DIAGNOSTICS: SketchDiagnostics = {
   iterations: 0,
 };
 
+/** Matches `documentStore.ts`'s own cap — same "last 30 steps" budget, applied here too
+ * since sketch edits (draw, constrain, dimension) get their own history, separate from
+ * the document's feature history. */
+const SKETCH_HISTORY_LIMIT = 30;
+
 interface SketchStore {
   /** Feature id of the sketch being edited, or null outside sketch mode. */
   activeSketchId: string | null;
@@ -77,6 +82,15 @@ interface SketchStore {
    * what lets a component outside the canvas see this state.
    */
   contextMenu: { x: number; y: number } | null;
+
+  /** Undo history for the sketch currently being edited — reset on every entry into
+   * sketch editing (`beginSketch`/`resumeSketch`) and on exit, so its scope is one
+   * editing session rather than persisting across sketches. Separate from
+   * `documentStore`'s own `past`/`future`: sketch geometry never lives in `CadDocument`
+   * (see `sketches` above), so the document's history never captured these edits at all —
+   * this is what actually makes Undo work for drawing and dimensioning. */
+  past: Sketch[];
+  future: Sketch[];
 
   beginSketch: (featureId: string, planeId: string) => void;
   resumeSketch: (featureId: string) => void;
@@ -112,8 +126,15 @@ interface SketchStore {
   setDimensionLabelOffset: (dimensionId: string, offset: Point2) => void;
   deleteDimension: (dimensionId: string) => void;
 
+  /** Snapshots the active sketch onto the undo stack without changing it — called once
+   * when a point-drag gesture starts, so the whole drag undoes in one step rather than
+   * every intermediate `dragPoint` call during the drag becoming its own step. */
+  beginDrag: () => void;
   dragPoint: (pointId: string, position: Point2) => void;
   deleteSelection: () => void;
+
+  undo: () => void;
+  redo: () => void;
 }
 
 interface Point2 {
@@ -127,6 +148,15 @@ export const useSketchStore = create<SketchStore>((set, get) => {
    * is already open takes effect on the very next click rather than needing a re-entry. */
   const snapTolerance = () => useSettingsStore.getState().snapTolerance;
 
+  /** Snapshots `sketch` onto the undo stack and clears redo — the same shape as
+   * `documentStore.ts`'s `commit()`, kept separate because it caps a different history. */
+  const pushHistory = (sketch: Sketch) => {
+    set((state) => ({
+      past: [...state.past, sketch].slice(-SKETCH_HISTORY_LIMIT),
+      future: [],
+    }));
+  };
+
   /** Applies an edit, re-solves, and stores both the geometry and the diagnostics. */
   const edit = (mutate: (sketch: Sketch) => Sketch) => {
     const { activeSketchId, sketches } = get();
@@ -136,6 +166,9 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     if (!current) return;
 
     const { sketch, diagnostics } = solveSketch(mutate(current));
+    if (sketch === current) return;
+
+    pushHistory(current);
     set({ sketches: { ...sketches, [activeSketchId]: sketch }, diagnostics });
   };
 
@@ -154,6 +187,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     tool: "select",
     selection: [],
     contextMenu: null,
+    past: [],
+    future: [],
 
     openContextMenu: (x, y) => set({ contextMenu: { x, y } }),
     closeContextMenu: () => set({ contextMenu: null }),
@@ -169,6 +204,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         tool: "line",
         selection: [],
         contextMenu: null,
+        past: [],
+        future: [],
       }));
     },
 
@@ -181,6 +218,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         tool: "select",
         selection: [],
         contextMenu: null,
+        past: [],
+        future: [],
       });
     },
 
@@ -191,6 +230,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
+        past: [],
+        future: [],
       }),
 
     loadSketches: (sketches) =>
@@ -201,6 +242,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
+        past: [],
+        future: [],
       }),
 
     setTool: (tool) => set({ tool, selection: [] }),
@@ -427,6 +470,13 @@ export const useSketchStore = create<SketchStore>((set, get) => {
      * the rest of the sketch consistent: constrained neighbours follow, and a fully
      * defined sketch refuses to move at all.
      */
+    beginDrag: () => {
+      const { activeSketchId, sketches } = get();
+      const current = activeSketchId ? sketches[activeSketchId] : undefined;
+      if (!current) return;
+      pushHistory(current);
+    },
+
     dragPoint: (pointId, position) => {
       const { activeSketchId, sketches } = get();
       if (!activeSketchId) return;
@@ -502,6 +552,38 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       });
 
       set({ selection: [] });
+    },
+
+    undo: () => {
+      const { activeSketchId, sketches, past, future } = get();
+      if (!activeSketchId) return;
+      const current = sketches[activeSketchId];
+      const previous = past[past.length - 1];
+      if (!current || !previous) return;
+
+      set({
+        sketches: { ...sketches, [activeSketchId]: previous },
+        diagnostics: solveSketch(previous).diagnostics,
+        past: past.slice(0, -1),
+        future: [current, ...future].slice(0, SKETCH_HISTORY_LIMIT),
+        selection: [],
+      });
+    },
+
+    redo: () => {
+      const { activeSketchId, sketches, past, future } = get();
+      if (!activeSketchId) return;
+      const current = sketches[activeSketchId];
+      const [next, ...rest] = future;
+      if (!current || !next) return;
+
+      set({
+        sketches: { ...sketches, [activeSketchId]: next },
+        diagnostics: solveSketch(next).diagnostics,
+        past: [...past, current].slice(-SKETCH_HISTORY_LIMIT),
+        future: rest,
+        selection: [],
+      });
     },
   };
 });

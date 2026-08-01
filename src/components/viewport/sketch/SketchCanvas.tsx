@@ -38,6 +38,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const drawPoint = useSketchStore((state) => state.drawPoint);
   const drawArc = useSketchStore((state) => state.drawArc);
   const clearSelection = useSketchStore((state) => state.clearSelection);
+  const beginDrag = useSketchStore((state) => state.beginDrag);
   const dragPoint = useSketchStore((state) => state.dragPoint);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
   const snapTolerance = useSettingsStore((state) => state.snapTolerance);
@@ -91,6 +92,9 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     const local = worldToSketch(sketch.planeId, event.point);
     const hit = findPointNear(sketch, local.x, local.y, snapTolerance);
     if (hit) {
+      // One history entry per drag gesture, not per pointer-move — see `beginDrag`'s own
+      // doc comment for why `dragPoint` below does not push its own history.
+      beginDrag();
       draggingPointId.current = hit.id;
       event.stopPropagation();
     }

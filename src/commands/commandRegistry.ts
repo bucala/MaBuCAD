@@ -291,8 +291,27 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "doc.open": () => void runOpenDocument(),
   "doc.save": () => void runSaveDocument(),
 
-  "edit.undo": () => useDocumentStore.getState().undo(),
-  "edit.redo": () => useDocumentStore.getState().redo(),
+  // A sketch's own edits (drawing, dimensioning, dragging) never reach `documentStore` —
+  // its history is a separate stack scoped to the current sketch session (see
+  // `sketchStore.ts`'s `past`/`future`) — so Undo/Redo while a sketch is open must target
+  // that stack instead, the same "sketch mode redirects the command" pattern `edit.delete`
+  // already uses below.
+  "edit.undo": () => {
+    const sketchState = useSketchStore.getState();
+    if (sketchState.activeSketchId) {
+      sketchState.undo();
+      return;
+    }
+    useDocumentStore.getState().undo();
+  },
+  "edit.redo": () => {
+    const sketchState = useSketchStore.getState();
+    if (sketchState.activeSketchId) {
+      sketchState.redo();
+      return;
+    }
+    useDocumentStore.getState().redo();
+  },
   "edit.delete": () => {
     const sketchState = useSketchStore.getState();
     if (sketchState.activeSketchId) {

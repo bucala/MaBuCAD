@@ -60,7 +60,7 @@ function nextFeatureName(features: Feature[], kind: FeatureKind): string {
 /** How many default features every document starts with — the rollback floor. */
 const DEFAULT_FEATURE_COUNT = createDefaultFeatures().length;
 
-const HISTORY_LIMIT = 50;
+const HISTORY_LIMIT = 30;
 
 interface DocumentStore {
   document: CadDocument;
