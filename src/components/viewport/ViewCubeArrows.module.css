@@ -1,0 +1,56 @@
+/*
+ * Absolutely positioned within `.viewport` (see Viewport.module.css — the canvas fills
+ * that same box via `inset: 0`), so these coordinates line up with `Scene.tsx`'s
+ * `<GizmoHelper alignment="top-right" margin={[86, 86]}>`: the ViewCube's on-screen centre
+ * sits 86px from the viewport's right and top edges. Each arrow is placed 62px out from
+ * that centre — just outside the cube's own ~84px footprint — so the ring reads as
+ * surrounding it rather than overlapping it.
+ */
+.ring {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.arrow {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--bg-layer);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-card);
+  pointer-events: auto;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.arrow:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
+
+.up {
+  top: 13px;
+  right: 75px;
+}
+
+.down {
+  top: 137px;
+  right: 75px;
+}
+
+.left {
+  top: 75px;
+  right: 137px;
+}
+
+.right {
+  top: 75px;
+  right: 13px;
+}

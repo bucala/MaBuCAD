@@ -7,6 +7,7 @@ import { mixHex } from "@/utils/colorMix";
 
 import { Scene } from "./scene/Scene";
 import { SketchContextMenu } from "./sketch/SketchContextMenu";
+import { ViewCubeArrows } from "./ViewCubeArrows";
 import styles from "./Viewport.module.css";
 
 /**
@@ -66,6 +67,8 @@ export function Viewport() {
             value live, not just set it once at canvas creation. */}
         <Scene projection={projection} />
       </Canvas>
+
+      <ViewCubeArrows />
 
       <div className={styles.hint}>
         Middle drag orbit · Ctrl+middle pan · Shift+middle or wheel zoom

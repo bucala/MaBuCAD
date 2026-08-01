@@ -7,6 +7,73 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-01 — Second CSP eval path fixed, ViewCube restored, rigid dimension labels, ribbon cleanup
+
+A third round of feedback on a confirmed-fresh `0.2.0` build, including one report that the
+previous round's CSP fix hadn't actually resolved sketch/feature selection — it had fixed
+one of two separate places embind builds JavaScript from a runtime string, not both.
+
+### Fixed
+- **A second, much more pervasive CSP `'unsafe-eval'` violation (critical).** The previous
+  fix patched `createNamedFunction`, which only fires when the kernel reports an *error*.
+  Emscripten's embind runtime has a second, separate eval-requiring path —
+  `craftInvokerFunction`, via `new_(Function, args1).apply(null, args2)` — which generates
+  the JS invoker wrapper for *every single bound C++ method and constructor* across the
+  OpenCASCADE API, including on ordinary, error-free sketch and feature operations. That's
+  why it was still reachable: extruding a sketch or reselecting one for a second feature
+  doesn't need the kernel to report an error, so the first fix never got exercised on that
+  path. Static `grep` for `new Function(`/`eval(` in the built bundle found nothing, because
+  the call references `Function` by identifier and invokes it via `.apply()` rather than the
+  literal `new Function(...)` token — found instead by wrapping `window.Function`/
+  `window.eval` in a `Proxy` via `page.addInitScript()` and tracing real call stacks through
+  a full sketch → extrude → reselect repro against the actual production build (`vite
+  preview` on `dist/`, not the dev server — Vite's dependency pre-bundling cache bypasses
+  custom Rollup transforms, so the dev server can silently run unpatched code and mask this
+  class of bug entirely). Fixed the same way as before: a second `oldCode`/`newCode` pair in
+  `vite.config.ts`'s `patchEmbindNamedFunction` plugin, rewriting `craftInvokerFunction` as
+  an ordinary closure that wires arguments and destructors identically to the original, with
+  no eval-family API involved. Verified with zero `Function`/`eval` calls remaining anywhere
+  in the traced repro, and the full existing Playwright regression suite passing identically
+  on this build and on the (intentionally eval-using, CSP-exempt) dev server, confirming the
+  rewritten invoker is behaviourally identical to the original for every bound kernel call
+  the suite exercises.
+- **The top-right ViewCube had stopped rendering entirely.** Two `GizmoHelper` instances
+  (the ViewCube and the bottom-left axis indicator) were both left at drei's default
+  `renderPriority` of 1 — and at priority 1, drei's `Hud` internals re-clear and redraw the
+  *entire* main scene before layering their own overlay on top. With two Huds doing that at
+  the same priority, whichever one's frame callback happened to run last won, and its clear
+  wiped out the other's overlay before the frame ever reached the screen — the ViewCube
+  losing that race is why it looked simply missing rather than glitched. Giving the
+  bottom-left gizmo a distinct `renderPriority={2}` makes it layer on top instead of
+  clearing and redrawing the scene a second time, so both now render correctly together.
+
+### Changed
+- **The bottom-left axis indicator is now purely a visual orientation reference.** It used
+  to double as a (fiddly, easy to hit by accident) click-to-align control, duplicating the
+  ViewCube. `GizmoViewport`'s own `disabled` prop turns off its hover/click-to-snap
+  behaviour; the ViewCube remains the one control surface for jumping to a face, edge or
+  corner orientation.
+- **Dimension labels are now rigidly attached to their own witness/leader lines**, matching
+  other CAD tools. Previously the leader lines were drawn at a fixed offset from the
+  measured geometry while only the label moved on drag — dragging a label any distance left
+  it visually stranded, disconnected from its own dimension line. The drag offset is now
+  decomposed into a component perpendicular to the dimension (which the witness lines and
+  the label share, so the whole dimension line moves out or in together) and a component
+  along it (which slides the label along that line); radius/diameter leaders now always run
+  straight from the centre to wherever the label currently is, rather than to a fixed point
+  near the original edge.
+- **Removed the redundant "New Sketch" ribbon button while already inside a sketch.** It was
+  merely greyed out before, sitting right next to "Exit Sketch"/"Select" — a large disabled
+  button that can't do anything in the current mode reads as a stray control rather than a
+  clear affordance, so it's hidden instead of disabled for the duration of the sketch.
+
+### Added
+- **Navigation arrows around the ViewCube**, for stepping the view by a fixed 45° increment
+  without needing to grab the cube itself — useful since clicking the cube only jumps
+  straight to a face/edge/corner's canonical orientation. A plain DOM overlay reaching the
+  camera through a `viewportStore` request, the same pattern `ZoomToFit.tsx` already used to
+  cross the same DOM-to-r3f boundary.
+
 ## 2026-08-01 — Version bump, and a note on why a packaged build can look like it's "missing" work
 
 Bumped `0.1.0` → `0.2.0` (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`)
