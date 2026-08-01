@@ -41,6 +41,7 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
   const setDimensionValue = useSketchStore((state) => state.setDimensionValue);
   const setDimensionLabelOffset = useSketchStore((state) => state.setDimensionLabelOffset);
+  const openContextMenu = useSketchStore((state) => state.openContextMenu);
   // Dimension labels are real DOM buttons layered over the canvas via drei's Html, so
   // they intercept a click before it ever reaches the WebGL raycaster underneath — if one
   // happens to sit where the user is trying to draw, `pointer-events: none` lets that
@@ -232,7 +233,13 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
             }`}
             style={isSelectMode ? undefined : { pointerEvents: "none" }}
             data-dimension-id={dimension.id}
-            title="Drag to move, double-click to edit the value"
+            title={
+              dimension.kind === "radius" || dimension.kind === "diameter"
+                ? "Drag to move, double-click to edit the value, right-click for Radius/Diameter"
+                : dimension.kind === "angle"
+                  ? "Drag to move, double-click to edit the value, right-click to flip the angle"
+                  : "Drag to move, double-click to edit the value"
+            }
             onClick={(event) => {
               event.stopPropagation();
               if (didDrag.current) {
@@ -244,6 +251,12 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
             onDoubleClick={(event) => {
               event.stopPropagation();
               setIsEditing(true);
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              toggleSelection(dimension.id, false);
+              openContextMenu(event.clientX, event.clientY);
             }}
             onPointerDown={handleLabelPointerDown}
             onPointerMove={handleLabelPointerMove}

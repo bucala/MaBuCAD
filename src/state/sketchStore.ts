@@ -125,6 +125,14 @@ interface SketchStore {
   setDimensionValue: (dimensionId: string, value: number) => void;
   setDimensionLabelOffset: (dimensionId: string, offset: Point2) => void;
   deleteDimension: (dimensionId: string) => void;
+  /** Radius <-> diameter on a circle/arc dimension, converting the driving value (2x or
+   * /2) so the circle it drives doesn't jump size. A no-op for any other dimension kind. */
+  toggleDimensionRadiusDiameter: (dimensionId: string) => void;
+  /** The other of the two angles two intersecting lines actually form (θ and its
+   * supplement, 180-θ) — the two numerically distinct choices at that vertex; the other
+   * two visual quadrants are one of these two values again, by vertical angles. A no-op
+   * for any other dimension kind. */
+  flipAngleDimension: (dimensionId: string) => void;
 
   /** Snapshots the active sketch onto the undo stack without changing it — called once
    * when a point-drag gesture starts, so the whole drag undoes in one step rather than
@@ -461,6 +469,31 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       edit((sketch) => ({
         ...sketch,
         dimensions: sketch.dimensions.filter((dimension) => dimension.id !== dimensionId),
+      })),
+
+    toggleDimensionRadiusDiameter: (dimensionId) =>
+      edit((sketch) => ({
+        ...sketch,
+        dimensions: sketch.dimensions.map((dimension) => {
+          if (dimension.id !== dimensionId) return dimension;
+          if (dimension.kind === "radius") {
+            return { ...dimension, kind: "diameter", value: dimension.value * 2 };
+          }
+          if (dimension.kind === "diameter") {
+            return { ...dimension, kind: "radius", value: dimension.value / 2 };
+          }
+          return dimension;
+        }),
+      })),
+
+    flipAngleDimension: (dimensionId) =>
+      edit((sketch) => ({
+        ...sketch,
+        dimensions: sketch.dimensions.map((dimension) =>
+          dimension.id === dimensionId && dimension.kind === "angle"
+            ? { ...dimension, value: 180 - dimension.value }
+            : dimension,
+        ),
       })),
 
     /**
