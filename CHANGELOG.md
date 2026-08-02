@@ -7,6 +7,45 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-02 — Fixed the real cause of broken sketch drawing/dimensioning, viewport hint removed
+
+A fourth round of feedback, including a report that a freshly drawn circle's Smart
+Dimension showed a nonsensical value with garbled leader lines fanning out across the
+sketch — reproduced directly: drawing a circle immediately after opening a sketch (the
+ordinary way, via the ribbon's "Sketch" button) placed its centre tens of sketch units
+from the actual click, while the same click sequence preceded by *any* other pointer
+interaction worked fine.
+
+### Fixed
+- **Sketch drawing/dragging could silently land in the wrong place, most visibly right
+  after opening a sketch or switching tools (critical).** Traced to React Three Fiber's
+  own pointer-event raycasting (`event.point`) computing against not-yet-current internal
+  state for a brief window after certain scene changes — confirmed with direct
+  instrumentation (logging the camera's own position/zoom/frustum, canvas size, and the
+  resulting world point on each click): every value read from the camera and canvas was
+  already correct, yet the very next click's computed sketch position was still off by
+  roughly 30–150 sketch units, self-correcting after that one click regardless of where it
+  landed. Forcing an immediate camera matrix update, continuously refreshing the
+  projection matrix every frame, and pre-warming the canvas with a synthetic pointer event
+  on mount were all tried and none of them closed the gap — the fix instead sidesteps R3F's
+  internal raycasting for sketch drawing entirely: `SketchCanvas.tsx` now computes each
+  click's sketch-plane position itself, via a plain `Raycaster`/`Plane` intersection built
+  fresh from the camera's current properties on every pointer event — the same technique
+  `SketchDimensions.tsx`'s drag handling already used successfully. Verified by reproducing
+  the original circle/dimension corruption directly, confirming it's gone, and re-running
+  the full Playwright regression suite (~35 scripts) against both the fix and an unpatched
+  dev-server control, confirming no new failures.
+  **Known follow-up**: this same underlying gap can occasionally make a click on an
+  existing sketch entity (a line, circle rim, etc. — not a fresh draw) miss right after a
+  tool switch, since entity/point *selection* goes through a different code path
+  (`SketchGeometry.tsx`'s own per-entity click handlers) that doesn't yet have the same
+  fix; clicking again always works. Left for a follow-up round rather than rewriting every
+  entity type's hit-testing under time pressure.
+
+### Changed
+- **Removed the "Middle drag orbit · Ctrl+middle pan · Shift+middle or wheel zoom" hint**
+  from the bottom-right of the viewport.
+
 ## 2026-08-01 — Second CSP eval path fixed, ViewCube restored, rigid dimension labels, ribbon cleanup
 
 A third round of feedback on a confirmed-fresh `0.2.0` build, including one report that the

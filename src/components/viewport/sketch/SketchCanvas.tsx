@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Line } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
 import { useThree } from "@react-three/fiber";
-import { DoubleSide } from "three";
+import { DoubleSide, Plane, Raycaster, Vector2, Vector3 } from "three";
 
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
-import { worldToSketch } from "@/sketch/planeBasis";
+import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
 import { findPointNear } from "@/sketch/sketchModel";
 import type { Sketch } from "@/sketch/types";
 import { useSettingsStore } from "@/state/settingsStore";
@@ -62,6 +62,35 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const invalidate = useThree((state) => state.invalidate);
   const accent = useSceneAccentColor();
 
+  const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
+  const raycaster = useMemo(() => new Raycaster(), []);
+  // A mathematical plane matching the sketch's own orientation, through the origin — the
+  // same ray-plane intersection `SketchDimensions.tsx`'s `screenToSketch` already uses for
+  // dragging, and for the same reason: React Three Fiber's own pointer-event raycasting
+  // (`event.point`) can unproject against a camera whose `projectionMatrix`/
+  // `matrixWorldInverse` hasn't caught up yet with a `left`/`right`/`zoom`/orientation
+  // change from moments earlier — most visible right after switching sketch tools, where
+  // it silently lands a fresh circle's centre (or any other entity's anchor) tens of
+  // sketch units from the actual click. Recomputing here, fresh, from the camera's current
+  // properties (already proven correct at that point — the app's own repaint has settled
+  // well before the click) sidesteps whatever in R3F's internal event pipeline is stale.
+  const drawPlane = useMemo(() => {
+    const basis = planeBasis(sketch.planeId);
+    return new Plane().setFromNormalAndCoplanarPoint(basis.normal, new Vector3(0, 0, 0));
+  }, [sketch.planeId]);
+
+  const screenToSketch = (clientX: number, clientY: number): Point2 | null => {
+    const rect = gl.domElement.getBoundingClientRect();
+    const ndc = new Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    raycaster.setFromCamera(ndc, camera);
+    const hit = new Vector3();
+    return raycaster.ray.intersectPlane(drawPlane, hit) ? worldToSketch(sketch.planeId, hit) : null;
+  };
+
   // Line and construction-line deliberately leave `anchor` set after finishing an entity
   // so the next click chains from that endpoint (see the "line"/"construction-line" case
   // below) — but that same leftover anchor would otherwise survive a switch to a
@@ -95,7 +124,8 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
    * and, failing that, to the sketch grid when that toggle is on — existing geometry
    * always wins over the grid, the same priority every other CAD sketcher uses. */
   const toSketch = (event: ThreeEvent<PointerEvent | MouseEvent>): Point2 => {
-    const local = worldToSketch(sketch.planeId, event.point);
+    const native = event.nativeEvent as PointerEvent | MouseEvent;
+    const local = screenToSketch(native.clientX, native.clientY) ?? { x: 0, y: 0 };
     const snapped = findPointNear(sketch, local.x, local.y, snapTolerance);
     if (snapped) return { x: snapped.x, y: snapped.y };
     return snapToGridEnabled ? snapToGrid(local) : local;
@@ -104,7 +134,8 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
     if (tool !== "select" || event.button !== 0) return;
 
-    const local = worldToSketch(sketch.planeId, event.point);
+    const local = screenToSketch(event.nativeEvent.clientX, event.nativeEvent.clientY);
+    if (!local) return;
     const hit = findPointNear(sketch, local.x, local.y, snapTolerance);
     if (hit) {
       // One history entry per drag gesture, not per pointer-move — see `beginDrag`'s own
@@ -121,14 +152,14 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     // Feeds `SmartDimensionPreview.tsx`, which has no pointer events of its own to track
     // this from — only meaningful while a proposal is pending, but cheap enough to just
     // always keep current rather than gate it on tool/pendingDimension.
-    setHoverPosition(worldToSketch(sketch.planeId, event.point));
+    const hover = screenToSketch(event.nativeEvent.clientX, event.nativeEvent.clientY);
+    if (hover) setHoverPosition(hover);
 
-    if (draggingPointId.current) {
+    if (draggingPointId.current && hover) {
       // Deliberately not `toSketch`'s point-snapping here — snapping a dragged point onto
       // whatever other point it passes near would fight the drag. Grid-snapping is fine to
       // share, though: it only rounds, it never jumps to unrelated geometry.
-      const dragged = worldToSketch(sketch.planeId, event.point);
-      dragPoint(draggingPointId.current, snapToGridEnabled ? snapToGrid(dragged) : dragged);
+      dragPoint(draggingPointId.current, snapToGridEnabled ? snapToGrid(hover) : hover);
     }
   };
 

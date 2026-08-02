@@ -70,10 +70,6 @@ export function Viewport() {
 
       <ViewCubeArrows />
 
-      <div className={styles.hint}>
-        Middle drag orbit · Ctrl+middle pan · Shift+middle or wheel zoom
-      </div>
-
       {/* Renders nothing outside sketch mode — SketchCanvas is the only thing that ever
           opens it, and it lives here (a plain DOM sibling of the Canvas) rather than
           inside the Canvas tree; see SketchContextMenu's own doc comment for why. */}
