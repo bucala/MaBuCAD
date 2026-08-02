@@ -7,6 +7,38 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-02 — Trim on circles and splines, and drag-to-window multi-select (items 6 and 7)
+
+The last two items from the original feedback list: Trim's two remaining known gaps.
+
+### Added
+- **Trim now works on circles and splines, not just lines** (`trimCircleAt`,
+  `trimSplineAt` in `sketch/sketchModel.ts`). A circle is a closed loop rather than an open
+  run, so N crossing points split it into N arcs instead of a line's N-1 stretches;
+  clicking one removes it and leaves the rest behind as arcs sharing the circle's own
+  centre. A spline is trimmed along its own point-to-point chain — each stretch between
+  two consecutive spline points is treated as straight for intersection purposes, the same
+  as a line, and a surviving stretch keeps every original interior point that falls inside
+  it, not just its two new endpoints, so the kept curve is still the shape actually drawn.
+  Both dispatch through a new `trimEntityAt`, the single entry point the sketch canvas now
+  calls instead of assuming every trim target is a line. Arcs and standalone points are
+  still not trimmable themselves (though, as before, anything can still be trimmed *back
+  to* where it crosses one).
+- **Trim: drag a window to trim several entities at once**, alongside — not instead of —
+  the existing click-based trim, which still works exactly as it always has (including on
+  a circle "in between" other geometry, unaffected by this addition). Dragging the Trim
+  tool out into a rectangle and releasing removes every entity **fully enclosed** by that
+  window in one go (`trimEntitiesInWindow`); an entity the window merely crosses, without
+  fully containing, is left untouched. Cropping a crossed entity exactly at the window's
+  edge — the way a full "trim by window" tool would — is a further refinement on top of
+  this, not what this pass delivers: the safer, well-scoped version of "select multiple
+  entities to trim at once" is "erase what's fully inside the box," which is also the
+  natural generalisation of the existing rule that an entity with nothing to trim back to
+  gets removed outright, just triggered by window containment instead of a bare click.
+  Click-vs-drag is judged the same way `useClickGuard.ts` already judges it for the 3D
+  viewport (a small screen-pixel threshold), so a stationary click in Trim mode is
+  unaffected and still reaches whichever entity's own trim handler it landed on.
+
 ## 2026-08-02 — A real per-face selection filter (item 2), building on replicad's own mesh output
 
 The very next step after the previous entry: item 2's selection-priority filter, following

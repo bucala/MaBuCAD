@@ -42,6 +42,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   const beginDrag = useSketchStore((state) => state.beginDrag);
   const dragPoint = useSketchStore((state) => state.dragPoint);
   const commitDragSnap = useSketchStore((state) => state.commitDragSnap);
+  const trimWindowSelect = useSketchStore((state) => state.trimWindowSelect);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
   const pendingDimension = useSketchStore((state) => state.pendingDimension);
   const commitPendingDimension = useSketchStore((state) => state.commitPendingDimension);
@@ -57,8 +58,19 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   /** Points collected so far for a multi-click spline. */
   const [splinePoints, setSplinePoints] = useState<Point2[]>([]);
   const [cursor, setCursor] = useState<Point2 | null>(null);
+  /** The window being dragged out for a Trim marquee-select, in sketch space — `null`
+   * whenever nothing is being dragged, including the still-ambiguous moment right after a
+   * plain click's own pointerdown (see `handlePointerDown`'s own note on why a marquee
+   * only actually starts once the pointer has moved). */
+  const [trimMarquee, setTrimMarquee] = useState<{ start: Point2; end: Point2 } | null>(null);
 
   const draggingPointId = useRef<string | null>(null);
+  /** Screen-space pointerdown position while the Trim tool is armed, used only to decide
+   * whether a gesture is a plain click (handled entirely by each entity's own `onTrim`) or
+   * a drag that should become a marquee — screen pixels, not sketch units, so the same
+   * threshold means the same thing at any zoom level, matching `useClickGuard.ts`'s own
+   * `DRAG_THRESHOLD_PX` for the identical click-vs-drag question in the 3D viewport. */
+  const trimPointerDownAt = useRef<{ x: number; y: number } | null>(null);
   const invalidate = useThree((state) => state.invalidate);
   const accent = useSceneAccentColor();
 
@@ -132,6 +144,21 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   };
 
   const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
+    if (tool === "trim" && event.button === 0) {
+      // Doesn't `stopPropagation()`: a plain click still needs to reach whichever entity's
+      // own `onTrim` it landed on (see `SketchGeometry.tsx`) — this only remembers where
+      // the gesture started, in case `handlePointerMove` below decides it has become a
+      // drag. Recorded in *screen* pixels for the click-vs-drag distance check, and
+      // separately in sketch space (`screenToSketch`) as the marquee's first corner, since
+      // dragging the camera between down and up (impossible mid-gesture here, but a fixed
+      // reference point is simpler than re-deriving one) must not move an already-fixed
+      // corner.
+      trimPointerDownAt.current = { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY };
+      const local = screenToSketch(event.nativeEvent.clientX, event.nativeEvent.clientY);
+      if (local) setTrimMarquee({ start: local, end: local });
+      return;
+    }
+
     if (tool !== "select" || event.button !== 0) return;
 
     const local = screenToSketch(event.nativeEvent.clientX, event.nativeEvent.clientY);
@@ -161,9 +188,36 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
       // share, though: it only rounds, it never jumps to unrelated geometry.
       dragPoint(draggingPointId.current, snapToGridEnabled ? snapToGrid(hover) : hover);
     }
+
+    if (trimPointerDownAt.current && hover) {
+      setTrimMarquee((current) => (current ? { start: current.start, end: hover } : current));
+    }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (event: ThreeEvent<PointerEvent>) => {
+    if (trimPointerDownAt.current) {
+      const downAt = trimPointerDownAt.current;
+      trimPointerDownAt.current = null;
+      const marquee = trimMarquee;
+      setTrimMarquee(null);
+
+      // Same click-vs-drag threshold `useClickGuard.ts` uses for the 3D viewport — below
+      // it, this was a plain click and each entity's own `onTrim` (fired as a separate
+      // "click" event) already handled it; only a real drag becomes a window-select.
+      const travelled = Math.hypot(
+        event.nativeEvent.clientX - downAt.x,
+        event.nativeEvent.clientY - downAt.y,
+      );
+      if (marquee && travelled > 4) {
+        trimWindowSelect(
+          Math.min(marquee.start.x, marquee.end.x),
+          Math.min(marquee.start.y, marquee.end.y),
+          Math.max(marquee.start.x, marquee.end.x),
+          Math.max(marquee.start.y, marquee.end.y),
+        );
+      }
+    }
+
     // "Constrains smart": applies whatever relation the drag ended up close to (see
     // `commitDragSnap`'s own doc comment) — a no-op when nothing was suggested.
     if (draggingPointId.current) commitDragSnap(draggingPointId.current);
@@ -294,6 +348,23 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
 
       {preview.length >= 2 && (
         <Line points={preview} color={accent} lineWidth={1.5} dashed dashSize={2} gapSize={1.5} />
+      )}
+
+      {trimMarquee && (
+        <Line
+          points={[
+            [trimMarquee.start.x, trimMarquee.start.y, 0.02],
+            [trimMarquee.end.x, trimMarquee.start.y, 0.02],
+            [trimMarquee.end.x, trimMarquee.end.y, 0.02],
+            [trimMarquee.start.x, trimMarquee.end.y, 0.02],
+            [trimMarquee.start.x, trimMarquee.start.y, 0.02],
+          ]}
+          color={accent}
+          lineWidth={1.5}
+          dashed
+          dashSize={1.5}
+          gapSize={1}
+        />
       )}
 
       {cursor && isDrawingTool && (
