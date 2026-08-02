@@ -7,6 +7,225 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-02 — Trim on circles and splines, and drag-to-window multi-select (items 6 and 7)
+
+The last two items from the original feedback list: Trim's two remaining known gaps.
+
+### Added
+- **Trim now works on circles and splines, not just lines** (`trimCircleAt`,
+  `trimSplineAt` in `sketch/sketchModel.ts`). A circle is a closed loop rather than an open
+  run, so N crossing points split it into N arcs instead of a line's N-1 stretches;
+  clicking one removes it and leaves the rest behind as arcs sharing the circle's own
+  centre. A spline is trimmed along its own point-to-point chain — each stretch between
+  two consecutive spline points is treated as straight for intersection purposes, the same
+  as a line, and a surviving stretch keeps every original interior point that falls inside
+  it, not just its two new endpoints, so the kept curve is still the shape actually drawn.
+  Both dispatch through a new `trimEntityAt`, the single entry point the sketch canvas now
+  calls instead of assuming every trim target is a line. Arcs and standalone points are
+  still not trimmable themselves (though, as before, anything can still be trimmed *back
+  to* where it crosses one).
+- **Trim: drag a window to trim several entities at once**, alongside — not instead of —
+  the existing click-based trim, which still works exactly as it always has (including on
+  a circle "in between" other geometry, unaffected by this addition). Dragging the Trim
+  tool out into a rectangle and releasing removes every entity **fully enclosed** by that
+  window in one go (`trimEntitiesInWindow`); an entity the window merely crosses, without
+  fully containing, is left untouched. Cropping a crossed entity exactly at the window's
+  edge — the way a full "trim by window" tool would — is a further refinement on top of
+  this, not what this pass delivers: the safer, well-scoped version of "select multiple
+  entities to trim at once" is "erase what's fully inside the box," which is also the
+  natural generalisation of the existing rule that an entity with nothing to trim back to
+  gets removed outright, just triggered by window containment instead of a bare click.
+  Click-vs-drag is judged the same way `useClickGuard.ts` already judges it for the 3D
+  viewport (a small screen-pixel threshold), so a stationary click in Trim mode is
+  unaffected and still reaches whichever entity's own trim handler it landed on.
+
+## 2026-08-02 — A real per-face selection filter (item 2), building on replicad's own mesh output
+
+The very next step after the previous entry: item 2's selection-priority filter, following
+the 4-step plan worked out together (tag each triangle with its kernel Face during
+tessellation → carry it through to the render layer → resolve it from a raycaster hit →
+drive a Zustand-backed filter). Step 1 turned out to already half-exist: replicad's own
+`Shape.mesh()` triangulates face-by-face internally and was already returning a
+`faceGroups: { start, count, faceId }[]` array describing exactly that — `kernel/rebuild.ts`
+was just discarding it. No OpenCascade/WASM binding changes were needed after all.
+
+### Added
+- **A working Face/Body selection-priority filter**, toggled from a new status-bar button
+  (`Box`/`Square` icon, next to the Visual Style toggle). "Body" is the existing behaviour
+  (unchanged) — clicking the solid does nothing on its own outside Hole Wizard placement or
+  Fillet/Chamfer's edge-pick mode, same as before this round. "Face" resolves the *exact*
+  kernel Face a click landed on and highlights just that face (a translucent cyan overlay,
+  `FACE_HIGHLIGHT_COLOR`), with the status bar showing which one ("Face 6 selected").
+  Switching a click at one face to a click at another swaps the highlight and the id
+  immediately; switching the filter back to "Body" clears both.
+- **Point and Body+Edge+Point priority are not implemented yet** — the plan called out
+  "point select, face select, face+edge+point select, etc."; this round ships the Face and
+  Body ends of that spectrum, since Face is what needed the new kernel-level identity and
+  Body already existed. Point priority doesn't need any of this (a point is already just a
+  clicked location), but has no UI yet; a combined multi-priority mode is future work once
+  each individual one exists.
+
+### Changed
+- **`kernel/rebuild.ts`**: `MeshData` gained a `faceGroups: FaceGroup[]` field —
+  `{ start, count, id }` triples describing each kernel Face's own contiguous range within
+  `indices`, re-keyed 0, 1, 2, ... in `shape.faces` order (rather than trusting OpenCascade's
+  raw, unfriendly `face.hashCode` straight through — a rebuild-scoped id is all a selection
+  filter needs, and small sequential numbers read better in a "Face 6 selected" readout).
+- **`SolidModel.tsx`**: a new `handleFaceSelectClick`, active only when the filter is set to
+  "Face", maps a raycaster hit back to a kernel Face without any GPU-side bookkeeping —
+  three.js's own `event.faceIndex` (the hit *triangle's* index in the geometry's index
+  buffer) times 3 lands inside exactly one `faceGroups` entry's `[start, start+count)` range.
+  This is a deliberate, simpler alternative to the originally discussed approach of adding a
+  custom `faceIndex` vertex attribute to the `BufferGeometry` and reading it back per-vertex:
+  three.js already reports which triangle a raycast hit natively, so no extra per-vertex GPU
+  attribute or shader-side bookkeeping is needed to get the same answer. The highlighted
+  face's overlay mesh reuses the base geometry's `position`/`normal` buffers with an index
+  buffer sliced to just that face's triangles (`mesh.indices.subarray(start, start+count)`),
+  the same "draw an overlay, don't mutate the base mesh" convention the edge-pick markers
+  below it already use.
+- **`viewportStore.ts`**: new `selectionFilterMode` ("body" | "face") and `selectedFaceId`,
+  the latter cleared whenever the committed mesh reference changes — a Face id is only
+  meaningful for the mesh it came from, since a rebuild can renumber faces entirely.
+
+### Known, still not attempted
+- **Edge priority** as a general selection filter (today edge-picking only exists inside
+  Fillet/Chamfer's own dedicated pick mode) and **Point priority**.
+- **Combined priority modes** ("face + edge + point", à la Inventor) — needs each individual
+  priority to exist first.
+- **Ribbon drag-to-rearrange**, **Trim** marquee-select and circle/spline support — unchanged
+  from the previous entry.
+
+## 2026-08-02 — Ribbon chrome toggles, Hole Wizard face placement, and a click-blocking bug fix
+
+Continuing straight from the previous entry's finding on item 2 (face/edge selection):
+agreed the kernel-side face/edge tagging is real, separate work, and started on the two
+items that don't need it — item 3 (ribbon customisation) first as the lowest-risk change,
+then item 1 (Hole Wizard placement) using the same "raw point + normal, no face identity
+required" approach the existing Fillet/Chamfer edge-pick mode already relies on.
+
+### Added
+- **Ribbon customisation, starting point.** Right-clicking anywhere on the ribbon (not just
+  empty space — none of its buttons had a context menu of their own to conflict with) opens
+  a menu with "Show Logo & Title" and "Show Version Number" checkboxes, plus direct Export
+  Settings…/Import Settings… entries. Both toggles live in `settingsStore.ts` next to every
+  other preference and are already covered by the existing Export/Import Settings
+  round-trip (`settingsIO.ts`) — no separate "ribbon settings" file, so a customised ribbon
+  travels with the rest of a backed-up/copied configuration for free. A full drag-to-rearrange
+  ribbon layout is still future work; this round only tackles the two chrome elements the
+  user specifically flagged as still fixed (`RibbonContextMenu.tsx`).
+- **Hole Wizard: click a face to place a hole, no sketch required first.** Invoking Hole
+  Wizard with no sketch-with-a-point already selected now arms a placement mode (a toast
+  explains what to do) instead of creating a broken feature; clicking a solid face creates
+  a backing sketch with a point at that location and the Hole feature in one step, ready to
+  tune (radius, depth, standard) in the Property Manager immediately. Uses the raycaster's
+  hit point *and* the clicked triangle's face normal — matched against the three default
+  planes' own normals to find which one the face is (anti-)parallel to — which is enough
+  to place a hole correctly without any real per-face identity from the kernel, the same way
+  Fillet/Chamfer's edge-pick mode only ever needed raw 3D points, never a real edge id. Only
+  faces (anti-)parallel to Front/Top/Right are accepted (an angled or revolved face is
+  rejected with a message rather than silently cutting in the wrong place) — the default
+  "through-all" end condition still reaches a face offset along that normal correctly, since
+  it's already a deliberately oversized cut in both directions from the sketch plane, so this
+  covers the common case (a hole on a box's face) without needing `planeBasis.ts` to support
+  an arbitrary plane offset yet.
+
+### Fixed
+- **A stray `<Html>` label could silently block every click meant for the geometry behind
+  it (found while testing Hole Wizard placement).** The origin triad's X/Y/Z text labels
+  (`Origin.tsx`) and the bottom-left orientation gizmo's axis letters (`LiveAxisGizmo.tsx`)
+  each render via drei's `<Html>`, and neither had its wrapper div's `pointer-events`
+  actually turned off — the inner `<span style={{ pointerEvents: "none" }}>}` only covers
+  the text itself, not the positioned wrapper `<Html>` creates around it, so that
+  invisible-but-present wrapper sat in front of the canvas and ate any click landing on or
+  near it, most noticeably right at the origin (where the model itself usually is). Verified
+  by an `elementFromPoint` check at the click coordinates, which returned that tiny wrapper
+  div instead of the canvas. `SketchDimensions.tsx` had already hit this exact drei quirk
+  and worked around it with `wrapperClass` (a real CSS `pointer-events: none` rule) instead
+  of the `pointerEvents` prop, which drei only honours in `transform` mode; both origin-label
+  components now use the same `wrapperClass` pattern (`nonInteractiveLabel.module.css`).
+  This was an existing bug, not introduced by this round's Hole Wizard work — but Hole
+  Wizard's placement clicks are exactly the kind of click this bug could silently swallow,
+  which is how it was found.
+
+### Known, still not attempted
+- **Item 2 (Component/Part/Body/Face/Edge/Sketch selection-priority filter)** — needs the
+  kernel-side face/edge tagging described in the previous entry
+  (`kernel/rebuild.ts` → per-triangle face index → a `faceIndex` `BufferGeometry` attribute
+  → read back from the raycaster hit → a Zustand-backed filter). Scoped as its own round.
+- **Ribbon drag-to-rearrange** — this round only added chrome (logo/title/version)
+  visibility toggles, not moving buttons or groups between tabs.
+- **Trim**: drag-to-marquee-select multiple entities, and support for trimming circles and
+  splines (still line-only).
+
+## 2026-08-02 — ViewCube roll arrows, dimension arrowheads everywhere, a face-selection finding
+
+A fifth round of feedback covering a broad set of areas. This entry's first pass (ViewCube
+direction, the plain-arrow gizmo, arrowheads on linear/radius/diameter dimensions) is
+below, followed by this pass's follow-up: the ViewCube's roll arrows, arrowheads on
+ordinate dimensions too, and — the actual reason items 1 and 2 below are still not
+attempted — a concrete finding about what this app's geometry pipeline would need before a
+real per-face/per-edge selection system is possible at all.
+
+### Fixed
+- **The ViewCube's left/right navigation arrows rotated the view backwards.** Clicking
+  "right" orbited the camera *away* from the model's right-hand side (toward more of its
+  left), the opposite of what a right arrow should do; up/down were already correct and
+  untouched. Verified by logging the camera's actual position before/after a click (ruling
+  out an axis/elevation bug — the rotation was always a clean, correct horizontal orbit)
+  and by watching which ViewCube faces come into view across a sequence of clicks. Fixed by
+  swapping which direction gets the positive rotation.
+
+### Added
+- **Two roll arrows** at the ViewCube's diagonal corners, distinct in both position and
+  icon from the four pan arrows — they spin the camera's own up vector around the current
+  view axis (the horizon tilts; the camera stays put, still looking at exactly the same
+  point), rather than orbiting around the model the way the four directional arrows do.
+
+### Changed
+- **The bottom-left orientation gizmo no longer draws a filled circle behind each axis
+  letter.** It's a plain coloured arrow per axis with the letter at the tip instead —
+  drei's `GizmoViewport` (used until now) always draws its axis labels inside a solid
+  sprite disc, with no way to keep the label but drop just the disc, so this is a small
+  bespoke replacement (`LiveAxisGizmo.tsx`) built the same way `Origin.tsx`'s static triad
+  already is (coloured `Line` + a plain-text `Html` label, no mesh disc). Still purely a
+  visual orientation reference with no click-to-align behaviour, same as before.
+- **Dimension lines now have arrowheads** — linear, radius/diameter, and (this pass)
+  ordinate dimensions. Previously all drawn as plain, arrowless lines, which at a glance,
+  especially before a label has been dragged away from its tight default position, could
+  read as an unlabelled tangle rather than an obviously-a-dimension line pointing at
+  something specific. Angle dimensions don't have a leader line to attach an arrowhead to
+  at all yet (they're label-only today) — drawing one properly needs an arc between the two
+  measured lines, which is new geometry, not just an arrowhead on what's already drawn.
+
+### A concrete finding: why a real face/edge selection filter isn't "just a dropdown"
+Investigated what it would take to build the selection-priority filter from item 2
+(Component/Part/Body/**Face**/**Edge**/Sketch priority, à la Inventor) and hit a hard
+architectural wall worth stating plainly rather than shipping a dropdown that doesn't
+actually filter anything: **`SolidModel.tsx` renders the rebuilt solid as a single fused
+triangle mesh with no per-face or per-edge identity carried through from the kernel** —
+`mesh.positions`/`normals`/`indices` are one flat buffer, and the only "edge picking" that
+exists (Fillet/Chamfer's edge-selection mode) works by recording the raw 3D *point* a click
+landed near and matching future clicks by *distance*, not by a real topological edge id.
+There is nothing today that can answer "which face did this click land on" as a stable,
+selectable identity. A genuine per-face/per-edge selection filter needs the kernel's mesh
+builder (`kernel/rebuild.ts`) to tag each triangle with the OpenCASCADE face/edge index it
+came from, and the picking code to look that tag up on a raycast hit — real work, but well
+short of describable as "prepare the groundwork" and worth scoping as its own item rather
+than folding into a UI-only pass.
+
+### Known, deliberately not attempted this round
+- **Hole Wizard**'s "pick an existing sketch, or click a plane/face to place a new point
+  there" placement flow — tractable without face identity (a raw click point on the solid
+  is enough, the same way Fillet/Chamfer's edge-pick mode already works), but still a real
+  UI + Hole-feature-parameter change, not attempted alongside everything above.
+- **Ribbon customisation** via a right-click context menu, plus extending the existing
+  Settings export to include ribbon layout and chrome visibility (logo, title, version).
+- **Trim**: drag-to-marquee-select multiple entities to trim at once, and support for
+  trimming circles and splines (today only lines can be trimmed — `trimLineAt`'s own doc
+  comment already flagged this as a known gap).
+
+## 2026-08-02 — ViewCube arrow direction, plain-arrow gizmo, dimension arrowheads
+
 ## 2026-08-02 — Fixed the real cause of broken sketch drawing/dimensioning, viewport hint removed
 
 A fourth round of feedback, including a report that a freshly drawn circle's Smart

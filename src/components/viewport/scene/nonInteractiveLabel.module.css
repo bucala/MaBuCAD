@@ -1,0 +1,9 @@
+/* drei's `<Html>` ignores its own `pointerEvents` prop outside `transform` mode (see
+   `SketchDimensions.module.css`'s `.previewWrapper`, which hit the same quirk first) — the
+   wrapper div it creates defaults to `pointer-events: auto` regardless, which silently
+   eats clicks meant for whatever 3D geometry sits behind a purely decorative label
+   (`Origin.tsx`'s X/Y/Z axis letters, `LiveAxisGizmo.tsx`'s orientation-gizmo letters).
+   `wrapperClass` is the one prop that actually reaches that wrapper div. */
+.noPointerEvents {
+  pointer-events: none;
+}

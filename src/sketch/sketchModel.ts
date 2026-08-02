@@ -1075,12 +1075,10 @@ function lineIntersectionParams(
  * back to, so a click anywhere on it removes the whole entity — the same as trimming an
  * overshooting stray segment down to nothing in any CAD sketcher.
  *
- * Circles, arcs, splines, and standalone points are not yet trimmable themselves — only
- * lines are, though they can be trimmed back to where they cross any of those — the same
- * kind of scope cut `offsetEntities` documents for entities with no single well-defined
- * offset direction. A closed curve needs different bookkeeping (removing an interior arc
- * of it rather than an end of it), which is a natural follow-up, not something this
- * forecloses.
+ * Arcs and standalone points are not trimmable themselves yet — only lines, circles
+ * (`trimCircleAt`) and splines (`trimSplineAt`) are, though an arc can still be trimmed
+ * *back to* by any of those, same as a line always could. `trimEntityAt` below is the
+ * shared dispatcher every caller should use instead of this function directly.
  */
 export function trimLineAt(sketch: Sketch, entityId: string, x: number, y: number): Sketch {
   const entity = entityById(sketch, entityId);
@@ -1153,4 +1151,340 @@ export function trimLineAt(sketch: Sketch, entityId: string, x: number, y: numbe
         dimension.points.every((id) => survivingPoints.has(id)),
     ),
   };
+}
+
+/** Drops `removed` entities and every point/constraint/dimension left orphaned by that —
+ * the trailing cleanup step every trim/window-select operation below ends on. */
+function dropEntities(sketch: Sketch, removed: Set<string>, extraEntities: SketchEntity[] = []): Sketch {
+  const entities = [...sketch.entities.filter((candidate) => !removed.has(candidate.id)), ...extraEntities];
+  const survivingPoints = new Set(entities.flatMap(entityPoints));
+  survivingPoints.add(originPointId(sketch.id));
+
+  return {
+    ...sketch,
+    entities,
+    points: sketch.points.filter((point) => survivingPoints.has(point.id)),
+    constraints: sketch.constraints.filter(
+      (constraint) =>
+        !constraint.entities.some((id) => removed.has(id)) &&
+        constraint.points.every((id) => survivingPoints.has(id)),
+    ),
+    dimensions: sketch.dimensions.filter(
+      (dimension) =>
+        !dimension.entities.some((id) => removed.has(id)) &&
+        dimension.points.every((id) => survivingPoints.has(id)),
+    ),
+  };
+}
+
+/** Angle (radians, unwrapped to `[0, 2π)`) of `point` around `centre`. */
+function angleAround(centre: { x: number; y: number }, point: { x: number; y: number }): number {
+  const angle = Math.atan2(point.y - centre.y, point.x - centre.x);
+  return angle < 0 ? angle + Math.PI * 2 : angle;
+}
+
+/**
+ * Angles (around `circle`'s own centre) where `other` crosses it — the circle-trim
+ * counterpart of `lineIntersectionParams`, which instead returns a parameter along a moving
+ * line. A crossing line or spline segment is resolved via that same function (run with the
+ * *other* entity's own segment as the moving line and this circle as the fixed shape, then
+ * converted from a line parameter to an angle); a second circle or an arc's underlying
+ * circle needs the dedicated circle-circle intersection formula below instead.
+ */
+function circleCrossingAngles(
+  sketch: Sketch,
+  circle: Extract<SketchEntity, { kind: "circle" }>,
+  centre: { x: number; y: number },
+  other: SketchEntity,
+): number[] {
+  if (other.kind === "line") {
+    const os = pointById(sketch, other.start);
+    const oe = pointById(sketch, other.end);
+    if (!os || !oe) return [];
+    return lineIntersectionParams(os, oe, circle, sketch).map((t) =>
+      angleAround(centre, { x: os.x + t * (oe.x - os.x), y: os.y + t * (oe.y - os.y) }),
+    );
+  }
+
+  if (other.kind === "spline") {
+    const angles: number[] = [];
+    for (let i = 0; i < other.points.length - 1; i += 1) {
+      const os = pointById(sketch, other.points[i]);
+      const oe = pointById(sketch, other.points[i + 1]);
+      if (!os || !oe) continue;
+      for (const t of lineIntersectionParams(os, oe, circle, sketch)) {
+        angles.push(angleAround(centre, { x: os.x + t * (oe.x - os.x), y: os.y + t * (oe.y - os.y) }));
+      }
+    }
+    return angles;
+  }
+
+  if (other.kind === "circle" || other.kind === "arc") {
+    const otherCentre = pointById(sketch, other.center);
+    if (!otherCentre) return [];
+    const dx = otherCentre.x - centre.x;
+    const dy = otherCentre.y - centre.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-9 || d > circle.radius + other.radius + 1e-6 || d < Math.abs(circle.radius - other.radius) - 1e-6) {
+      return [];
+    }
+    // Standard circle-circle intersection: `a` is the distance from this circle's centre
+    // to the radical line the two circles cross on, `h` the half-chord length along it.
+    const a = (circle.radius * circle.radius - other.radius * other.radius + d * d) / (2 * d);
+    const hSquared = circle.radius * circle.radius - a * a;
+    if (hSquared < 0) return [];
+    const h = Math.sqrt(Math.max(hSquared, 0));
+    const midX = centre.x + (a * dx) / d;
+    const midY = centre.y + (a * dy) / d;
+    const perpX = (-dy / d) * h;
+    const perpY = (dx / d) * h;
+    return [
+      { x: midX + perpX, y: midY + perpY },
+      { x: midX - perpX, y: midY - perpY },
+    ]
+      .filter((point) => other.kind === "circle" || isWithinArcSweep(sketch, other, point.x, point.y))
+      .map((point) => angleAround(centre, point));
+  }
+
+  return [];
+}
+
+/**
+ * Trims a circle back to its nearest crossings — the closed-loop counterpart of
+ * `trimLineAt`. A circle is a loop rather than an open run, so N crossing points split it
+ * into N arcs (not N-1, the way N interior cuts split a line into N-1 stretches); removing
+ * the one the click landed in leaves N-1 arcs behind. Fewer than two distinct crossings
+ * means there's nothing to bound a trim to, so the whole circle is removed instead — the
+ * same fallback `trimLineAt` uses for a line with no crossings at all.
+ */
+export function trimCircleAt(sketch: Sketch, entityId: string, x: number, y: number): Sketch {
+  const entity = entityById(sketch, entityId);
+  if (!entity || entity.kind !== "circle") return sketch;
+
+  const centre = pointById(sketch, entity.center);
+  if (!centre) return sketch;
+
+  const angleSet = new Set<number>();
+  for (const other of sketch.entities) {
+    if (other.id === entityId) continue;
+    for (const angle of circleCrossingAngles(sketch, entity, centre, other)) {
+      angleSet.add(Math.round(angle * 1e6) / 1e6);
+    }
+  }
+  const cuts = [...angleSet].sort((a, b) => a - b);
+  if (cuts.length < 2) return sketch;
+
+  const clickAngle = angleAround(centre, { x, y });
+  const segmentAt = (index: number): { from: number; to: number } => ({
+    from: cuts[index],
+    to: index + 1 < cuts.length ? cuts[index + 1] : cuts[0] + Math.PI * 2,
+  });
+
+  let clickedIndex = -1;
+  for (let i = 0; i < cuts.length; i += 1) {
+    const { from, to } = segmentAt(i);
+    const angle = clickAngle >= from ? clickAngle : clickAngle + Math.PI * 2;
+    if (angle >= from - 1e-6 && angle <= to + 1e-6) {
+      clickedIndex = i;
+      break;
+    }
+  }
+  if (clickedIndex === -1) return sketch;
+
+  let working = sketch;
+  const pointAtAngle = (angle: number): string => {
+    const result = ensurePoint(
+      working,
+      centre.x + Math.cos(angle) * entity.radius,
+      centre.y + Math.sin(angle) * entity.radius,
+      0,
+    );
+    working = result.sketch;
+    return result.pointId;
+  };
+
+  const survivors: SketchEntity[] = [];
+  for (let i = 0; i < cuts.length; i += 1) {
+    if (i === clickedIndex) continue;
+    const { from, to } = segmentAt(i);
+    if (to - from < 1e-6) continue;
+    survivors.push({
+      id: uid("arc"),
+      kind: "arc",
+      center: entity.center,
+      start: pointAtAngle(from),
+      end: pointAtAngle(to),
+      radius: entity.radius,
+      construction: entity.construction,
+    });
+  }
+
+  return dropEntities(working, new Set([entityId]), survivors);
+}
+
+/**
+ * Trims a spline back to its nearest crossings — the same "click a stretch to remove it,
+ * keep the rest" idea as `trimLineAt`, generalised from one segment to the spline's whole
+ * point-to-point chain. Crossings are found per-segment (each stretch between two
+ * consecutive spline points is itself straight for intersection purposes, the same as a
+ * line) and expressed as one continuous parameter along the chain — segment index plus the
+ * local `t` within it, so `1.5` means "halfway through the second segment" — the spline's
+ * equivalent of a line's `[0, 1]`, spanning `[0, segmentCount]` instead. A surviving
+ * stretch keeps every original interior point that falls inside it, not just its two new
+ * endpoints, so the kept curve is still the shape actually drawn, not a straight-line
+ * stand-in for it.
+ */
+export function trimSplineAt(sketch: Sketch, entityId: string, x: number, y: number): Sketch {
+  const entity = entityById(sketch, entityId);
+  if (!entity || entity.kind !== "spline" || entity.points.length < 2) return sketch;
+
+  const vertices = entity.points.map((id) => pointById(sketch, id));
+  if (vertices.some((point) => !point)) return sketch;
+  const points = vertices as SketchPoint[];
+  const segmentCount = points.length - 1;
+
+  const cutSet = new Set<number>([0, segmentCount]);
+  for (const other of sketch.entities) {
+    if (other.id === entityId) continue;
+    for (let i = 0; i < segmentCount; i += 1) {
+      for (const t of lineIntersectionParams(points[i], points[i + 1], other, sketch)) cutSet.add(i + t);
+    }
+  }
+  const cuts = [...cutSet].sort((a, b) => a - b);
+
+  // Nearest point on the chain to the click, expressed as that same segment+t parameter.
+  let clickParam = 0;
+  let bestDistance = Infinity;
+  for (let i = 0; i < segmentCount; i += 1) {
+    const dx = points[i + 1].x - points[i].x;
+    const dy = points[i + 1].y - points[i].y;
+    const lengthSquared = dx * dx + dy * dy || 1e-12;
+    const t = Math.min(1, Math.max(0, ((x - points[i].x) * dx + (y - points[i].y) * dy) / lengthSquared));
+    const distance = Math.hypot(points[i].x + t * dx - x, points[i].y + t * dy - y);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      clickParam = i + t;
+    }
+  }
+
+  let clickedIndex = -1;
+  for (let i = 0; i < cuts.length - 1; i += 1) {
+    if (clickParam >= cuts[i] - 1e-6 && clickParam <= cuts[i + 1] + 1e-6) {
+      clickedIndex = i;
+      break;
+    }
+  }
+  if (clickedIndex === -1) return sketch;
+
+  let working = sketch;
+  const pointAtParam = (param: number): string => {
+    const rounded = Math.round(param);
+    if (Math.abs(param - rounded) < 1e-9 && rounded >= 0 && rounded <= segmentCount) {
+      return entity.points[rounded];
+    }
+    const i = Math.max(0, Math.min(segmentCount - 1, Math.floor(param)));
+    const t = param - i;
+    const result = ensurePoint(
+      working,
+      points[i].x + t * (points[i + 1].x - points[i].x),
+      points[i].y + t * (points[i + 1].y - points[i].y),
+      0,
+    );
+    working = result.sketch;
+    return result.pointId;
+  };
+
+  const survivors: SketchEntity[] = [];
+  for (let i = 0; i < cuts.length - 1; i += 1) {
+    if (i === clickedIndex || cuts[i + 1] - cuts[i] < 1e-6) continue;
+
+    const from = cuts[i];
+    const to = cuts[i + 1];
+    const chainPoints = [pointAtParam(from)];
+    for (let k = Math.ceil(from); k < to; k += 1) {
+      if (k > from + 1e-9) chainPoints.push(entity.points[k]);
+    }
+    chainPoints.push(pointAtParam(to));
+
+    if (chainPoints.length >= 2) {
+      survivors.push({ id: uid("spline"), kind: "spline", points: chainPoints, construction: entity.construction });
+    }
+  }
+
+  return dropEntities(working, new Set([entityId]), survivors);
+}
+
+/** Dispatches a trim click to the right kind-specific trim function — the single entry
+ * point `sketchStore.ts`'s `trimAt` calls, so the sketch canvas doesn't need to know which
+ * entity kinds are trimmable. Points aren't trimmable (nothing to cut them back to). */
+export function trimEntityAt(sketch: Sketch, entityId: string, x: number, y: number): Sketch {
+  const entity = entityById(sketch, entityId);
+  if (!entity) return sketch;
+  switch (entity.kind) {
+    case "line":
+      return trimLineAt(sketch, entityId, x, y);
+    case "circle":
+      return trimCircleAt(sketch, entityId, x, y);
+    case "spline":
+      return trimSplineAt(sketch, entityId, x, y);
+    default:
+      return sketch;
+  }
+}
+
+/**
+ * Whether `entity` fits entirely inside an axis-aligned window — a conservative bounding
+ * check (a circle/arc's full circle, not just its swept portion, has to fit) rather than an
+ * exact one, so a curve is never removed for merely *looking* like it fits when its true
+ * extent pokes outside the window.
+ */
+function entityWithinWindow(
+  sketch: Sketch,
+  entity: SketchEntity,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+): boolean {
+  if (entity.kind === "point") return false;
+
+  if (entity.kind === "circle" || entity.kind === "arc") {
+    const centre = pointById(sketch, entity.center);
+    if (!centre) return false;
+    return (
+      centre.x - entity.radius >= minX &&
+      centre.x + entity.radius <= maxX &&
+      centre.y - entity.radius >= minY &&
+      centre.y + entity.radius <= maxY
+    );
+  }
+
+  const ids = entity.kind === "line" ? [entity.start, entity.end] : entity.points;
+  const points = ids.map((id) => pointById(sketch, id)).filter((point): point is SketchPoint => !!point);
+  return points.length > 0 && points.every((point) => point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY);
+}
+
+/**
+ * Trims every entity fully enclosed by a dragged selection window in one go — item 6's
+ * "hold and drag a window to trim several entities at once", alongside (not instead of)
+ * the existing single-click trim above: a window only ever *removes* an entity outright
+ * (there's nothing else inside the window to trim any of them back to), while a single
+ * click can still trim one back to a partial stretch the way it always has. An entity the
+ * window merely crosses, without fully containing, is left untouched — cropping it exactly
+ * at the window's edge is a further refinement, not this pass.
+ */
+export function trimEntitiesInWindow(
+  sketch: Sketch,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+): Sketch {
+  const removed = new Set(
+    sketch.entities
+      .filter((entity) => entityWithinWindow(sketch, entity, minX, minY, maxX, maxY))
+      .map((entity) => entity.id),
+  );
+  if (removed.size === 0) return sketch;
+  return dropEntities(sketch, removed);
 }

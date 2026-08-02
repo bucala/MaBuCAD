@@ -73,10 +73,11 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
           isSelected={selection.includes(entity.id)}
           isSelectMode={isPickMode}
           onSelect={(additive) => pick(entity.id, additive)}
-          // Only a line can be trimmed today (see trimLineAt's doc comment) — other kinds
-          // simply don't get a click handler in trim mode, so the click falls through to
-          // the drawing surface behind them instead of doing nothing silently on a hit.
-          isTrimTarget={isTrimMode && entity.kind === "line"}
+          // Arcs and standalone points aren't trimmable yet (see trimEntityAt's doc
+          // comment) — they simply don't get a click handler in trim mode, so a click
+          // falls through to the drawing surface behind them instead of doing nothing
+          // silently on a hit.
+          isTrimTarget={isTrimMode && (entity.kind === "line" || entity.kind === "circle" || entity.kind === "spline")}
           onTrim={(point) => trimAt(entity.id, worldToSketch(sketch.planeId, point))}
         />
       ))}

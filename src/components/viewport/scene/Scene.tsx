@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { GizmoHelper, GizmoViewcube, GizmoViewport } from "@react-three/drei";
+import { GizmoHelper, GizmoViewcube } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
@@ -9,12 +9,12 @@ import { useSettingsStore } from "@/state/settingsStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
-import { AXIS_COLORS } from "../constants";
 import { CadControls } from "../controls/CadControls";
 import { SolidModel } from "../model/SolidModel";
 import { SketchScene } from "../sketch/SketchScene";
 import { CameraRig, type ProjectionMode } from "./CameraRig";
 import { InactiveSketches } from "./InactiveSketches";
+import { LiveAxisGizmo } from "./LiveAxisGizmo";
 import { Origin } from "./Origin";
 import { RaycasterTuning } from "./RaycasterTuning";
 import { ReferencePlanes } from "./ReferencePlanes";
@@ -93,16 +93,13 @@ export function Scene({ projection }: SceneProps) {
           second `GizmoHelper` left at the default fights the ViewCube's — whichever one's
           frame callback runs last wins and the other's overlay gets wiped before the frame
           ever reaches the screen. A distinct, higher priority makes this one layer on top
-          instead of clearing and redrawing everything again. Purely a visual orientation
-          reference, not a control surface — the ViewCube above is where alignment clicks
-          belong — `disabled` turns off GizmoViewport's own hover/click-to-snap behaviour. */}
+          instead of clearing and redrawing everything again. `LiveAxisGizmo` (rather than
+          drei's `GizmoViewport`) draws a plain arrow per axis with a coloured letter and no
+          filled circle behind it — purely a visual orientation reference, not a control
+          surface, so it has no click-to-align behaviour either; the ViewCube above is where
+          alignment clicks belong. */}
       <GizmoHelper alignment="bottom-left" margin={[64, 64]} renderPriority={2}>
-        <GizmoViewport
-          axisColors={[AXIS_COLORS.x, AXIS_COLORS.y, AXIS_COLORS.z]}
-          labelColor="#0a0a0a"
-          hideNegativeAxes
-          disabled
-        />
+        <LiveAxisGizmo />
       </GizmoHelper>
     </>
   );

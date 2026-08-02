@@ -422,7 +422,7 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Sketcher | Full entity set, 9 relations, dimensioning, damped-Newton solver | ✅ |
 | Core solids | Extrude/Cut-Extrude, Revolve/Cut-Revolve | ✅ |
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
-| Sketch tools | Trim, Offset, Mirror, Linear/Circular Pattern | ✅ |
+| Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Offset, Mirror, Linear/Circular Pattern | ✅ |
 | Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence | ✅ |
 | Hole Wizard | Real ISO clearance and tapped-hole data from Autodesk reference tables | ✅ |
 | Dress-up | Fillet, Chamfer, Shell, Draft, Rib — with edge-selective Fillet/Chamfer | ✅ |

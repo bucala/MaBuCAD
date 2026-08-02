@@ -7,6 +7,7 @@ import { useTranslation } from "@/i18n/useTranslation";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import type { RibbonItem } from "@/types/ui";
 
+import { RibbonContextMenu } from "./RibbonContextMenu";
 import { RibbonGroup } from "./RibbonGroup";
 import styles from "./Ribbon.module.css";
 
@@ -17,6 +18,7 @@ import styles from "./Ribbon.module.css";
 export function Ribbon() {
   const [activeTabId, setActiveTabId] = useState(RIBBON_TABS[0].id);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const isSketchMode = useSketchStore(selectIsSketchMode);
   const { t } = useTranslation();
 
@@ -31,7 +33,13 @@ export function Ribbon() {
   };
 
   return (
-    <div className={styles.ribbon}>
+    <div
+      className={styles.ribbon}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setContextMenuPosition({ x: event.clientX, y: event.clientY });
+      }}
+    >
       <div className={styles.tabStrip}>
         <div className={styles.tabList} role="tablist" aria-label="Command categories">
           {RIBBON_TABS.map((tab) => (
@@ -93,6 +101,10 @@ export function Ribbon() {
           />
         ))}
       </div>
+
+      {contextMenuPosition && (
+        <RibbonContextMenu position={contextMenuPosition} onClose={() => setContextMenuPosition(null)} />
+      )}
     </div>
   );
 }

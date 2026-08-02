@@ -15,6 +15,33 @@ import styles from "./SketchDimensions.module.css";
 const DIMENSION_COLOR = "#0f7b0f";
 const ORDINATE_COLOR = "#8a5cf6";
 
+/** Arrowhead size for a dimension line's ends, in sketch units. */
+const ARROW_LENGTH = 2.2;
+const ARROW_WIDTH = 0.8;
+
+/**
+ * A small "V" arrowhead at `tip`, pointing back along `(dirX, dirY)` (a unit vector from
+ * the tip toward where the dimension line came from) — the same convention every CAD
+ * dimension line uses, and one this app's leader lines had none of before, which is part
+ * of why a freshly placed, undragged dimension could read as an unlabelled tangle of
+ * lines rather than an obviously-a-dimension line with a clear point.
+ */
+function arrowheadPoints(
+  tipX: number,
+  tipY: number,
+  dirX: number,
+  dirY: number,
+): [[number, number, number][], [number, number, number][]] {
+  const backX = tipX + dirX * ARROW_LENGTH;
+  const backY = tipY + dirY * ARROW_LENGTH;
+  const perpX = -dirY * ARROW_WIDTH;
+  const perpY = dirX * ARROW_WIDTH;
+  return [
+    [[tipX, tipY, 0], [backX + perpX, backY + perpY, 0]],
+    [[tipX, tipY, 0], [backX - perpX, backY - perpY, 0]],
+  ];
+}
+
 interface SketchDimensionsProps {
   sketch: Sketch;
 }
@@ -187,6 +214,7 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     : undefined;
 
   let leader: [number, number, number][] = [];
+  let arrows: [number, number, number][][] = [];
   let labelPosition: [number, number, number] = [0, 0, 0.05];
   let text = "";
 
@@ -215,6 +243,9 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
         [second.x, first.y - offset, 0],
         [first.x, first.y - offset, 0],
       ];
+      // Points back along the leader's first segment, toward the datum end — the same
+      // "arrowhead touches the measured point" convention the linear/radius dimensions use.
+      arrows = arrowheadPoints(second.x, second.y, 0, Math.sign(first.y - offset - second.y) || 1);
       labelPosition = [second.x + nudge.x, first.y - offset - 3, 0.05];
     } else {
       const offset = baseOffset - nudge.x;
@@ -223,6 +254,7 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
         [first.x - offset, second.y, 0],
         [first.x - offset, first.y, 0],
       ];
+      arrows = arrowheadPoints(second.x, second.y, Math.sign(first.x - offset - second.x) || 1, 0);
       labelPosition = [first.x - offset - 3, second.y + nudge.y, 0.05];
     }
 
@@ -258,6 +290,15 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
       [second.x + shiftX, second.y + shiftY, 0],
       [second.x, second.y, 0],
     ];
+    // Arrowheads sit on the dimension line itself (the middle segment, at the offset
+    // distance), each pointing inward along it toward the other end — the standard CAD
+    // convention, and the clearest way to read "this line measures exactly this span" at
+    // a glance, especially before the label has been dragged away from a tight default
+    // placement.
+    arrows = [
+      ...arrowheadPoints(first.x + shiftX, first.y + shiftY, dirX, dirY),
+      ...arrowheadPoints(second.x + shiftX, second.y + shiftY, -dirX, -dirY),
+    ];
     labelPosition = [midX + shiftX, midY + shiftY, 0.05];
     text = `${dimension.value.toFixed(2)}`;
   } else if (entity?.kind === "circle" || entity?.kind === "arc") {
@@ -276,6 +317,12 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
       [centre.x, centre.y, 0],
       [labelX, labelY, 0],
     ];
+    const toCentreX = centre.x - labelX;
+    const toCentreY = centre.y - labelY;
+    const toCentreLength = Math.hypot(toCentreX, toCentreY) || 1;
+    // The arrowhead sits at the centre end, pointing back out toward the label — a radius
+    // or diameter dimension conventionally points at the centre it was measured from.
+    arrows = arrowheadPoints(centre.x, centre.y, -toCentreX / toCentreLength, -toCentreY / toCentreLength);
     labelPosition = [labelX, labelY, 0.05];
     text = `${dimension.kind === "diameter" ? "⌀" : "R"}${dimension.value.toFixed(2)}`;
   } else if (dimension.kind === "angle") {
@@ -306,6 +353,9 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
       {leader.length >= 2 && (
         <Line points={leader} color={color} lineWidth={1} transparent opacity={0.9} />
       )}
+      {arrows.map((stroke, index) => (
+        <Line key={index} points={stroke} color={color} lineWidth={1} transparent opacity={0.9} />
+      ))}
 
       <Html position={labelPosition} center zIndexRange={[20, 0]}>
         {isEditing ? (

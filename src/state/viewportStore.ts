@@ -12,6 +12,20 @@ export type DisplayMode = "shaded" | "shaded-edges" | "wireframe";
 
 const DISPLAY_MODE_CYCLE: readonly DisplayMode[] = ["shaded", "shaded-edges", "wireframe"];
 
+/** See `ViewRotationSteps.tsx` for what each direction actually does to the camera. */
+export type RotateStepDirection = "up" | "down" | "left" | "right" | "roll-cw" | "roll-ccw";
+
+/**
+ * Selection-priority filter for clicking the solid, à la Inventor's Select dropdown.
+ * "body" (the default, and the only behaviour that existed before this) treats a click
+ * anywhere on the solid as picking the whole body/feature. "face" instead resolves the
+ * exact kernel Face the click landed on (via `MeshData.faceGroups` — see its own doc
+ * comment in `kernel/rebuild.ts`) and highlights just that face. Point/edge priority are
+ * not implemented yet; edge-picking already exists but only inside Fillet/Chamfer's own
+ * pick mode (`edgePickModeFeatureId`), not as a general selection filter.
+ */
+export type SelectionFilterMode = "body" | "face";
+
 interface ViewportStore {
   displayMode: DisplayMode;
   /**
@@ -42,6 +56,16 @@ interface ViewportStore {
    * this feature" the same way `hiddenFeatureIds` already crosses that same sibling boundary.
    */
   edgePickModeFeatureId: string | null;
+  /**
+   * Whether the Hole Wizard is waiting for a click on a solid face to place its first
+   * hole. Set by `commandRegistry.ts`'s `feature.hole-wizard` when no sketch with an
+   * existing point could be resolved, and read by `SolidModel.tsx`, which is the one
+   * component that can turn a raycaster hit into a world point + face normal — the same
+   * sibling-store pattern `edgePickModeFeatureId` already uses, except there is no
+   * feature id yet to key this by: the sketch and the hole feature are only created once
+   * a suitable face is actually clicked (`placeHoleAtPick` in `commandRegistry.ts`).
+   */
+  holePlacementActive: boolean;
   /** Ground grid in the 3D viewport and, while a sketch is open, the sketcher's own
    * in-plane grid too — one toggle, since they're never both visible at once. */
   gridVisible: boolean;
@@ -54,8 +78,20 @@ interface ViewportStore {
    * see `ZoomToFit.tsx`'s own doc comment for why a request object here, rather than a
    * direct call, is how DOM controls reach the camera). `null` until the first click; the
    * `nonce` is what the in-canvas handler actually watches, since two consecutive clicks in
-   * the same direction still need to trigger a step each time. */
-  rotateStepRequest: { direction: "up" | "down" | "left" | "right"; nonce: number } | null;
+   * the same direction still need to trigger a step each time. `up`/`down`/`left`/`right`
+   * orbit the camera around the model; `roll-cw`/`roll-ccw` spin the camera's own up vector
+   * around the current view axis instead, tilting the horizon without changing what's
+   * actually facing the camera. */
+  rotateStepRequest: { direction: RotateStepDirection; nonce: number } | null;
+  /** See `SelectionFilterMode`'s own doc comment. */
+  selectionFilterMode: SelectionFilterMode;
+  /**
+   * The kernel Face id (`FaceGroup.id`, from the currently committed `MeshData`) currently
+   * highlighted under "face" priority, or `null`. Face ids are only stable for the mesh
+   * they came from — a rebuild can renumber them — so `SolidModel.tsx` clears this whenever
+   * the committed mesh reference changes, not just when the filter mode itself changes.
+   */
+  selectedFaceId: number | null;
 
   cycleDisplayMode: () => void;
   toggleFeatureVisibility: (id: string) => void;
@@ -63,9 +99,12 @@ interface ViewportStore {
   setProjection: (mode: ProjectionMode) => void;
   toggleConstraintsVisible: () => void;
   setEdgePickMode: (featureId: string | null) => void;
+  setHolePlacementActive: (active: boolean) => void;
   toggleGridVisible: () => void;
   toggleSnapToGrid: () => void;
-  requestRotateStep: (direction: "up" | "down" | "left" | "right") => void;
+  requestRotateStep: (direction: RotateStepDirection) => void;
+  setSelectionFilterMode: (mode: SelectionFilterMode) => void;
+  setSelectedFaceId: (id: number | null) => void;
 }
 
 export const useViewportStore = create<ViewportStore>((set) => ({
@@ -75,9 +114,12 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   projection: "orthographic",
   constraintsVisible: true,
   edgePickModeFeatureId: null,
+  holePlacementActive: false,
   gridVisible: true,
   snapToGridEnabled: false,
   rotateStepRequest: null,
+  selectionFilterMode: "body",
+  selectedFaceId: null,
 
   cycleDisplayMode: () =>
     set((state) => {
@@ -100,6 +142,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
     set((state) => ({ constraintsVisible: !state.constraintsVisible })),
 
   setEdgePickMode: (featureId) => set({ edgePickModeFeatureId: featureId }),
+  setHolePlacementActive: (active) => set({ holePlacementActive: active }),
 
   toggleGridVisible: () => set((state) => ({ gridVisible: !state.gridVisible })),
   toggleSnapToGrid: () => set((state) => ({ snapToGridEnabled: !state.snapToGridEnabled })),
@@ -108,4 +151,9 @@ export const useViewportStore = create<ViewportStore>((set) => ({
     set((state) => ({
       rotateStepRequest: { direction, nonce: (state.rotateStepRequest?.nonce ?? 0) + 1 },
     })),
+
+  // Switching away from "face" drops whatever was highlighted — there's nothing to show it
+  // for once the filter no longer resolves individual faces.
+  setSelectionFilterMode: (mode) => set({ selectionFilterMode: mode, selectedFaceId: null }),
+  setSelectedFaceId: (id) => set({ selectedFaceId: id }),
 }));

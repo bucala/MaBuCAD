@@ -99,6 +99,12 @@ interface SettingsValues {
    * to be turned on only while reproducing a problem to report, not left on: it patches
    * `console.error`/`warn` for as long as it's active. */
   debugModeEnabled: boolean;
+  /** The "MaBuCAD" wordmark + icon in `MenuBar.tsx`'s top-left corner. Toggled from the
+   * ribbon's right-click customisation menu (`RibbonContextMenu` in `Ribbon.tsx`). */
+  logoTitleVisible: boolean;
+  /** The build version readout in `StatusBar.tsx`'s bottom-right corner. Same toggle
+   * surface as `logoTitleVisible`. */
+  versionVisible: boolean;
 }
 
 /**
@@ -153,6 +159,8 @@ interface SettingsStore extends SettingsValues {
    * time (the mode, the colour, the intensity slider, ...). */
   setViewportBackground: (patch: Partial<ViewportBackground>) => void;
   toggleDebugMode: () => void;
+  toggleLogoTitleVisible: () => void;
+  toggleVersionVisible: () => void;
   /** Replaces every value at once — what Import Settings uses, so an imported file fully
    * determines the result rather than merging over whatever was already set. */
   replaceAll: (values: SettingsValues) => void;
@@ -176,6 +184,8 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   keyboardShortcuts: { ...DEFAULT_SHORTCUT_KEYS },
   viewportBackground: { ...DEFAULT_VIEWPORT_BACKGROUND },
   debugModeEnabled: false,
+  logoTitleVisible: true,
+  versionVisible: true,
 };
 
 /**
@@ -219,6 +229,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setViewportBackground: (patch) =>
         set((state) => ({ viewportBackground: { ...state.viewportBackground, ...patch } })),
       toggleDebugMode: () => set((state) => ({ debugModeEnabled: !state.debugModeEnabled })),
+      toggleLogoTitleVisible: () => set((state) => ({ logoTitleVisible: !state.logoTitleVisible })),
+      toggleVersionVisible: () => set((state) => ({ versionVisible: !state.versionVisible })),
       replaceAll: (values) => set(values),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),

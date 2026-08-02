@@ -23,7 +23,8 @@ import {
   patternEntities,
   roundDimensionValue,
   pointById,
-  trimLineAt,
+  trimEntitiesInWindow,
+  trimEntityAt,
 } from "@/sketch/sketchModel";
 import type { DragSnapSuggestion, PatternOptions } from "@/sketch/sketchModel";
 import { sketchStatusFromDiagnostics, solveSketch } from "@/sketch/solver";
@@ -145,6 +146,9 @@ interface SketchStore {
   drawPoint: (position: Point2) => void;
   drawArc: (centre: Point2, start: Point2, end: Point2) => void;
   trimAt: (entityId: string, position: Point2) => void;
+  /** Trims every entity fully enclosed by a dragged window in one go — see
+   * `trimEntitiesInWindow`'s own doc comment for what "enclosed" means for a circle/arc. */
+  trimWindowSelect: (minX: number, minY: number, maxX: number, maxY: number) => void;
 
   applyConstraint: (kind: GeometricConstraintKind) => boolean;
   mirrorSelection: () => boolean;
@@ -349,7 +353,10 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       edit((sketch) => addArc(sketch, centre, start, end, { tolerance: snapTolerance() }).sketch),
 
     trimAt: (entityId, position) =>
-      edit((sketch) => trimLineAt(sketch, entityId, position.x, position.y)),
+      edit((sketch) => trimEntityAt(sketch, entityId, position.x, position.y)),
+
+    trimWindowSelect: (minX, minY, maxX, maxY) =>
+      edit((sketch) => trimEntitiesInWindow(sketch, minX, minY, maxX, maxY)),
 
     applyConstraint: (kind) => {
       const { activeSketchId, sketches } = get();

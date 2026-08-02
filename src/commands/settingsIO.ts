@@ -46,6 +46,8 @@ export async function runExportSettings(): Promise<void> {
     keyboardShortcuts,
     viewportBackground,
     debugModeEnabled,
+    logoTitleVisible,
+    versionVisible,
   } = useSettingsStore.getState();
 
   const payload: SavedSettings = {
@@ -67,6 +69,8 @@ export async function runExportSettings(): Promise<void> {
       keyboardShortcuts,
       viewportBackground,
       debugModeEnabled,
+      logoTitleVisible,
+      versionVisible,
     },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
