@@ -1,28 +1,40 @@
 import { useEffect } from "react";
 import {
+  ArrowDownToLine,
   ArrowUp,
   ArrowUpDown,
   ArrowUpToLine,
+  Ban,
   Boxes,
+  ChevronsDown,
   Circle,
   CircleDashed,
   CircleDot,
   Combine,
+  Cone,
+  Cylinder,
   Drill,
   FlipVertical,
   Layers,
+  Minus,
   MousePointerClick,
+  RotateCcw,
+  RotateCw,
   Slice,
   SlidersHorizontal,
   Trash2,
+  Triangle,
   type LucideIcon,
 } from "lucide-react";
 
 import {
   CLEARANCE_STANDARDS,
+  resolveSeatDimensions,
+  SEAT_STANDARDS,
   TAPPED_STANDARDS,
   type ClearanceFit,
   type ClearanceStandardId,
+  type SeatType,
   type TappedStandardId,
 } from "@/data/holeStandards";
 import { groupTappedBySize, resolveClearanceDiameter, resolveTapDrill } from "@/data/holeResolution";
@@ -37,6 +49,24 @@ const HOLE_TYPES: { id: NonNullable<FeatureParameters["holeType"]>; label: strin
   { id: "simple", label: "Simple — a plain cylindrical hole, no fastener standard", icon: Circle },
   { id: "clearance", label: "Clearance — sized for a fastener to pass through", icon: CircleDashed },
   { id: "tapped", label: "Tapped — sized as a tap drill for a threaded hole", icon: Drill },
+  {
+    id: "taper-tapped",
+    label:
+      "Taper Tapped — NPT pipe-thread sizing (real tap drill, but a straight hole — the pipe taper itself isn't modelled)",
+    icon: Cone,
+  },
+];
+
+const SEAT_TYPES: { id: NonNullable<FeatureParameters["seatType"]>; label: string; icon: LucideIcon }[] = [
+  { id: "none", label: "None — the hole starts directly from the flat surface", icon: Ban },
+  { id: "counterbore", label: "Counterbore — a flat-bottomed recess for a socket-head screw", icon: Cylinder },
+  { id: "spotface", label: "Spotface — a shallow flat-bottomed recess for a rough surface", icon: CircleDot },
+  { id: "countersink", label: "Countersink — a conical recess for a flat-head screw", icon: Triangle },
+];
+
+const DRILL_POINTS: { id: NonNullable<FeatureParameters["drillPoint"]>; label: string; icon: LucideIcon }[] = [
+  { id: "flat", label: "Flat — the blind hole's bottom is flat", icon: Minus },
+  { id: "angle", label: "Angle (118°) — the blind hole's bottom tapers to a point, like a real drill bit", icon: ChevronsDown },
 ];
 
 const END_CONDITIONS: { id: EndCondition; label: string; icon: LucideIcon }[] = [
@@ -146,15 +176,32 @@ export function PropertyManager() {
     });
   };
 
-  const applyTappedHole = (standardId: TappedStandardId, designation: string) => {
+  const applyTappedHole = (
+    standardId: TappedStandardId,
+    designation: string,
+    holeType: "tapped" | "taper-tapped" = "tapped",
+  ) => {
     const entry = resolveTapDrill(standardId, designation);
     updateParameters(feature.id, {
-      holeType: "tapped",
+      holeType,
       holeStandard: standardId,
       holeSize: designation,
       holeFit: undefined,
       radius: entry ? entry.tapDrill / 2 : feature.parameters.radius,
       threadDesignation: entry ? `${entry.designation} (${entry.internalClass})` : undefined,
+    });
+  };
+
+  const applySeat = (seatType: SeatType, sizeLabel: string) => {
+    if (seatType === "none") {
+      updateParameters(feature.id, { seatType, seatDiameter: undefined, seatDepthOrAngle: undefined });
+      return;
+    }
+    const entry = resolveSeatDimensions(seatType, sizeLabel);
+    updateParameters(feature.id, {
+      seatType,
+      seatDiameter: entry?.headDiameter ?? feature.parameters.seatDiameter,
+      seatDepthOrAngle: entry?.depthOrAngle ?? feature.parameters.seatDepthOrAngle,
     });
   };
 
@@ -170,10 +217,14 @@ export function PropertyManager() {
     } else if (holeType === "clearance") {
       const standardId: ClearanceStandardId = "iso";
       applyClearanceHole(standardId, CLEARANCE_STANDARDS[standardId].sizes[0].size, "normal");
+    } else if (holeType === "taper-tapped") {
+      const standardId: TappedStandardId = "npt";
+      const firstVariant = groupTappedBySize(standardId)[0].variants[0];
+      applyTappedHole(standardId, firstVariant.designation, "taper-tapped");
     } else {
       const standardId: TappedStandardId = "iso-metric";
       const firstVariant = groupTappedBySize(standardId)[0].variants[0];
-      applyTappedHole(standardId, firstVariant.designation);
+      applyTappedHole(standardId, firstVariant.designation, "tapped");
     }
   };
 
@@ -319,28 +370,33 @@ export function PropertyManager() {
               </>
             )}
 
-            {feature.parameters.holeType === "tapped" && (
+            {(feature.parameters.holeType === "tapped" || feature.parameters.holeType === "taper-tapped") && (
               <>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Standard</span>
-                  <select
-                    className={styles.input}
-                    value={feature.parameters.holeStandard}
-                    onChange={(event) => {
-                      const standardId = event.target.value as TappedStandardId;
-                      applyTappedHole(standardId, groupTappedBySize(standardId)[0].variants[0].designation);
-                    }}
-                  >
-                    {Object.values(TAPPED_STANDARDS).map((standard) => (
-                      <option key={standard.id} value={standard.id}>
-                        {standard.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {feature.parameters.holeType === "tapped" && (
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Standard</span>
+                    <select
+                      className={styles.input}
+                      value={feature.parameters.holeStandard}
+                      onChange={(event) => {
+                        const standardId = event.target.value as TappedStandardId;
+                        applyTappedHole(standardId, groupTappedBySize(standardId)[0].variants[0].designation, "tapped");
+                      }}
+                    >
+                      {Object.values(TAPPED_STANDARDS)
+                        .filter((standard) => standard.kind !== "npt")
+                        .map((standard) => (
+                          <option key={standard.id} value={standard.id}>
+                            {standard.label}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
 
                 {(() => {
                   const standardId = feature.parameters.holeStandard as TappedStandardId;
+                  const holeType = feature.parameters.holeType as "tapped" | "taper-tapped";
                   const groups = groupTappedBySize(standardId);
                   const currentDesignation = feature.parameters.holeSize ?? "";
                   const currentGroup =
@@ -356,7 +412,7 @@ export function PropertyManager() {
                           value={currentGroup.sizeLabel}
                           onChange={(event) => {
                             const group = groups.find((candidate) => candidate.sizeLabel === event.target.value);
-                            if (group) applyTappedHole(standardId, group.variants[0].designation);
+                            if (group) applyTappedHole(standardId, group.variants[0].designation, holeType);
                           }}
                         >
                           {groups.map((group) => (
@@ -372,7 +428,7 @@ export function PropertyManager() {
                         <select
                           className={styles.input}
                           value={currentDesignation}
-                          onChange={(event) => applyTappedHole(standardId, event.target.value)}
+                          onChange={(event) => applyTappedHole(standardId, event.target.value, holeType)}
                         >
                           {currentGroup.variants.map((variant) => (
                             <option key={variant.designation} value={variant.designation}>
@@ -385,9 +441,51 @@ export function PropertyManager() {
                   );
                 })()}
 
+                <div className={styles.field}>
+                  <span className={styles.fieldLabel}>Direction</span>
+                  <div className={styles.iconRow} role="group" aria-label="Thread direction">
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      title="Right-hand thread"
+                      aria-label="Right-hand thread"
+                      aria-pressed={(feature.parameters.threadDirection ?? "right") === "right"}
+                      onClick={() => updateParameters(feature.id, { threadDirection: "right" })}
+                    >
+                      <RotateCw size={15} strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      title="Left-hand thread"
+                      aria-label="Left-hand thread"
+                      aria-pressed={feature.parameters.threadDirection === "left"}
+                      onClick={() => updateParameters(feature.id, { threadDirection: "left" })}
+                    >
+                      <RotateCcw size={15} strokeWidth={1.75} />
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className={styles.actionButton}
+                  title="Full Depth — thread runs the hole's whole depth rather than a shorter engagement length (display only for now, not yet reflected in the model)"
+                  aria-pressed={feature.parameters.fullDepthThread ?? false}
+                  onClick={() =>
+                    updateParameters(feature.id, { fullDepthThread: !feature.parameters.fullDepthThread })
+                  }
+                >
+                  <ArrowDownToLine size={14} strokeWidth={1.75} />
+                  Full Depth
+                </button>
+
                 <p className={styles.sectionHint}>
-                  {feature.parameters.threadDesignation ?? "—"} — tap drill Ø
+                  {feature.parameters.threadDesignation ?? "—"}
+                  {feature.parameters.threadDirection === "left" ? " (LH)" : " (RH)"} — tap drill Ø
                   {feature.parameters.radius ? (feature.parameters.radius * 2).toFixed(2) : "?"} mm.
+                  {feature.parameters.holeType === "taper-tapped" &&
+                    " Straight hole — the NPT pipe taper itself isn't modelled."}
                 </p>
               </>
             )}
@@ -409,6 +507,53 @@ export function PropertyManager() {
             <p className={styles.sectionHint}>
               One hole is cut per point placed in the hole's sketch, all at this size.
             </p>
+
+            <span className={styles.sectionTitle}>Seat</span>
+            <div className={styles.iconRow} role="group" aria-label="Seat type">
+              {SEAT_TYPES.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={styles.iconButton}
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={(feature.parameters.seatType ?? "none") === id}
+                  onClick={() => applySeat(id, SEAT_STANDARDS[id === "none" ? "counterbore" : id].sizes[0].size)}
+                >
+                  <Icon size={15} strokeWidth={1.75} />
+                </button>
+              ))}
+            </div>
+
+            {feature.parameters.seatType && feature.parameters.seatType !== "none" && (
+              <>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Seat size</span>
+                  <select
+                    className={styles.input}
+                    value={
+                      SEAT_STANDARDS[feature.parameters.seatType].sizes.find(
+                        (size) => size.headDiameter === feature.parameters.seatDiameter,
+                      )?.size ?? SEAT_STANDARDS[feature.parameters.seatType].sizes[0].size
+                    }
+                    onChange={(event) => applySeat(feature.parameters.seatType as SeatType, event.target.value)}
+                  >
+                    {SEAT_STANDARDS[feature.parameters.seatType].sizes.map((size) => (
+                      <option key={size.size} value={size.size}>
+                        {size.size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className={styles.sectionHint}>
+                  {SEAT_STANDARDS[feature.parameters.seatType].label} — Ø
+                  {feature.parameters.seatDiameter?.toFixed(2) ?? "?"} mm
+                  {feature.parameters.seatType === "countersink"
+                    ? ` at ${feature.parameters.seatDepthOrAngle ?? 90}° included angle.`
+                    : `, ${feature.parameters.seatDepthOrAngle?.toFixed(2) ?? "?"} mm deep.`}
+                </p>
+              </>
+            )}
           </div>
         )}
 
@@ -430,6 +575,27 @@ export function PropertyManager() {
                 </button>
               ))}
             </div>
+
+            {isHole && feature.parameters.endCondition === "blind" && (
+              <>
+                <span className={styles.fieldLabel}>Drill Point</span>
+                <div className={styles.iconRow} role="group" aria-label="Drill point">
+                  {DRILL_POINTS.map(({ id, label, icon: Icon }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={styles.iconButton}
+                      title={label}
+                      aria-label={label}
+                      aria-pressed={(feature.parameters.drillPoint ?? "flat") === id}
+                      onClick={() => updateParameters(feature.id, { drillPoint: id })}
+                    >
+                      <Icon size={15} strokeWidth={1.75} />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
 
             {feature.parameters.reversed !== undefined && (
               <button

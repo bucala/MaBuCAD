@@ -310,19 +310,41 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     const labelX = baseEdgeX + 6 + nudge.x;
     const labelY = baseEdgeY + 6 + nudge.y;
 
-    // The leader always runs straight from the centre to the label itself, rather than to
-    // a fixed point near the original edge, so it tracks the label wherever it is dragged
-    // instead of leaving it visually disconnected.
-    leader = [
-      [centre.x, centre.y, 0],
-      [labelX, labelY, 0],
-    ];
-    const toCentreX = centre.x - labelX;
-    const toCentreY = centre.y - labelY;
-    const toCentreLength = Math.hypot(toCentreX, toCentreY) || 1;
-    // The arrowhead sits at the centre end, pointing back out toward the label — a radius
-    // or diameter dimension conventionally points at the centre it was measured from.
-    arrows = arrowheadPoints(centre.x, centre.y, -toCentreX / toCentreLength, -toCentreY / toCentreLength);
+    // Direction from centre toward the label, used to find where the dimension line
+    // crosses the rim — the standard radius/diameter convention (SolidWorks, Inventor)
+    // anchors the arrow at that rim point, not at the centre itself: a radius dimension's
+    // leader runs rim -> label, and a diameter's runs clear across the circle, rim -> rim,
+    // continuing on to the label. Anchoring at the centre instead (this app's previous
+    // behaviour) put the arrowhead on top of the centre point's own dot, and for a circle
+    // smaller than the arrowhead's own fixed size, let its wings overshoot past the far
+    // rim — both of which read as "the arrow doesn't cleanly point at anything."
+    const toLabelX = labelX - centre.x;
+    const toLabelY = labelY - centre.y;
+    const toLabelLength = Math.hypot(toLabelX, toLabelY) || 1;
+    const dirX = toLabelX / toLabelLength;
+    const dirY = toLabelY / toLabelLength;
+    const nearRimX = centre.x + dirX * entity.radius;
+    const nearRimY = centre.y + dirY * entity.radius;
+
+    if (dimension.kind === "diameter") {
+      const farRimX = centre.x - dirX * entity.radius;
+      const farRimY = centre.y - dirY * entity.radius;
+      leader = [
+        [farRimX, farRimY, 0],
+        [nearRimX, nearRimY, 0],
+        [labelX, labelY, 0],
+      ];
+      arrows = [
+        ...arrowheadPoints(nearRimX, nearRimY, -dirX, -dirY),
+        ...arrowheadPoints(farRimX, farRimY, dirX, dirY),
+      ];
+    } else {
+      leader = [
+        [nearRimX, nearRimY, 0],
+        [labelX, labelY, 0],
+      ];
+      arrows = arrowheadPoints(nearRimX, nearRimY, -dirX, -dirY);
+    }
     labelPosition = [labelX, labelY, 0.05];
     text = `${dimension.kind === "diameter" ? "⌀" : "R"}${dimension.value.toFixed(2)}`;
   } else if (dimension.kind === "angle") {

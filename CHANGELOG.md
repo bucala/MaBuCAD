@@ -7,6 +7,113 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-02 — Constraint solver fixes, screen-space UI sizing, a real ViewCube, and Hole Wizard seats (v0.3.0)
+
+A seventh round of feedback, the largest so far — a real constraint-solver bug, a
+foundational screen-space-vs-world-space rendering fix that turned out to explain three
+separate complaints at once, a full ViewCube rewrite, and a genuine Hole Wizard feature
+expansion (seats, drill points, a fourth hole type) backed by real data pulled from
+Autodesk's own Hole Wizard reference spreadsheets.
+
+### Fixed — sketch constraints
+- **A `Fix` constraint didn't hold when the fixed point was dragged.** Root cause: `dragPoint`
+  moved the point to the cursor position *before* solving, so `fix`'s own anchor (always
+  captured fresh from the sketch at the start of a solve) simply adopted the drag destination
+  as the new "original" position — the point followed the cursor exactly, silently defeating
+  the constraint. Dragging a genuinely fixed point is now a no-op, matching every other CAD
+  sketcher's own behaviour.
+- **A "Midpoint" snap didn't hold** — it was a one-time positional snap with no solver
+  support at all (its own doc comment said as much), so anything that later moved the line
+  left the "midpoint" point behind. Added a real, persisted `midpoint` constraint kind with
+  its own solver residual; the smart drag-snap now adds this constraint instead of just
+  repositioning the point once.
+- **Constraints on a trimmed line vanished instead of carrying to the surviving pieces.**
+  `horizontal`/`vertical` relations on the original line are now re-applied to every
+  surviving segment, and a new split point created where the trim crossed another entity is
+  now pinned back onto that entity (`point-on-line`/`point-on-circle`/`point-on-spline`,
+  whichever fits) instead of being left as a bare, unconstrained point. Applies to
+  `trimLineAt`, `trimCircleAt`, and `trimSplineAt` alike.
+- **New `Colinear` constraint** (two lines share the same infinite line without their
+  endpoints needing to touch) and **Coincident now accepts a point plus a curve** (line,
+  circle/arc, or spline), not just two points — dispatches internally to
+  `point-on-line`/`point-on-circle`/`point-on-spline`.
+
+### Fixed — sketch rendering and interaction
+- **Sketch point dots rendered at a fixed world-space size**, so they ballooned to a
+  nonsensical size zoomed in and shrank to nothing zoomed out — the same underlying bug also
+  explained "clicking a line drags the whole thing": the invisible point pick-target used the
+  same fixed world-space radius as the drawing tools' snap tolerance, so a click anywhere
+  within a few mm of a point (most of a short or zoomed-in line) grabbed and dragged that
+  point instead of reaching the line body. Added a `useScreenSpacePixelScale` hook (exact for
+  the app's default orthographic camera, since one world unit spans exactly `camera.zoom`
+  pixels there) and used it for point dots, the drawing cursor dot, and — separately — a new
+  fixed-pixel drag-pick radius that no longer reuses the Settings ▸ Sketch snap-tolerance
+  value at all.
+- **Radius/diameter dimension arrows always anchored at the circle's exact centre**, which
+  overlapped the centre point's own dot and could overshoot past a small circle's far rim
+  (the arrowhead's own fixed size was larger than the circle). Arrows now anchor at the rim
+  point toward the label — a radius dimension's leader runs rim → label, a diameter's runs
+  the full rim → rim chord, continuing on to the label — the standard SolidWorks/Inventor
+  convention.
+- **The sketch Origin point's delete was a silent no-op.** It's correctly protected (every
+  mainstream CAD tool blocks deleting a sketch's origin) but gave zero feedback; selecting it
+  and hitting Delete now shows a toast explaining why, instead of doing nothing.
+
+### Added — ViewCube
+- **All four directional arrows (up/down/left/right) rewritten to snap to the next ViewCube
+  landmark** (one of the 26 canonical face/edge/corner orientations — an 8-position azimuth
+  ring crossed with a 5-position elevation ring) instead of orbiting by a fixed angle from
+  wherever the camera happened to be. A fixed-angle orbit only lands cleanly on a recognizable
+  face/edge/corner if the starting view already was one; from anywhere else (an isometric
+  start, or a view left mid-orbit by a mouse drag) it drifted into odd in-between orientations
+  that compounded with every further click — this was the real "left/right rotate
+  incorrectly" bug, and also explains "down doesn't work" (the old fixed 5° pole guard could
+  reject a legitimate transition near a pole even when the actual target landmark was
+  perfectly reachable; landmarks now include the poles themselves as valid stops). Rotate
+  View CW/CCW (the roll arrows) are unchanged, as requested.
+
+### Added — Fillet/Chamfer edge highlight
+- **Picked edges are now highlighted as their own contour** in a distinct colour, replacing
+  the small sphere markers dropped at the click point. Uses a new `EdgeGroup` export from the
+  kernel — replicad's own `meshEdges()` already returns per-edge groups (`{start, count,
+  edgeId}`), just omitted from this file's own hand-written type annotation until now, the
+  same shape of gap `faceGroups` closed for face selection a few rounds back.
+
+### Added — Hole Wizard
+- **Seat types**: None / Counterbore / Spotface / Countersink, each with real kernel geometry
+  (a wider cylindrical recess, or a countersink's conical taper sized from its own included
+  angle) and real dimensions sourced from Autodesk's own Clearance Hole Spreadsheet — Socket
+  Head Cap Screw ISO 4762 for counterbore, Hex Head Cap Screw ISO 24014 for spotface,
+  Countersunk Flat Head Screw ISO 2009/7046 for countersink, the same per-seat fastener style
+  choice Inventor's own Hole Wizard defaults to.
+- **Drill Point**: Flat (unchanged) or Angle — a blind hole's bottom now tapers to a real
+  118° conical point like an actual twist drill, instead of always cutting flat.
+  Through-all/up-to-surface holes have no "bottom" to shape, so this only applies to Blind.
+- **Taper Tapped**, a fourth Hole Type alongside Simple/Clearance/Tapped, sized from real NPT
+  tap-drill data (published standard values, not derived from the thread-geometry sheet's
+  pitch-diameter columns, which don't capture practical tapping allowances). Cuts a straight
+  hole at the correct tap-drill diameter; the actual 1:16 pipe taper itself is not modelled —
+  said so directly in the panel rather than silently pretending it is.
+- **Thread Direction** (Right/Left hand, shown in the thread designation as "(RH)"/"(LH)")
+  and **Full Depth** are tracked for Tapped/Taper Tapped holes; both are display-only for now
+  (this app still doesn't model a real thread profile at all), not yet read by the kernel.
+
+### Test plan
+- `npx tsc --noEmit` clean, `npm run build` clean
+- Existing `tree.mjs` (12), `trim.mjs` (14), `fillet-edge-picking.mjs` (17),
+  `settings-export-import.mjs` (3), `constraint-glyph-check.mjs` (2) all still pass on a
+  freshly-started dev server
+- Fix-constraint-holds-under-drag and Colinear-button-exists verified directly via Playwright
+- Fillet edge highlight verified visually (screenshot from a 3D angle) after confirming the
+  new `EdgeGroup` start/count convention empirically (12 groups for a 6-face box, exact
+  vertex-count match)
+- Hole Wizard seat-type change and drill-point change both verified to rebuild cleanly with
+  no console errors
+- `sketch.mjs`'s rectangle-profile-closes assertion was investigated as a possible
+  regression — confirmed via repeated fresh-dev-server runs to fail identically on an
+  unmodified baseline, i.e. pre-existing timing flakiness in the test itself, not a
+  regression from this round
+
 ## 2026-08-02 — A round of real bugs, one important discoverability fix, and two toggles
 
 A sixth round of feedback, mostly bug reports rather than new-feature asks. Several turned

@@ -63,15 +63,49 @@ export interface FeatureParameters {
    * the same fields every other hole already used, so a document saved before this existed
    * still rebuilds unchanged.
    */
-  holeType?: "simple" | "clearance" | "tapped";
-  /** `ClearanceStandardId` or `TappedStandardId` from `data/holeStandards.ts`, matching `holeType`. */
+  holeType?: "simple" | "clearance" | "tapped" | "taper-tapped";
+  /** `ClearanceStandardId` or `TappedStandardId` from `data/holeStandards.ts`, matching `holeType`
+   * (`"taper-tapped"` uses the `"npt"` `TappedStandardId`, the same lookup as `"tapped"`). */
   holeStandard?: string;
-  /** Clearance: the nominal size label (e.g. "M6"). Tapped: the full thread designation (e.g. "M6x1"). */
+  /** Clearance: the nominal size label (e.g. "M6"). Tapped/taper-tapped: the full thread designation (e.g. "M6x1"). */
   holeSize?: string;
   /** Clearance only. */
   holeFit?: "close" | "normal" | "loose";
-  /** Resolved thread callout for a tapped hole, e.g. "M6x1 (6H)" — display only. */
+  /** Resolved thread callout for a tapped or taper-tapped hole, e.g. "M6x1 (6H)" — display only. */
   threadDesignation?: string;
+  /** Tapped/taper-tapped only, display metadata (this app doesn't model handedness or a
+   * real thread profile at all — see `radius`'s own note above). */
+  threadDirection?: "right" | "left";
+  /** Tapped/taper-tapped only, display metadata: whether the thread runs the hole's full
+   * depth rather than a shorter engagement length. Not yet read by the kernel — the same
+   * "not modelled yet, but tracked so a future thread-visualisation feature has it" status
+   * `threadDirection` has. */
+  fullDepthThread?: boolean;
+  /**
+   * A hole's optional counterbore/spotface/countersink recess (`SeatType` from
+   * `data/holeStandards.ts`, default/absent means `"none"`) — unlike the thread-display
+   * fields above, this *does* drive real kernel geometry (`kernel/rebuild.ts`'s
+   * `buildHoleSolid`): a second, wider cut stacked on the through-hole, cylindrical for
+   * counterbore/spotface or conical for countersink.
+   */
+  seatType?: "none" | "counterbore" | "spotface" | "countersink";
+  /** Seat recess diameter in mm, resolved from `data/holeStandards.ts`'s `SEAT_STANDARDS`
+   * the same way `radius` is resolved from the clearance/tapped tables — kept as a plain
+   * number rather than re-deriving it from `holeSize` at rebuild time so a custom recess
+   * size (typed directly rather than picked from the standard) is possible later without a
+   * kernel change. */
+  seatDiameter?: number;
+  /** Seat recess depth in mm (counterbore/spotface) or half-angle in degrees (countersink,
+   * conventionally 90° full angle, so 45° half-angle) — which one depends on `seatType`. */
+  seatDepthOrAngle?: number;
+  /**
+   * A blind hole's bottom profile: `"flat"` (the kernel's original, unchanged behaviour —
+   * the cut simply stops) or `"angle"`, which caps it with an inward-pointing cone instead,
+   * matching the shape a real twist drill actually leaves (118° included angle is the
+   * standard general-purpose bit, matching Autodesk's own Hole Wizard default). Meaningless
+   * (and ignored) for a through-all or up-to-surface hole, which has no "bottom" to shape.
+   */
+  drillPoint?: "flat" | "angle";
   /**
    * World axis a pattern repeats along/around, or a mirror reflects across. Also doubles as
    * the direction a `reference-axis` or `reference-point` is drawn along, and the plane a

@@ -10,6 +10,7 @@ import {
   addRectangle,
   addSpline,
   createSketch,
+  curveConstraintKind,
   defaultDimensionAnchor,
   entityById,
   entityPoints,
@@ -34,6 +35,7 @@ import type {
   Sketch,
   SketchDiagnostics,
 } from "@/sketch/types";
+import { useGeometryStore } from "@/state/geometryStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import type { SketchStatus } from "@/types/ui";
 
@@ -221,7 +223,10 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     const current = sketches[activeSketchId];
     if (!current) return;
 
-    const { sketch, diagnostics } = solveSketch(mutate(current));
+    const mutated = mutate(current);
+    console.log("DEBUG edit()", { currentEntities: current.entities.length, mutatedEntities: mutated.entities.length, sameRef: mutated === current });
+    const { sketch, diagnostics } = solveSketch(mutated);
+    console.log("DEBUG edit() after solve", { solvedEntities: sketch.entities.length, sameAsCurrentRef: sketch === current });
     if (sketch === current) return;
 
     pushHistory(current);
@@ -365,18 +370,42 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
       const { entities, points } = partitionSelection(sketch);
 
+      // Coincident is two shapes at once: two points pinned together (the original case),
+      // or one point pinned onto one curve — dispatched to whichever of `point-on-line`/
+      // `point-on-circle`/`point-on-spline` matches the curve's kind, since each needs its
+      // own residual but all read the same way from the "Coincident" button.
+      if (kind === "coincident") {
+        if (points.length === 2 && entities.length === 0) {
+          edit((current) => addConstraint(current, "coincident", [], points));
+          set({ selection: [] });
+          return true;
+        }
+        if (points.length === 1 && entities.length === 1) {
+          const curve = entityById(sketch, entities[0]);
+          const curveKind = curve ? curveConstraintKind(curve) : undefined;
+          if (!curveKind) return false;
+          edit((current) => addConstraint(current, curveKind, entities, points));
+          set({ selection: [] });
+          return true;
+        }
+        return false;
+      }
+
       // Each constraint kind needs a specific selection shape; refusing an ill-formed
       // selection is better than silently adding a constraint that does nothing.
-      const needsTwoEntities = ["parallel", "perpendicular", "equal", "tangent", "concentric"].includes(
-        kind,
-      );
+      const needsTwoEntities = [
+        "parallel",
+        "perpendicular",
+        "equal",
+        "tangent",
+        "concentric",
+        "colinear",
+      ].includes(kind);
       const needsOneEntity = ["horizontal", "vertical"].includes(kind);
-      const needsTwoPoints = kind === "coincident";
       const needsOnePoint = kind === "fix";
 
       if (needsTwoEntities && entities.length !== 2) return false;
       if (needsOneEntity && entities.length === 0) return false;
-      if (needsTwoPoints && points.length !== 2) return false;
       if (needsOnePoint && points.length !== 1) return false;
       if (kind === "point-on-line" && (entities.length !== 1 || points.length !== 1)) return false;
 
@@ -622,6 +651,16 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const current = sketches[activeSketchId];
       if (!current) return;
 
+      // A point under a real Fix constraint must not move at all — without this check the
+      // point is set to the cursor position below *before* solveSketch runs, so "fix"'s own
+      // anchor (captured fresh from the sketch at the start of every solve) simply adopts
+      // the drag destination as the new "original" position and the point follows the
+      // cursor anyway, silently defeating the constraint.
+      const isFixed = current.constraints.some(
+        (constraint) => constraint.kind === "fix" && constraint.points.includes(pointId),
+      );
+      if (isFixed) return;
+
       const moved: Sketch = {
         ...current,
         points: current.points.map((point) =>
@@ -688,17 +727,32 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           ),
         };
 
-        return dragSnapSuggestion.kind === "coincident"
-          ? addConstraint(snapped, "coincident", [], [pointId, dragSnapSuggestion.targetPointId])
-          : snapped;
+        if (dragSnapSuggestion.kind === "coincident") {
+          return addConstraint(snapped, "coincident", [], [pointId, dragSnapSuggestion.targetPointId]);
+        }
+        if (dragSnapSuggestion.kind === "midpoint") {
+          return addConstraint(snapped, "midpoint", [dragSnapSuggestion.lineEntityId], [pointId]);
+        }
+        return snapped;
       });
 
       set({ dragSnapSuggestion: null });
     },
 
     deleteSelection: () => {
-      const { selection } = get();
+      const { activeSketchId, sketches, selection } = get();
       if (selection.length === 0) return;
+
+      // The origin is permanent reference geometry (same rule every mainstream CAD tool
+      // enforces — SolidWorks/Inventor don't let you delete a sketch's origin either) and
+      // silently survives the filtering below no matter what. Left with no feedback at
+      // all, though, selecting just the origin and hitting Delete reads as "Delete is
+      // broken" rather than "this one thing is protected" — so say so explicitly instead
+      // of doing nothing.
+      const activeSketch = activeSketchId ? sketches[activeSketchId] : undefined;
+      if (activeSketch && selection.includes(originPointId(activeSketch.id))) {
+        useGeometryStore.getState().showToast("The origin point is permanent and can't be deleted.", 3000);
+      }
 
       edit((sketch) => {
         const removed = new Set(selection);

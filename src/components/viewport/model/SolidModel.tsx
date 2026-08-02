@@ -16,10 +16,13 @@ import { useClickGuard } from "../controls/useClickGuard";
 /** How close (world units) a new pick needs to land to an already-picked point to toggle it
  * off instead of adding a duplicate — clicking the same edge again deselects it. */
 const EDGE_PICK_TOGGLE_DISTANCE = 2;
-const EDGE_MARKER_RADIUS = 1.1;
 /** Highlight colour for the "face" selection filter — distinct from the amber edge-pick
  * highlight and the red hole-placement marker so the three never read as the same thing. */
 const FACE_HIGHLIGHT_COLOR = "#3fd0ff";
+/** Highlight colour for a picked Fillet/Chamfer edge's own contour — distinct from the
+ * amber "still pickable" edge colour, the cyan face highlight, and the hole-placement
+ * marker, so all four read as different things at a glance. */
+const PICKED_EDGE_HIGHLIGHT_COLOR = "#ff2f92";
 
 /**
  * Renders the rebuilt solid: a shaded surface plus the B-Rep edges on top.
@@ -240,6 +243,56 @@ export function SolidModel() {
     return buffer;
   }, [mesh]);
 
+  /**
+   * The actual curve of every picked Fillet/Chamfer edge, highlighted as a contour rather
+   * than a marker dropped at the click point — each `edgePoints` entry (see that field's
+   * own doc comment in `types/document.ts`) is resolved to the nearest `EdgeGroup` (the
+   * kernel's own per-edge slice of `mesh.edges`, straight from replicad's `meshEdges()`),
+   * and every vertex belonging to a matched group is drawn. A point can land near more than
+   * one group's vertices only right at a shared corner, in which case the nearest wins —
+   * fine in practice since a corner point was picked by clicking *somewhere along* one of
+   * the edges meeting there, not exactly on the corner itself.
+   */
+  const pickedEdgeHighlightGeometry = useMemo(() => {
+    const edgePoints = pickingFeature?.parameters.edgePoints;
+    if (!mesh || !edgePoints?.length || mesh.edgeGroups.length === 0) return null;
+
+    const matchedGroupIds = new Set<number>();
+    for (const [px, py, pz] of edgePoints) {
+      let bestGroupId: number | null = null;
+      let bestDistanceSq = Infinity;
+      for (const group of mesh.edgeGroups) {
+        const startFloat = group.start * 3;
+        const endFloat = startFloat + group.count * 3;
+        for (let i = startFloat; i < endFloat; i += 3) {
+          const dx = mesh.edges[i] - px;
+          const dy = mesh.edges[i + 1] - py;
+          const dz = mesh.edges[i + 2] - pz;
+          const distanceSq = dx * dx + dy * dy + dz * dz;
+          if (distanceSq < bestDistanceSq) {
+            bestDistanceSq = distanceSq;
+            bestGroupId = group.id;
+          }
+        }
+      }
+      if (bestGroupId !== null) matchedGroupIds.add(bestGroupId);
+    }
+    if (matchedGroupIds.size === 0) return null;
+
+    const segments: number[] = [];
+    for (const group of mesh.edgeGroups) {
+      if (!matchedGroupIds.has(group.id)) continue;
+      const startFloat = group.start * 3;
+      const endFloat = startFloat + group.count * 3;
+      for (let i = startFloat; i < endFloat; i += 1) segments.push(mesh.edges[i]);
+    }
+
+    const buffer = new BufferGeometry();
+    buffer.setAttribute("position", new BufferAttribute(Float32Array.from(segments), 3));
+    buffer.computeBoundingSphere();
+    return buffer;
+  }, [mesh, pickingFeature]);
+
   // The canvas only renders on demand, so a freshly built mesh — or a display mode that
   // swaps which materials/overlays are in the tree without touching the geometry itself —
   // has to ask for a frame explicitly.
@@ -249,6 +302,7 @@ export function SolidModel() {
     geometry,
     edgeGeometry,
     faceHighlightGeometry,
+    pickedEdgeHighlightGeometry,
     displayMode,
     isBodyHidden,
     pickingFeature,
@@ -262,8 +316,10 @@ export function SolidModel() {
     return () => {
       geometry?.dispose();
       edgeGeometry?.dispose();
+      faceHighlightGeometry?.dispose();
+      pickedEdgeHighlightGeometry?.dispose();
     };
-  }, [geometry, edgeGeometry]);
+  }, [geometry, edgeGeometry, faceHighlightGeometry, pickedEdgeHighlightGeometry]);
 
   useEffect(() => {
     return () => {
@@ -337,12 +393,11 @@ export function SolidModel() {
         </lineSegments>
       )}
 
-      {pickingFeature?.parameters.edgePoints?.map((point, index) => (
-        <mesh key={index} position={point} raycast={() => null}>
-          <sphereGeometry args={[EDGE_MARKER_RADIUS, 12, 12]} />
-          <meshBasicMaterial color="#e0473d" />
-        </mesh>
-      ))}
+      {pickedEdgeHighlightGeometry && (
+        <lineSegments geometry={pickedEdgeHighlightGeometry} raycast={() => null}>
+          <lineBasicMaterial color={PICKED_EDGE_HIGHLIGHT_COLOR} depthTest={false} linewidth={2} />
+        </lineSegments>
+      )}
     </group>
   );
 }

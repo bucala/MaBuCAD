@@ -25,6 +25,17 @@ export interface FaceGroup {
   id: number;
 }
 
+/** One kernel Edge's own slice of `MeshData.edges`, in vertex-pair units (i.e.
+ * `edges.subarray(start * 3, (start + count) * 3)` is exactly this edge's own line-segment
+ * positions) — the edge counterpart of `FaceGroup`, letting a Fillet/Chamfer's picked-edge
+ * highlight draw the actual clicked edge's own curve instead of a marker dropped at the
+ * click point (see `SolidModel.tsx`'s `pickedEdgeHighlights`). */
+export interface EdgeGroup {
+  start: number;
+  count: number;
+  id: number;
+}
+
 /** Triangulated result handed to three.js. */
 export interface MeshData {
   positions: Float32Array;
@@ -44,6 +55,8 @@ export interface MeshData {
    * concept) is mapped back to one of these groups.
    */
   faceGroups: FaceGroup[];
+  /** Per-edge slices of `edges` — see `EdgeGroup`'s own doc comment. */
+  edgeGroups: EdgeGroup[];
 }
 
 export interface RebuildResult {
@@ -435,6 +448,64 @@ function buildRibSolid(sketch: Sketch, feature: Feature): Solid | null {
   return solid;
 }
 
+/** Standard general-purpose twist-drill point angle (included), matching Autodesk Hole
+ * Wizard's own default for "Angle Drill Point" — half of this is the cone's half-angle. */
+const DRILL_POINT_INCLUDED_ANGLE_DEGREES = 118;
+
+/**
+ * The extra conical tip a real twist drill leaves at the bottom of a blind hole, for
+ * `drillPoint: "angle"` — purely additive (fused onto the already-built cylindrical tool),
+ * so `drillPoint: "flat"` (the default, and the only option before this existed) is
+ * completely unaffected. `cylinderEndZ` is the Z the plain cylindrical tool already ends
+ * at; `direction` is which way it was cut (matching `extrusionRange`'s own sign
+ * convention), so the cone's apex extends a little further the same way rather than back
+ * into the cylinder it's attached to.
+ */
+function buildDrillPointCone(x: number, y: number, radius: number, cylinderEndZ: number, direction: number): Solid {
+  const halfAngleRadians = (DRILL_POINT_INCLUDED_ANGLE_DEGREES / 2) * (Math.PI / 180);
+  const coneHeight = radius / Math.tan(halfAngleRadians);
+  const tipZ = cylinderEndZ + direction * coneHeight;
+
+  const base = drawCircle(radius).translate(x, y).sketchOnPlane("XY", cylinderEndZ);
+  // A true zero-radius loft endpoint isn't reliably supported, so the "point" is a very
+  // small circle instead — small enough that the taper still reads as a sharp drill tip.
+  const tip = drawCircle(Math.max(radius * 0.02, 0.01)).translate(x, y).sketchOnPlane("XY", tipZ);
+  return (base as unknown as { loftWith: (other: unknown) => Solid }).loftWith(tip);
+}
+
+/**
+ * A hole's optional counterbore/spotface/countersink recess, as a standalone tool fused
+ * onto the main cylindrical cut — always starts at the sketch plane itself (`Z = 0`, the
+ * surface the hole was placed on) and extends `direction` into the material, the same
+ * side the main hole cuts toward. Counterbore and spotface are both a plain wider
+ * cylinder (Inventor doesn't distinguish them geometrically either — spotface is just a
+ * shallow counterbore by convention); countersink is a truncated cone widening from the
+ * hole's own radius up to the seat radius, sized from the seat's included angle so the
+ * taper meets the through-hole at exactly its own diameter rather than leaving a step.
+ */
+function buildSeatTool(
+  x: number,
+  y: number,
+  holeRadius: number,
+  seatType: "counterbore" | "spotface" | "countersink",
+  seatDiameter: number,
+  seatDepthOrAngle: number,
+  direction: number,
+): Solid {
+  const seatRadius = Math.max(seatDiameter / 2, holeRadius + 0.1);
+
+  if (seatType === "countersink") {
+    const halfAngleRadians = (seatDepthOrAngle / 2) * (Math.PI / 180);
+    const depth = Math.max((seatRadius - holeRadius) / Math.max(Math.tan(halfAngleRadians), 1e-3), 0.05);
+    const wide = drawCircle(seatRadius).translate(x, y).sketchOnPlane("XY", 0);
+    const narrow = drawCircle(holeRadius).translate(x, y).sketchOnPlane("XY", direction * depth);
+    return (wide as unknown as { loftWith: (other: unknown) => Solid }).loftWith(narrow);
+  }
+
+  const depth = Math.max(seatDepthOrAngle, 0.1);
+  return drawCircle(seatRadius).translate(x, y).sketchOnPlane("XY").extrude(direction * depth) as Solid;
+}
+
 /**
  * Builds the union of one cylindrical cut per point placed in the hole's sketch — a Hole
  * Wizard feature always cuts (there is no join/intersect for it), and one feature can carry
@@ -443,7 +514,9 @@ function buildRibSolid(sketch: Sketch, feature: Feature): Solid | null {
  * that came from a plain number (a simple hole) or a clearance/tap-drill lookup in
  * `data/holeStandards.ts` (see `PropertyManager.tsx`'s Hole Wizard section) — this function
  * has no notion of standards or fasteners, only a radius and an end condition, same as
- * `buildFeatureSolid` reusing `extrusionRange` below.
+ * `buildFeatureSolid` reusing `extrusionRange` below. `seatType`/`drillPoint` add optional
+ * extra tools (see `buildSeatTool`/`buildDrillPointCone`), fused onto each point's own
+ * cylinder before it joins the rest.
  */
 function buildHoleSolid(sketch: Sketch, feature: Feature): Solid | null {
   const points = sketch.entities
@@ -453,11 +526,17 @@ function buildHoleSolid(sketch: Sketch, feature: Feature): Solid | null {
   if (points.length === 0) return null;
 
   const radius = Math.max(feature.parameters.radius ?? 3, 0.05);
-  const { distance, offset } = extrusionRange(
-    feature.parameters.endCondition ?? "through-all",
-    feature.parameters.depth ?? 10,
-    feature.parameters.reversed ?? false,
-  );
+  const endCondition = feature.parameters.endCondition ?? "through-all";
+  const reversed = feature.parameters.reversed ?? false;
+  const { distance, offset } = extrusionRange(endCondition, feature.parameters.depth ?? 10, reversed);
+
+  const seatType = feature.parameters.seatType ?? "none";
+  // Which way the hole cuts, for the seat/drill-point tools' own `direction` — same sign
+  // convention `extrusionRange` uses for a blind cut, kept consistent regardless of the
+  // actual end condition chosen (a through-all hole's own `distance`/`offset` are centred
+  // on zero, which has no single "into the material" side to reuse).
+  const cutDirection = reversed ? -1 : 1;
+  const addsDrillPoint = feature.parameters.drillPoint === "angle" && endCondition === "blind";
 
   let solid: Solid | null = null;
   for (const point of points) {
@@ -465,6 +544,19 @@ function buildHoleSolid(sketch: Sketch, feature: Feature): Solid | null {
     if (offset !== 0) {
       tool = (tool as unknown as { translate: (v: [number, number, number]) => Solid }).translate([0, 0, offset]);
     }
+
+    if (addsDrillPoint) {
+      const cone = buildDrillPointCone(point.x, point.y, radius, offset + distance, cutDirection);
+      tool = asBoolean(tool).fuse(cone);
+    }
+
+    if (seatType !== "none") {
+      const seatDiameter = feature.parameters.seatDiameter ?? radius * 2 * 1.8;
+      const seatDepthOrAngle = feature.parameters.seatDepthOrAngle ?? (seatType === "countersink" ? 90 : radius);
+      const seat = buildSeatTool(point.x, point.y, radius, seatType, seatDiameter, seatDepthOrAngle, cutDirection);
+      tool = asBoolean(tool).fuse(seat);
+    }
+
     solid = solid ? asBoolean(solid).fuse(tool) : tool;
   }
 
@@ -856,7 +948,10 @@ export async function rebuildDocument(
       normals: number[];
       faceGroups: { start: number; count: number; faceId: number }[];
     };
-    meshEdges: (options?: { keepMesh?: boolean }) => { lines: number[] };
+    meshEdges: (options?: { keepMesh?: boolean }) => {
+      lines: number[];
+      edgeGroups: { start: number; count: number; edgeId: number }[];
+    };
   };
 
   const triangulated = shape.mesh({ tolerance: 0.05, angularTolerance: 20 });
@@ -876,6 +971,14 @@ export async function rebuildDocument(
       // ("Face 3821490102"), and small sequential ids are cheap to assign here since
       // `faceGroups` is already in that same face order.
       faceGroups: triangulated.faceGroups.map((group, index) => ({
+        start: group.start,
+        count: group.count,
+        id: index,
+      })),
+      // Re-keyed the same way `faceGroups` is, for the same reason — a small sequential id
+      // is friendlier and more stable-looking than OpenCascade's raw edge hash, even though
+      // neither is stable across a rebuild that changes the body's topology.
+      edgeGroups: wireframe.edgeGroups.map((group, index) => ({
         start: group.start,
         count: group.count,
         id: index,

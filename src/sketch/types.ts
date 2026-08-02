@@ -88,7 +88,19 @@ export type GeometricConstraintKind =
   | "concentric"
   | "equal"
   | "point-on-line"
+  /** A point lies on a circle's or arc's rim (distance from centre equals radius) — the
+   * circle/arc counterpart of `point-on-line`, both driven by the same "Coincident" button
+   * when the current selection is one point plus one curve instead of two points. */
+  | "point-on-circle"
+  /** A point lies on a spline's own curve — same idea as `point-on-line`/`point-on-circle`
+   * for the one entity kind that isn't a single straight line or a single circle. */
+  | "point-on-spline"
   | "fix"
+  /** A point sits at the midpoint of a line — persisted so it stays there as the line's
+   * endpoints move, rather than the one-time positional snap this used to be. */
+  | "midpoint"
+  /** Two lines share the same infinite line, without requiring their endpoints to touch. */
+  | "colinear"
   /**
    * Not user-facing (no ribbon command creates it directly): pins one endpoint of an arc
    * to its entity's radius from its centre, auto-added alongside the arc so it stays

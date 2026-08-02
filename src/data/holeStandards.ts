@@ -38,7 +38,7 @@ export interface ClearanceStandard {
   sizes: ClearanceSizeEntry[];
 }
 
-export type TappedStandardId = "iso-metric" | "ansi-metric" | "ansi-unified";
+export type TappedStandardId = "iso-metric" | "ansi-metric" | "ansi-unified" | "npt";
 
 export interface TappedSizeEntry {
   /** Full thread callout, e.g. "M6x1" or "1/4-20 UNC". */
@@ -60,8 +60,10 @@ export interface TappedSizeEntry {
 export interface TappedStandard {
   id: TappedStandardId;
   label: string;
-  /** "unified" designations sort/parse differently (fraction-and-TPI vs. M-and-pitch). */
-  kind: "metric" | "unified";
+  /** "unified" designations sort/parse differently (fraction-and-TPI vs. M-and-pitch);
+   * "npt" is Hole Wizard's Taper Tapped Hole type, see the `"npt"` entry in
+   * `TAPPED_STANDARDS` below for what this app does and doesn't model for it. */
+  kind: "metric" | "unified" | "npt";
   entries: TappedSizeEntry[];
 }
 
@@ -908,4 +910,128 @@ export const TAPPED_STANDARDS: Record<TappedStandardId, TappedStandard> = {
       { designation: "1 3/4-5 UNC", sizeLabel: "1 3/4", nominalSize: 44.45, pitch: 5.0, internalClass: "2B", tapDrill: 39.6875 },
     ],
   },
+  // Hole Wizard's "Taper Tapped Hole" type (a tapered pipe thread, e.g. for a leak-tight
+  // fitting) — pitch is derived from the thread-data workbook's own "NPT" sheet
+  // (25.4 / TPI); tap drill diameters are the standard published NPT drill sizes (e.g.
+  // Machinery's Handbook), not derived from the spreadsheet, since deriving a practical tap
+  // drill from raw thread geometry needs real tapping-practice knowledge the sheet's pitch-
+  // diameter columns alone don't capture. What this does NOT model: the actual taper — a
+  // real NPT hole's diameter increases slightly along its depth (1:16 taper) for the
+  // leak-tight seal; this cuts a plain straight cylinder at the tap-drill diameter like
+  // every other tapped hole, which is dimensionally close enough to place and size a hole
+  // correctly but is not a substitute for a real tapered-pipe-thread model.
+  "npt": {
+    id: "npt",
+    label: "NPT (Taper Tapped)",
+    kind: "npt",
+    entries: [
+      { designation: "1/16-27 NPT", sizeLabel: "1/16", nominalSize: 7.94, pitch: 25.4 / 27, internalClass: "-", tapDrill: 7.94 },
+      { designation: "1/8-27 NPT", sizeLabel: "1/8", nominalSize: 10.29, pitch: 25.4 / 27, internalClass: "-", tapDrill: 8.71 },
+      { designation: "1/4-18 NPT", sizeLabel: "1/4", nominalSize: 13.72, pitch: 25.4 / 18, internalClass: "-", tapDrill: 11.11 },
+      { designation: "3/8-18 NPT", sizeLabel: "3/8", nominalSize: 17.15, pitch: 25.4 / 18, internalClass: "-", tapDrill: 14.29 },
+      { designation: "1/2-14 NPT", sizeLabel: "1/2", nominalSize: 21.34, pitch: 25.4 / 14, internalClass: "-", tapDrill: 17.86 },
+      { designation: "3/4-14 NPT", sizeLabel: "3/4", nominalSize: 26.67, pitch: 25.4 / 14, internalClass: "-", tapDrill: 23.02 },
+      { designation: "1-11.5 NPT", sizeLabel: "1", nominalSize: 33.4, pitch: 25.4 / 11.5, internalClass: "-", tapDrill: 29.36 },
+      { designation: "1 1/4-11.5 NPT", sizeLabel: "1 1/4", nominalSize: 42.16, pitch: 25.4 / 11.5, internalClass: "-", tapDrill: 37.72 },
+      { designation: "1 1/2-11.5 NPT", sizeLabel: "1 1/2", nominalSize: 48.26, pitch: 25.4 / 11.5, internalClass: "-", tapDrill: 43.66 },
+      { designation: "2-11.5 NPT", sizeLabel: "2", nominalSize: 60.33, pitch: 25.4 / 11.5, internalClass: "-", tapDrill: 55.56 },
+    ],
+  },
 };
+
+/**
+ * Seat (head-clearance) geometry for a Hole Wizard hole's optional counterbore, spotface or
+ * countersink recess, sourced from the same "Clearance Hole Spreadsheet" workbook as
+ * `CLEARANCE_STANDARDS` above, one representative ISO fastener style per seat — Socket Head
+ * Cap Screw ISO 4762 for counterbore, Hex Head Cap Screw ISO 24014 for spotface, Countersunk
+ * Flat Head Screw ISO 2009/7046 for countersink — the same choice Inventor's own Hole Wizard
+ * defaults to for each seat type. Only the ISO sizes actually present in the source sheet for
+ * that fastener style are listed; not every nominal size has every seat (e.g. no M1.6
+ * spotface), matching the real hardware these seats exist to fit.
+ */
+export type SeatType = "none" | "counterbore" | "spotface" | "countersink";
+
+export interface SeatSizeEntry {
+  /** Nominal fastener size label, e.g. "M6" — matches a `ClearanceSizeEntry.size` for the
+   * same nominal size, so a hole's clearance shaft and seat can share one Size picker. */
+  size: string;
+  /** Recess diameter in mm. */
+  headDiameter: number;
+  /** Counterbore/spotface: recess depth in mm. Countersink: included angle in degrees
+   * (always 90° for this standard) — which field is meaningful depends on the seat type. */
+  depthOrAngle: number;
+}
+
+export const SEAT_STANDARDS: Record<Exclude<SeatType, "none">, { label: string; sizes: SeatSizeEntry[] }> = {
+  counterbore: {
+    label: "Socket Head Cap Screw ISO 4762",
+    sizes: [
+      { size: "M1.4", headDiameter: 3.1, depthOrAngle: 1.6 },
+      { size: "M1.6", headDiameter: 3.5, depthOrAngle: 1.8 },
+      { size: "M2", headDiameter: 4.4, depthOrAngle: 2.3 },
+      { size: "M2.5", headDiameter: 5.5, depthOrAngle: 2.9 },
+      { size: "M3", headDiameter: 6.5, depthOrAngle: 3.4 },
+      { size: "M4", headDiameter: 8.0, depthOrAngle: 4.6 },
+      { size: "M5", headDiameter: 10.0, depthOrAngle: 5.7 },
+      { size: "M6", headDiameter: 11.0, depthOrAngle: 6.8 },
+      { size: "M8", headDiameter: 15.0, depthOrAngle: 9.0 },
+      { size: "M10", headDiameter: 18.0, depthOrAngle: 11.0 },
+      { size: "M12", headDiameter: 20.0, depthOrAngle: 13.0 },
+      { size: "M14", headDiameter: 24.0, depthOrAngle: 15.0 },
+      { size: "M16", headDiameter: 26.0, depthOrAngle: 17.5 },
+      { size: "M18", headDiameter: 30.0, depthOrAngle: 19.5 },
+      { size: "M20", headDiameter: 33.0, depthOrAngle: 21.5 },
+      { size: "M22", headDiameter: 36.0, depthOrAngle: 23.5 },
+      { size: "M24", headDiameter: 40.0, depthOrAngle: 25.5 },
+      { size: "M27", headDiameter: 43.0, depthOrAngle: 28.5 },
+      { size: "M30", headDiameter: 50.0, depthOrAngle: 32.0 },
+      { size: "M33", headDiameter: 53.0, depthOrAngle: 35.0 },
+      { size: "M36", headDiameter: 58.0, depthOrAngle: 38.0 },
+      { size: "M42", headDiameter: 68.0, depthOrAngle: 44.0 },
+      { size: "M48", headDiameter: 77.0, depthOrAngle: 50.0 },
+      { size: "M56", headDiameter: 89.0, depthOrAngle: 60.0 },
+      { size: "M64", headDiameter: 101.0, depthOrAngle: 68.0 },
+    ],
+  },
+  spotface: {
+    label: "Hex Head Cap Screw ISO 24014",
+    sizes: [
+      { size: "M3", headDiameter: 11.0, depthOrAngle: 1.0 },
+      { size: "M4", headDiameter: 13.0, depthOrAngle: 1.0 },
+      { size: "M5", headDiameter: 15.0, depthOrAngle: 1.0 },
+      { size: "M6", headDiameter: 18.0, depthOrAngle: 1.0 },
+      { size: "M8", headDiameter: 24.0, depthOrAngle: 1.0 },
+      { size: "M10", headDiameter: 28.0, depthOrAngle: 1.0 },
+      { size: "M12", headDiameter: 33.0, depthOrAngle: 1.0 },
+      { size: "M16", headDiameter: 40.0, depthOrAngle: 1.0 },
+      { size: "M20", headDiameter: 46.0, depthOrAngle: 1.0 },
+      { size: "M24", headDiameter: 58.0, depthOrAngle: 1.0 },
+      { size: "M30", headDiameter: 73.0, depthOrAngle: 1.0 },
+      { size: "M36", headDiameter: 82.0, depthOrAngle: 1.0 },
+      { size: "M42", headDiameter: 98.0, depthOrAngle: 1.0 },
+      { size: "M48", headDiameter: 112.0, depthOrAngle: 1.0 },
+      { size: "M56", headDiameter: 125.0, depthOrAngle: 1.0 },
+      { size: "M64", headDiameter: 140.0, depthOrAngle: 1.0 },
+    ],
+  },
+  countersink: {
+    label: "Countersunk Flat Head Screw ISO 2009/7046",
+    sizes: [
+      { size: "M1.6", headDiameter: 3.6, depthOrAngle: 90.0 },
+      { size: "M2", headDiameter: 4.4, depthOrAngle: 90.0 },
+      { size: "M2.5", headDiameter: 5.5, depthOrAngle: 90.0 },
+      { size: "M3", headDiameter: 6.3, depthOrAngle: 90.0 },
+      { size: "M4", headDiameter: 9.4, depthOrAngle: 90.0 },
+      { size: "M5", headDiameter: 10.4, depthOrAngle: 90.0 },
+      { size: "M6", headDiameter: 12.6, depthOrAngle: 90.0 },
+      { size: "M8", headDiameter: 17.3, depthOrAngle: 90.0 },
+      { size: "M10", headDiameter: 20.0, depthOrAngle: 90.0 },
+    ],
+  },
+};
+
+/** The seat recess dimensions for a nominal size, or `undefined` if that seat has no entry
+ * for that size (e.g. spotface has no M1.6). */
+export function resolveSeatDimensions(seat: Exclude<SeatType, "none">, size: string): SeatSizeEntry | undefined {
+  return SEAT_STANDARDS[seat].sizes.find((entry) => entry.size === size);
+}

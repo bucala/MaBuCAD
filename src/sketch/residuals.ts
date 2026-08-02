@@ -221,6 +221,69 @@ function geometricResiduals(
       return [cross(u, direction(ends.a, p)) / scale];
     }
 
+    case "point-on-circle": {
+      // Covers both a circle and an arc — an arc's rim is just its underlying circle's,
+      // so the same "distance from centre equals radius" residual applies to either
+      // without needing to know or enforce which side of the arc's sweep the point sits on.
+      const curve = entities.get(constraint.entities[0]);
+      if (!curve || (curve.kind !== "circle" && curve.kind !== "arc")) return [];
+      const centre = readPoint(values, layout, curve.center);
+      const p = readPoint(values, layout, constraint.points[0]);
+      const radius = values[layout.radiusIndex.get(curve.id)!];
+      return [length(direction(centre, p)) - radius];
+    }
+
+    case "point-on-spline": {
+      // A spline is a chain of straight segments for constraint purposes (the same
+      // approximation the trim/intersection code already makes) — find whichever segment
+      // the point currently sits closest to and pin it there with a point-on-line-style
+      // residual for that segment. Re-picking the nearest segment on every evaluation
+      // rather than fixing it once at constraint-creation time keeps this correct as the
+      // spline reshapes, at the cost of a small kink in the residual where the closest
+      // segment changes — acceptable since the solver only needs local convergence.
+      const spline = entities.get(constraint.entities[0]);
+      if (!spline || spline.kind !== "spline" || spline.points.length < 2) return [];
+      const p = readPoint(values, layout, constraint.points[0]);
+
+      let best: { distance: number; residual: number } | null = null;
+      for (let i = 0; i < spline.points.length - 1; i += 1) {
+        const a = readPoint(values, layout, spline.points[i]);
+        const b = readPoint(values, layout, spline.points[i + 1]);
+        const u = direction(a, b);
+        const segLength = Math.max(length(u), 1e-9);
+        const t = Math.min(1, Math.max(0, dot(direction(a, p), u) / (segLength * segLength)));
+        const closest = { x: a.x + t * u.x, y: a.y + t * u.y };
+        const distance = length(direction(closest, p));
+        const residual = cross(u, direction(a, p)) / segLength;
+        if (!best || distance < best.distance) best = { distance, residual };
+      }
+      return best ? [best.residual] : [];
+    }
+
+    case "midpoint": {
+      const ends = lineEnds(entities, values, layout, constraint.entities[0]);
+      if (!ends) return [];
+      const p = readPoint(values, layout, constraint.points[0]);
+      const mid = { x: (ends.a.x + ends.b.x) / 2, y: (ends.a.y + ends.b.y) / 2 };
+      return [p.x - mid.x, p.y - mid.y];
+    }
+
+    case "colinear": {
+      // Both endpoints of the second line lie on the first line's infinite extension —
+      // two point-on-line equations sharing the first line as reference, rather than one
+      // equation per line the way parallel/perpendicular work, since colinear is strictly
+      // stronger than parallel (same line, not just same direction).
+      const first = lineEnds(entities, values, layout, constraint.entities[0]);
+      const second = lineEnds(entities, values, layout, constraint.entities[1]);
+      if (!first || !second) return [];
+      const u = direction(first.a, first.b);
+      const scale = Math.max(length(u), 1e-9);
+      return [
+        cross(u, direction(first.a, second.a)) / scale,
+        cross(u, direction(first.a, second.b)) / scale,
+      ];
+    }
+
     default:
       return [];
   }

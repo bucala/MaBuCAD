@@ -7,8 +7,9 @@ import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 import { worldToSketch } from "@/sketch/planeBasis";
 import { entityPoints, pointById } from "@/sketch/sketchModel";
 import type { Sketch, SketchEntity } from "@/sketch/types";
-import { useSettingsStore } from "@/state/settingsStore";
 import { useSketchStore } from "@/state/sketchStore";
+
+import { useScreenSpacePixelScale } from "./screenSpaceScale";
 
 const STATIC_COLORS = {
   geometry: "#1a1a1a",
@@ -36,9 +37,6 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   const pickForSmartDimension = useSketchStore((state) => state.pickForSmartDimension);
   const trimAt = useSketchStore((state) => state.trimAt);
   const tool = useSketchStore((state) => state.tool);
-  // Invisible pick radius around a point, matching the snap radius the drawing tools use
-  // (Settings > Sketch > "Snap tolerance") — was a hardcoded constant.
-  const pickRadius = useSettingsStore((state) => state.snapTolerance);
   // Points and entities only intercept clicks for picking while Select or Smart Dimension
   // is active. Any drawing tool needs those same clicks to reach the invisible drawing
   // surface behind them (SketchCanvas), which is what actually creates and snaps
@@ -82,50 +80,90 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
         />
       ))}
 
-      {sketch.points.map((point) => {
-        const isOrigin = point.id === `${sketch.id}-origin`;
-        const isSelected = selection.includes(point.id);
+      {sketch.points.map((point) => (
+        <SketchPointDot
+          key={point.id}
+          point={point}
+          isOrigin={point.id === `${sketch.id}-origin`}
+          isSelected={selection.includes(point.id)}
+          isPickMode={isPickMode}
+          accent={accent}
+          onPick={(additive) => pick(point.id, additive)}
+        />
+      ))}
+    </group>
+  );
+}
 
-        return (
-          <group key={point.id} position={[point.x, point.y, 0.02]}>
-            {/*
-              A point drawn at true size is only a few pixels across and almost impossible
-              to hit, so picking uses a larger invisible target — the same radius the
-              drawing tools snap within, which keeps clicking and snapping consistent.
-            */}
-            <mesh
-              name={point.id}
-              userData={{ sketchPointId: point.id }}
-              onClick={
-                isPickMode
-                  ? (event) => {
-                      event.stopPropagation();
-                      pick(point.id, event.ctrlKey || event.metaKey);
-                    }
-                  : undefined
+/** Regular point dots render at a small constant on-screen size; the origin is drawn a
+ * little larger to stay visually distinct. The invisible click target is bigger than
+ * either, for comfortable picking, but — unlike before — is a fixed *pixel* radius rather
+ * than a copy of the drawing tools' (world-space, mm) snap tolerance: reusing that setting
+ * here meant a click landing anywhere within a few mm of a point (easily most of a short or
+ * heavily zoomed-in line) grabbed and dragged that point instead of the line body the user
+ * meant to click, and the same fixed-world-unit radius is also what made a point's own
+ * visible dot balloon to a nonsensical size once zoomed in far enough. */
+const POINT_VISIBLE_PIXELS = 3.5;
+const ORIGIN_VISIBLE_PIXELS = 5;
+const POINT_PICK_TARGET_PIXELS = 9;
+
+function SketchPointDot({
+  point,
+  isOrigin,
+  isSelected,
+  isPickMode,
+  accent,
+  onPick,
+}: {
+  point: { id: string; x: number; y: number };
+  isOrigin: boolean;
+  isSelected: boolean;
+  isPickMode: boolean;
+  accent: string;
+  onPick: (additive: boolean) => void;
+}) {
+  const pickRef = useScreenSpacePixelScale(POINT_PICK_TARGET_PIXELS);
+  const dotRef = useScreenSpacePixelScale(isOrigin ? ORIGIN_VISIBLE_PIXELS : POINT_VISIBLE_PIXELS);
+
+  return (
+    <group position={[point.x, point.y, 0.02]}>
+      {/*
+        A point drawn at true size is only a few pixels across and almost impossible to
+        hit, so picking uses a larger invisible target, sized in screen pixels so it stays
+        comfortable to click at any zoom instead of ballooning to cover half the sketch
+        when zoomed in, or shrinking to nothing zoomed out.
+      */}
+      <mesh
+        ref={pickRef}
+        name={point.id}
+        userData={{ sketchPointId: point.id }}
+        onClick={
+          isPickMode
+            ? (event) => {
+                event.stopPropagation();
+                onPick(event.ctrlKey || event.metaKey);
               }
-              // Deliberately not also toggling `raycast` here: react-three-fiber does not
-              // reliably restore a mesh's default raycast method once a prop has set it to
-              // a no-op — a mesh created while a drawing tool was active (so raycast was
-              // disabled) stayed unpickable even after switching back to Select. Leaving
-              // onClick unset is sufficient on its own: with no handler, r3f's raycast
-              // still hits this mesh but has nothing to call, so it continues on to the
-              // canvas plane behind it instead of stopping here.
-            >
-              <circleGeometry args={[pickRadius, 12]} />
-              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-            </mesh>
+            : undefined
+        }
+        // Deliberately not also toggling `raycast` here: react-three-fiber does not
+        // reliably restore a mesh's default raycast method once a prop has set it to a
+        // no-op — a mesh created while a drawing tool was active (so raycast was disabled)
+        // stayed unpickable even after switching back to Select. Leaving onClick unset is
+        // sufficient on its own: with no handler, r3f's raycast still hits this mesh but
+        // has nothing to call, so it continues on to the canvas plane behind it instead of
+        // stopping here.
+      >
+        <circleGeometry args={[1, 12]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
 
-            <mesh raycast={() => null}>
-              <circleGeometry args={[isOrigin ? 1.1 : 0.8, 12]} />
-              <meshBasicMaterial
-                color={isSelected ? accent : isOrigin ? STATIC_COLORS.origin : STATIC_COLORS.point}
-                depthTest={false}
-              />
-            </mesh>
-          </group>
-        );
-      })}
+      <mesh ref={dotRef} raycast={() => null}>
+        <circleGeometry args={[1, 12]} />
+        <meshBasicMaterial
+          color={isSelected ? accent : isOrigin ? STATIC_COLORS.origin : STATIC_COLORS.point}
+          depthTest={false}
+        />
+      </mesh>
     </group>
   );
 }

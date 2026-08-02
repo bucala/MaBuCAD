@@ -77,15 +77,18 @@ shell and exact STEP export possible at all.
 ### 🛠️ A full PartDesign set
 
 Extrude/Cut, Revolve/Cut, Sweep/Cut (straight or spline path), Loft, a Hole Wizard driven by
-real Autodesk clearance/tap-drill tables, Fillet, Chamfer, Shell, Draft, Rib, Linear/Circular
-Pattern, Mirror and reference geometry.
+real Autodesk clearance/tap-drill tables — Simple, Clearance, Tapped or Taper Tapped (NPT),
+with a real Counterbore/Spotface/Countersink seat and an actual conical drill point on a
+blind hole — Fillet, Chamfer, Shell, Draft, Rib, Linear/Circular Pattern, Mirror and
+reference geometry.
 
   </td>
   <td width="33%" valign="top">
 
 ### 🎯 Edge-selective dress-up
 
-Fillet and Chamfer default to every edge, or pick specific ones in the viewport — picks are
+Fillet and Chamfer default to every edge, or pick specific ones in the viewport — the picked
+edge highlights as its own contour, not a marker dropped where you clicked — and picks are
 re-resolved geometrically on every rebuild, an honest stand-in for persistent edge naming in
 a kernel with none.
 
@@ -420,12 +423,12 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Project shell | Tauri + React + Vite scaffolding, Fluent 2 UI chrome | ✅ |
 | Viewport | CAD navigation, reference planes, origin, viewcube, axis-cross legend | ✅ |
 | Document model | Feature tree, rollback, suppress, undo/redo, rename, drag-reorder | ✅ |
-| Sketcher | Full entity set, 9 relations, dimensioning, damped-Newton solver | ✅ |
+| Sketcher | Full entity set, 11 relations, dimensioning, damped-Newton solver | ✅ |
 | Core solids | Extrude/Cut-Extrude, Revolve/Cut-Revolve | ✅ |
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
 | Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Offset, Mirror, Linear/Circular Pattern | ✅ |
 | Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence | ✅ |
-| Hole Wizard | Real ISO clearance and tapped-hole data from Autodesk reference tables | ✅ |
+| Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point | ✅ |
 | Dress-up | Fillet, Chamfer, Shell, Draft, Rib — with edge-selective Fillet/Chamfer | ✅ |
 | Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft | ✅ |
 | Pattern/Mirror (feature-level) | Linear Pattern, Circular Pattern, Mirror | ✅ |
