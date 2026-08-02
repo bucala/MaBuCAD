@@ -7,6 +7,57 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-02 — ViewCube arrow direction, plain-arrow gizmo, dimension arrowheads
+
+A fifth round of feedback covering a broad set of areas (Hole Wizard workflow, an
+Inventor-style selection filter, ribbon customisation, the bottom-left gizmo's look, the
+ViewCube arrows' rotation direction, Trim's coverage and multi-select, and dimension
+display) — this entry covers what's fixed; see the note at the end for what's deliberately
+scoped out of this round.
+
+### Fixed
+- **The ViewCube's left/right navigation arrows rotated the view backwards.** Clicking
+  "right" orbited the camera *away* from the model's right-hand side (toward more of its
+  left), the opposite of what a right arrow should do; up/down were already correct and
+  untouched. Verified by logging the camera's actual position before/after a click (ruling
+  out an axis/elevation bug — the rotation was always a clean, correct horizontal orbit)
+  and by watching which ViewCube faces come into view across a sequence of clicks. Fixed by
+  swapping which direction gets the positive rotation.
+
+### Changed
+- **The bottom-left orientation gizmo no longer draws a filled circle behind each axis
+  letter.** It's a plain coloured arrow per axis with the letter at the tip instead —
+  drei's `GizmoViewport` (used until now) always draws its axis labels inside a solid
+  sprite disc, with no way to keep the label but drop just the disc, so this is a small
+  bespoke replacement (`LiveAxisGizmo.tsx`) built the same way `Origin.tsx`'s static triad
+  already is (coloured `Line` + a plain-text `Html` label, no mesh disc). Still purely a
+  visual orientation reference with no click-to-align behaviour, same as before.
+- **Dimension lines now have arrowheads.** A linear dimension's line and a radius/diameter
+  dimension's leader were previously drawn as plain, arrowless lines — at a glance,
+  especially before a label has been dragged away from its tight default position, that
+  can read as an unlabelled tangle rather than an obviously-a-dimension line pointing at
+  something specific. Small arrowheads now sit at both ends of a linear dimension's line
+  and at the centre end of a radius/diameter leader, matching the convention every other
+  CAD tool's dimension lines use.
+
+### Known, deliberately not attempted this round
+Several requests need either a design decision this session can't make alone, or enough
+surface area (rewriting hit-testing for every sketch entity type, a new selection-filter
+UI, a ribbon-customisation system) that attempting them under the same time budget as the
+items above risked shipping several half-finished features instead of a few solid ones:
+- **Hole Wizard**: a "pick an existing sketch, or click a plane/face to place a new point
+  there" placement flow, replacing today's requirement that a sketch with points already
+  exists before Hole Wizard is usable.
+- **A selection-priority filter** (Component/Part/Body/Feature/Face-Edge/Sketch/Annotation,
+  à la Inventor) — most of its value is in assembly contexts, which this app doesn't have
+  yet (see the roadmap in `README.md`); worth revisiting once Assembly exists, or scoping
+  down to a Part-only subset first.
+- **Ribbon customisation** via a right-click context menu, plus extending the existing
+  Settings export to include ribbon layout and chrome visibility (logo, title, version).
+- **Trim**: drag-to-marquee-select multiple entities to trim at once, and support for
+  trimming circles and splines (today only lines can be trimmed — `trimLineAt`'s own doc
+  comment already flagged this as a known gap).
+
 ## 2026-08-02 — Fixed the real cause of broken sketch drawing/dimensioning, viewport hint removed
 
 A fourth round of feedback, including a report that a freshly drawn circle's Smart

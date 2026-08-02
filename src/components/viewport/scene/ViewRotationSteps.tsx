@@ -36,7 +36,9 @@ export function ViewRotationSteps() {
     const worldUp = new Vector3(0, 1, 0);
 
     if (request.direction === "left" || request.direction === "right") {
-      const angle = request.direction === "left" ? STEP_RADIANS : -STEP_RADIANS;
+      // Right orbits the camera toward the model's right-hand side (bringing more of its
+      // right-adjacent faces into view), not away from it.
+      const angle = request.direction === "right" ? STEP_RADIANS : -STEP_RADIANS;
       offset.applyAxisAngle(worldUp, angle);
     } else {
       // Pitching around the camera's own local right axis tilts the view up/down without
