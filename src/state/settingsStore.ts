@@ -105,6 +105,12 @@ interface SettingsValues {
   /** The build version readout in `StatusBar.tsx`'s bottom-right corner. Same toggle
    * surface as `logoTitleVisible`. */
   versionVisible: boolean;
+  /** "Constraints smart" — dragging a sketch point live-suggests a coincident/tangent
+   * relation or a midpoint snap when it passes near one (`inferDragSnap` in
+   * `sketchModel.ts`), applied on release. On by default (existing behaviour); this is the
+   * off switch for someone who finds the suggestion distracting or wants a drag to land
+   * exactly where the cursor is, unconstrained. Toggled from `StatusBar.tsx`. */
+  smartConstraintEnabled: boolean;
 }
 
 /**
@@ -161,6 +167,7 @@ interface SettingsStore extends SettingsValues {
   toggleDebugMode: () => void;
   toggleLogoTitleVisible: () => void;
   toggleVersionVisible: () => void;
+  toggleSmartConstraint: () => void;
   /** Replaces every value at once — what Import Settings uses, so an imported file fully
    * determines the result rather than merging over whatever was already set. */
   replaceAll: (values: SettingsValues) => void;
@@ -186,6 +193,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   debugModeEnabled: false,
   logoTitleVisible: true,
   versionVisible: true,
+  smartConstraintEnabled: true,
 };
 
 /**
@@ -231,6 +239,7 @@ export const useSettingsStore = create<SettingsStore>()(
       toggleDebugMode: () => set((state) => ({ debugModeEnabled: !state.debugModeEnabled })),
       toggleLogoTitleVisible: () => set((state) => ({ logoTitleVisible: !state.logoTitleVisible })),
       toggleVersionVisible: () => set((state) => ({ versionVisible: !state.versionVisible })),
+      toggleSmartConstraint: () => set((state) => ({ smartConstraintEnabled: !state.smartConstraintEnabled })),
       replaceAll: (values) => set(values),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),

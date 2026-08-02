@@ -217,6 +217,13 @@
   border-color: var(--accent);
 }
 
+/* See PropertyManager.module.css's `.input option` for why this needs its own explicit,
+   opaque colours rather than inheriting `.numberInput`'s translucent background. */
+.numberInput option {
+  background: var(--bg-solid);
+  color: var(--text-primary);
+}
+
 .rangeInput {
   flex: 1 1 auto;
   accent-color: var(--accent);

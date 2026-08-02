@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ListTree, Settings2, SlidersHorizontal } from "lucide-react";
 
 import { SketchPanel } from "@/components/property/SketchPanel";
+import { useDocumentStore } from "@/state/documentStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
 import { ConfigurationManager } from "@/components/manager/ConfigurationManager";
@@ -24,12 +25,26 @@ const TABS: { id: ManagerTabId; label: string; icon: typeof ListTree }[] = [
 export function ManagerPanel() {
   const [activeTab, setActiveTab] = useState<ManagerTabId>("features");
   const isSketchMode = useSketchStore(selectIsSketchMode);
+  const selectedFeatureId = useDocumentStore((state) =>
+    state.selectedFeatureIds.length === 1 ? state.selectedFeatureIds[0] : null,
+  );
 
   // Opening a sketch swings the panel to the property manager, where the sketch tools
   // live — the same thing SolidWorks does when a command takes over.
   useEffect(() => {
     if (isSketchMode) setActiveTab("properties");
   }, [isSketchMode]);
+
+  // A single feature becoming selected — most commonly a brand new one, since
+  // `documentStore.addFeature` selects whatever it just created — swings the panel to its
+  // properties the same way, so a Fillet/Chamfer's "Select Edges" toggle and Radius field
+  // are immediately visible instead of sitting one tab away from a tree view that gives no
+  // hint they exist. Deliberately not triggered by a *cleared* or multi-entity selection
+  // (Ctrl-click for a bulk Delete, clicking empty canvas) — either would otherwise yank the
+  // user back to Properties mid-task for no reason.
+  useEffect(() => {
+    if (selectedFeatureId && !isSketchMode) setActiveTab("properties");
+  }, [selectedFeatureId, isSketchMode]);
 
   return (
     <div className={styles.panel}>

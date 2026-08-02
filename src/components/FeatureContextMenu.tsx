@@ -40,6 +40,7 @@ export function FeatureContextMenu() {
   const deleteFeature = useDocumentStore((state) => state.deleteFeature);
   const rollbackToBefore = useDocumentStore((state) => state.rollbackToBefore);
   const resumeSketch = useSketchStore((state) => state.resumeSketch);
+  const sketches = useSketchStore((state) => state.sketches);
   const hiddenFeatureIds = useViewportStore((state) => state.hiddenFeatureIds);
   const toggleFeatureVisibility = useViewportStore((state) => state.toggleFeatureVisibility);
 
@@ -83,6 +84,22 @@ export function FeatureContextMenu() {
   const close = () => closeContextMenu();
   const isHidden = selectedId ? hiddenFeatureIds.includes(selectedId) : false;
 
+  // Any sketch-consuming feature (Extrude, Revolve, Hole, Rib, ...) — not just a sketch
+  // row itself — gets the same "Edit Sketch" shortcut straight to its own backing sketch,
+  // the same one SolidWorks/Inventor offer on a boss/cut feature. Without this, a sketch
+  // created automatically rather than by hand (Hole Wizard's "click a face to place a
+  // hole" — see `placeHoleAtPick` in `commandRegistry.ts`) is only reachable by finding
+  // its own separate row in the tree, which is easy to miss since nothing about the Hole
+  // feature's own row hints that row exists.
+  const parentSketchId =
+    feature && feature.kind !== "sketch"
+      ? feature.parents.find(
+          (parentId) =>
+            features.some((candidate) => candidate.id === parentId && candidate.kind === "sketch") &&
+            sketches[parentId],
+        )
+      : undefined;
+
   return (
     <div ref={menuRef} className={styles.menu} style={{ left, top }} role="menu">
       {isPlane && (
@@ -124,6 +141,21 @@ export function FeatureContextMenu() {
               className={styles.item}
               onClick={() => {
                 resumeSketch(feature.id);
+                close();
+              }}
+            >
+              <Circle size={14} strokeWidth={1.75} />
+              Edit Sketch
+            </button>
+          )}
+
+          {parentSketchId && (
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => {
+                resumeSketch(parentSketchId);
                 close();
               }}
             >

@@ -649,11 +649,14 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
       // "Constrains smart": suggested from the point's actual post-solve position (other
       // constraints may have pulled it away from where the cursor literally is), so the
-      // highlight always matches where the point really ended up.
+      // highlight always matches where the point really ended up. Off entirely when the
+      // Settings ▸ Sketch toggle (`smartConstraintEnabled`) is off, rather than just
+      // hiding the highlight — no suggestion means `commitDragSnap` has nothing to apply.
       const settledPoint = pointById(final.sketch, pointId);
-      const suggestion = settledPoint
-        ? inferDragSnap(final.sketch, pointId, settledPoint, snapTolerance())
-        : null;
+      const suggestion =
+        settledPoint && useSettingsStore.getState().smartConstraintEnabled
+          ? inferDragSnap(final.sketch, pointId, settledPoint, snapTolerance())
+          : null;
 
       set({
         sketches: { ...sketches, [activeSketchId]: final.sketch },

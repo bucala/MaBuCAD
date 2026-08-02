@@ -241,12 +241,39 @@ export function addPoint(
 
 /* --------------------------------------------------------------- constraints */
 
+/** Whether two id lists name the same members, regardless of order — a relation between
+ * "line A, line B" is the same relation as "line B, line A". */
+function sameMembers(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sorted = [...b].sort();
+  return [...a].sort().every((id, index) => id === sorted[index]);
+}
+
+/**
+ * Adds a relation, unless an identical one (same kind, same entities, same points) already
+ * exists, in which case the sketch is returned unchanged. Without this, "Constraints
+ * smart" (`commitDragSnap` in `sketchStore.ts`) added a fresh duplicate constraint every
+ * time a drag ended near a suggestion it had already been snapped to — nudging the same
+ * point back onto the same target a few times left several redundant coincident/tangent
+ * constraints behind, all pinning the same two things, that a Delete Selection had to be
+ * used to notice and clean up one at a time. The explicit "Add Relation" panel buttons
+ * share this same guard, so a repeated click there is equally a no-op instead of a stacked
+ * duplicate.
+ */
 export function addConstraint(
   sketch: Sketch,
   kind: GeometricConstraintKind,
   entities: string[],
   points: string[],
 ): Sketch {
+  const isDuplicate = sketch.constraints.some(
+    (constraint) =>
+      constraint.kind === kind &&
+      sameMembers(constraint.entities, entities) &&
+      sameMembers(constraint.points, points),
+  );
+  if (isDuplicate) return sketch;
+
   return {
     ...sketch,
     constraints: [...sketch.constraints, { id: uid("con"), kind, entities, points }],
@@ -1272,7 +1299,9 @@ export function trimCircleAt(sketch: Sketch, entityId: string, x: number, y: num
     }
   }
   const cuts = [...angleSet].sort((a, b) => a - b);
-  if (cuts.length < 2) return sketch;
+  // Fewer than two distinct crossings means there's nothing to bound a trim to, so the
+  // whole circle goes — same fallback `trimLineAt` uses for a line with no crossings.
+  if (cuts.length < 2) return dropEntities(sketch, new Set([entityId]));
 
   const clickAngle = angleAround(centre, { x, y });
   const segmentAt = (index: number): { from: number; to: number } => ({

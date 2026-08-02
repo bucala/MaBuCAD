@@ -5,10 +5,22 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { useViewportStore } from "@/state/viewportStore";
 
-/** Degrees the camera orbits per arrow click — small enough to stay oriented, large
- * enough that a click is visibly a step rather than a nudge. */
+/** Degrees the camera orbits per up/down/roll arrow click — small enough to stay
+ * oriented, large enough that a click is visibly a step rather than a nudge. */
 const STEP_DEGREES = 45;
 const STEP_RADIANS = (STEP_DEGREES * Math.PI) / 180;
+
+/**
+ * Degrees per left/right click — a full quarter turn rather than up/down's 45°.
+ * Horizontal orbit around the world Y axis has no pole to run into (unlike up/down, which
+ * has to stop shy of looking straight down/up), so a step here can always go the full
+ * distance between two of the ViewCube's own corners: each click reliably lands on the
+ * next octant (Front/Right/Top → Left/Front/Top → Back/Left/Top → ...) with the current
+ * elevation preserved, instead of an odd 45°-off in-between orientation two clicks would
+ * otherwise pass through on the way there.
+ */
+const LEFT_RIGHT_STEP_DEGREES = 90;
+const LEFT_RIGHT_STEP_RADIANS = (LEFT_RIGHT_STEP_DEGREES * Math.PI) / 180;
 
 /** How close the view is allowed to get to looking straight down/up the world Y axis —
  * past that the "left/right" horizontal axis becomes degenerate (gimbal lock), same
@@ -53,7 +65,7 @@ export function ViewRotationSteps() {
     if (request.direction === "left" || request.direction === "right") {
       // Right orbits the camera toward the model's right-hand side (bringing more of its
       // right-adjacent faces into view), not away from it.
-      const angle = request.direction === "right" ? STEP_RADIANS : -STEP_RADIANS;
+      const angle = request.direction === "right" ? LEFT_RIGHT_STEP_RADIANS : -LEFT_RIGHT_STEP_RADIANS;
       offset.applyAxisAngle(worldUp, angle);
     } else {
       // Pitching around the camera's own local right axis tilts the view up/down without
