@@ -352,7 +352,8 @@ import/export round trips, theming, and the full ribbon command surface — rath
 relying on typecheck and build alone to say a feature actually works. See
 [`CHANGELOG.md`](./CHANGELOG.md) for the dated history of what was verified, and the bugs
 this suite caught along the way (including a WASM heap-corruption bug in the vendored
-kernel and a rare pointer-event race in the sketch tool).
+kernel, a rare pointer-event race in the sketch tool, and a UI panel that silently never
+surfaced a new Fillet/Chamfer's own edge-selection and radius controls).
 
 </details>
 

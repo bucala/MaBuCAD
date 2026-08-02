@@ -48,6 +48,7 @@ export async function runExportSettings(): Promise<void> {
     debugModeEnabled,
     logoTitleVisible,
     versionVisible,
+    smartConstraintEnabled,
   } = useSettingsStore.getState();
 
   const payload: SavedSettings = {
@@ -71,6 +72,7 @@ export async function runExportSettings(): Promise<void> {
       debugModeEnabled,
       logoTitleVisible,
       versionVisible,
+      smartConstraintEnabled,
     },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });

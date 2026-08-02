@@ -7,6 +7,98 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-02 — A round of real bugs, one important discoverability fix, and two toggles
+
+A sixth round of feedback, mostly bug reports rather than new-feature asks. Several turned
+out to be real, confirmed bugs; a couple turned out to be existing functionality with no
+visible way to find it, which reads exactly like "broken" from the outside — both kinds are
+treated as bugs here, since the second is just as much a real problem for whoever hit it.
+
+### Fixed
+- **A Fillet or Chamfer's own Property Manager (the "Select Edges" toggle and the Radius
+  field) never appeared after creating one from the ribbon** — the left dock stayed on the
+  Feature tree tab, one click away from the panel that actually lets you scope the feature
+  to specific edges or change its radius. Reported as "Fillet/Chamfer executes randomly, I
+  can't select edges or edit the values afterward" — the edge-picking and value-editing
+  machinery already worked (confirmed: the existing 17-assertion Playwright suite for it
+  already passed, unchanged, before this fix), it just weighed anchor invisibly behind an
+  unselected tab. `ManagerPanel.tsx` now swings to the Property Manager whenever a single
+  feature becomes selected outside sketch mode — not just when entering a sketch, which was
+  already the existing rule for that case — so a brand-new Fillet/Chamfer (or any other
+  feature) shows its own properties immediately, the same as SolidWorks/Inventor already do.
+- **A Hole placed via Hole Wizard's "click a face" flow (added last round) had no visible
+  way to edit its position afterward** — reported as "no sketch gets created, can't move the
+  hole." A backing sketch *is* created (confirmed: it already appears correctly in the
+  Feature tree, one row above the Hole feature, and dragging its point there already
+  repositions the hole on Exit Sketch) — the real gap was that right-clicking the *Hole*
+  feature itself offered no way to reach it, only right-clicking its separately-listed
+  sketch row did. `FeatureContextMenu.tsx` now offers "Edit Sketch" on any sketch-consuming
+  feature (Hole, Extrude, Revolve, Rib, ...), not just on a sketch row directly, jumping
+  straight to that feature's own backing sketch — the same shortcut SolidWorks/Inventor
+  give a Boss-Extrude or Cut.
+- **A duplicate relation was added every time "Constraints smart" (drag-snap-suggest) ended
+  a drag near a suggestion it had already applied** — nudging the same point back onto the
+  same target a few times left several redundant coincident/tangent constraints stacked on
+  the same two things, each with its own constraint glyph, reading as visual clutter (and,
+  per the report, "constraints disappearing" — actually a dense pile of them at one spot).
+  `addConstraint` (`sketchModel.ts`) is now idempotent: adding a relation identical to one
+  that already exists (same kind, same entities, same points, order-independent) is a
+  no-op. This also covers the explicit "Add Relation" panel buttons (Horizontal, Parallel,
+  ...), which shared the same gap.
+- **There was no way to turn "Constraints smart" off** — reported as "I don't know where the
+  button is." There wasn't one; it always ran. New `smartConstraintEnabled` setting (on by
+  default, preserving existing behaviour) with a toggle button in the status bar, sketch
+  mode only, next to the other sketch toggles.
+- **`trimCircleAt` silently did nothing when a circle had fewer than two crossings** —
+  contradicting its own doc comment ("the whole circle is removed instead"), which is what
+  a line with no crossings already correctly does. Found while reproducing the constraint
+  report above with a circle that turned out not to actually overlap anything: clicking it
+  in Trim mode had no effect at all rather than deleting it. Fixed to actually call the same
+  cleanup a real removal uses.
+- **ViewCube left/right arrows never landed cleanly on the next octant** — reported as "they
+  rotate incorrectly, they should flip to the next face the way the up arrow does." Up/down
+  already read as landing cleanly because they run into the near-pole guard after one or two
+  15°-off-90° steps and stop there; left/right had no such guard and just kept orbiting
+  through arbitrary 45°-off angles. Since horizontal orbit around the world Y axis has no
+  pole to run into, left/right now step by a full 90° instead — every click reliably lands
+  on the next corner (Front/Right/Top → Left/Front/Top → ...) with the current elevation
+  preserved. Up/down/roll are unchanged.
+- **Dropdown `<option>` lists (Settings' Language selector, Hole Wizard's Standard/Size/Fit
+  selectors) could render with a translucent background nearly indistinguishable from white,
+  making the selected item unreadable** — reported as "dropdowns have a white background
+  and I can't see the selection, throughout the app." The closed `<select>` box itself
+  reads fine (translucent over the app's own dark background), but the open popup list is a
+  separate native overlay that doesn't sit over that background — inheriting the same
+  translucent fill there can wash out to near-white depending on how the host renders it.
+  `<option>` elements now get their own explicit, opaque colours (`--bg-solid` background,
+  `--text-primary` text) instead of inheriting the input's translucent one. Not independently
+  verified against the native Tauri/WebView2 shell this round (only the browser preview,
+  where it was not reproducible to begin with) — flagged honestly rather than claimed fixed
+  with certainty.
+
+### Investigated, not reproduced
+- **ViewCube down arrow "doesn't work"**: directly tested in isolation (fresh view, one
+  click) and it rotates correctly, matching up/down's shared mechanism. Also tested a full
+  up→down round trip, which correctly returns to the exact starting view (mathematically
+  expected, and easy to misread as "down did nothing" if tried right after up). Left
+  unchanged; flag it again with a specific repro (what was clicked immediately before) if it
+  still happens.
+- **Middle-mouse-button + Ctrl for pan**: already implemented (`CadControls.tsx`'s own doc
+  comment has documented these bindings since Step 2 — middle-drag orbits, Ctrl+middle-drag
+  pans, Shift+middle-drag zooms). No change needed.
+
+### Known, still not attempted
+- **Auto-selecting closed sketch regions, and highlighting an open contour with a specific
+  warning** when extruding/cutting a sketch that isn't fully closed. Today's error
+  (`"The sketch has no closed profile to extrude"`) is accurate but generic, and doesn't
+  point at *which* stretch of the sketch is the problem — that needs new viewport rendering
+  to highlight the specific open run, not just a better string, so it's scoped as its own
+  round rather than folded in here.
+- **Hole Wizard: sourcing every parameter from the referenced Autodesk documentation and
+  rendering a real thread texture** (pitch/depth-aware). `data/holeStandards.ts` already
+  carries real ISO clearance and tap-drill tables; visually texturing the resulting hole
+  with actual thread geometry is a substantially larger rendering task, not attempted here.
+
 ## 2026-08-02 — Trim on circles and splines, and drag-to-window multi-select (items 6 and 7)
 
 The last two items from the original feedback list: Trim's two remaining known gaps.

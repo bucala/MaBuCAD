@@ -107,6 +107,17 @@
   color: var(--text-disabled);
 }
 
+/* The dropdown popup a <select> opens is a native overlay, not part of the app's own
+   translucent-over-Mica surface stack — inheriting `.input`'s translucent `--fill-control`
+   composites against the popup's own opaque backdrop instead of the app background behind
+   it, which can wash out to near-white with white text on top of it. `<option>` needs its
+   own explicit, opaque colours so the open list stays readable regardless of how the host
+   (Tauri's WebView2 in particular) paints that overlay. */
+.input option {
+  background: var(--bg-solid);
+  color: var(--text-primary);
+}
+
 /* ----------------------------------------------------------- grouped sections
    Direction and Body group several related controls under a label, the way Fusion 360's
    own "Behavior"/"Output" sections do, rather than a flat, unlabelled list of fields. */

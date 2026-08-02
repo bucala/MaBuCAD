@@ -1,4 +1,4 @@
-import { Box, Eye, Grid3x3, Magnet, Square } from "lucide-react";
+import { Box, Eye, Grid3x3, Magnet, Sparkles, Square } from "lucide-react";
 
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -70,6 +70,8 @@ export function StatusBar() {
   const setSelectionFilterMode = useViewportStore((state) => state.setSelectionFilterMode);
   const selectedFaceId = useViewportStore((state) => state.selectedFaceId);
   const versionVisible = useSettingsStore((state) => state.versionVisible);
+  const smartConstraintEnabled = useSettingsStore((state) => state.smartConstraintEnabled);
+  const toggleSmartConstraint = useSettingsStore((state) => state.toggleSmartConstraint);
   const { t } = useTranslation();
 
   return (
@@ -124,6 +126,23 @@ export function StatusBar() {
           onClick={toggleSnapToGrid}
         >
           <Magnet size={13} strokeWidth={1.75} />
+        </button>
+      )}
+
+      {isSketchMode && (
+        <button
+          type="button"
+          className={styles.iconButton}
+          aria-pressed={smartConstraintEnabled}
+          title={
+            smartConstraintEnabled
+              ? "Constraints smart: on — dragging a point suggests a relation nearby"
+              : "Constraints smart: off"
+          }
+          aria-label={smartConstraintEnabled ? "Constraints smart: on" : "Constraints smart: off"}
+          onClick={toggleSmartConstraint}
+        >
+          <Sparkles size={13} strokeWidth={1.75} />
         </button>
       )}
 
