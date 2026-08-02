@@ -17,6 +17,9 @@ import { useClickGuard } from "../controls/useClickGuard";
  * off instead of adding a duplicate — clicking the same edge again deselects it. */
 const EDGE_PICK_TOGGLE_DISTANCE = 2;
 const EDGE_MARKER_RADIUS = 1.1;
+/** Highlight colour for the "face" selection filter — distinct from the amber edge-pick
+ * highlight and the red hole-placement marker so the three never read as the same thing. */
+const FACE_HIGHLIGHT_COLOR = "#3fd0ff";
 
 /**
  * Renders the rebuilt solid: a shaded surface plus the B-Rep edges on top.
@@ -49,7 +52,17 @@ export function SolidModel() {
   const pickingFeature = features.find((feature) => feature.id === edgePickModeFeatureId);
   const holePlacementActive = useViewportStore((state) => state.holePlacementActive);
   const setHolePlacementActive = useViewportStore((state) => state.setHolePlacementActive);
+  const selectionFilterMode = useViewportStore((state) => state.selectionFilterMode);
+  const selectedFaceId = useViewportStore((state) => state.selectedFaceId);
+  const setSelectedFaceId = useViewportStore((state) => state.setSelectedFaceId);
   const isPick = useClickGuard();
+
+  // A face id is only meaningful for the mesh it came from — `kernel/rebuild.ts` renumbers
+  // faces 0, 1, 2... fresh on every rebuild, so a highlight left over from a stale mesh
+  // could easily land on the wrong face (or none) once the geometry actually changes.
+  useEffect(() => {
+    setSelectedFaceId(null);
+  }, [committedMesh, setSelectedFaceId]);
 
   // Escape backs out of Hole Wizard placement the same way it backs out of any other
   // modal viewport interaction, since there is (yet) no feature selected to drive this
@@ -165,6 +178,27 @@ export function SolidModel() {
     placeHoleAtPick(event.point.clone(), worldNormal);
   };
 
+  /**
+   * "Face" selection-priority filter: resolves exactly which kernel Face a click landed on
+   * and highlights just that face, using the per-face triangle ranges replicad's own
+   * `Shape.mesh()` already reports (`MeshData.faceGroups` — see its doc comment in
+   * `kernel/rebuild.ts`). `event.faceIndex` is three.js's own concept — the index of the
+   * *triangle* the raycaster hit within this geometry's index buffer — unrelated to the
+   * kernel's Face id until mapped through `faceGroups` here: `event.faceIndex * 3` is that
+   * triangle's position in `mesh.indices`, and whichever group's `[start, start+count)`
+   * range contains it is the Face that was actually clicked.
+   */
+  const handleFaceSelectClick = (event: ThreeEvent<MouseEvent>) => {
+    if (selectionFilterMode !== "face" || !mesh || event.faceIndex == null || !isPick(event)) return;
+    event.stopPropagation();
+
+    const triangleStart = event.faceIndex * 3;
+    const group = mesh.faceGroups.find(
+      (candidate) => triangleStart >= candidate.start && triangleStart < candidate.start + candidate.count,
+    );
+    setSelectedFaceId(group?.id ?? null);
+  };
+
   const geometry = useMemo(() => {
     if (!mesh) return null;
 
@@ -175,6 +209,27 @@ export function SolidModel() {
     buffer.computeBoundingSphere();
     return buffer;
   }, [mesh]);
+
+  /**
+   * The highlighted face's own overlay geometry — same `position`/`normal` buffers as the
+   * main mesh (so it sits exactly flush with it, no seams), but an index buffer sliced down
+   * to just that one face's triangles (`FaceGroup.start`/`count`, already in index-buffer
+   * units). Drawn as a second, slightly-larger-radius-free mesh on top rather than
+   * recolouring vertices in the base geometry, the same "overlay, don't mutate" convention
+   * `pickingFeature`'s edge markers below already use.
+   */
+  const faceHighlightGeometry = useMemo(() => {
+    if (!mesh || selectedFaceId === null) return null;
+    const group = mesh.faceGroups.find((candidate) => candidate.id === selectedFaceId);
+    if (!group) return null;
+
+    const buffer = new BufferGeometry();
+    buffer.setAttribute("position", new BufferAttribute(mesh.positions, 3));
+    buffer.setAttribute("normal", new BufferAttribute(mesh.normals, 3));
+    buffer.setIndex(new BufferAttribute(mesh.indices.subarray(group.start, group.start + group.count), 1));
+    buffer.computeBoundingSphere();
+    return buffer;
+  }, [mesh, selectedFaceId]);
 
   const edgeGeometry = useMemo(() => {
     if (!mesh || mesh.edges.length === 0) return null;
@@ -193,6 +248,7 @@ export function SolidModel() {
   }, [
     geometry,
     edgeGeometry,
+    faceHighlightGeometry,
     displayMode,
     isBodyHidden,
     pickingFeature,
@@ -208,6 +264,12 @@ export function SolidModel() {
       edgeGeometry?.dispose();
     };
   }, [geometry, edgeGeometry]);
+
+  useEffect(() => {
+    return () => {
+      faceHighlightGeometry?.dispose();
+    };
+  }, [faceHighlightGeometry]);
 
   if (!mesh || !geometry || isBodyHidden) return null;
 
@@ -226,7 +288,13 @@ export function SolidModel() {
         castShadow={false}
         receiveShadow={false}
         onContextMenu={isSketchMode ? undefined : handleContextMenu}
-        onClick={holePlacementActive ? handleHolePlacementClick : undefined}
+        onClick={
+          holePlacementActive
+            ? handleHolePlacementClick
+            : selectionFilterMode === "face"
+              ? handleFaceSelectClick
+              : undefined
+        }
       >
         {showShadedMaterial ? (
           <meshStandardMaterial
@@ -239,6 +307,19 @@ export function SolidModel() {
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         )}
       </mesh>
+
+      {faceHighlightGeometry && (
+        <mesh geometry={faceHighlightGeometry} raycast={() => null}>
+          <meshBasicMaterial
+            color={FACE_HIGHLIGHT_COLOR}
+            transparent
+            opacity={0.45}
+            depthTest={true}
+            polygonOffset
+            polygonOffsetFactor={-1}
+          />
+        </mesh>
+      )}
 
       {edgeGeometry && showEdges && (
         <lineSegments

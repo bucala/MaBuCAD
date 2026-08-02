@@ -15,6 +15,17 @@ const DISPLAY_MODE_CYCLE: readonly DisplayMode[] = ["shaded", "shaded-edges", "w
 /** See `ViewRotationSteps.tsx` for what each direction actually does to the camera. */
 export type RotateStepDirection = "up" | "down" | "left" | "right" | "roll-cw" | "roll-ccw";
 
+/**
+ * Selection-priority filter for clicking the solid, à la Inventor's Select dropdown.
+ * "body" (the default, and the only behaviour that existed before this) treats a click
+ * anywhere on the solid as picking the whole body/feature. "face" instead resolves the
+ * exact kernel Face the click landed on (via `MeshData.faceGroups` — see its own doc
+ * comment in `kernel/rebuild.ts`) and highlights just that face. Point/edge priority are
+ * not implemented yet; edge-picking already exists but only inside Fillet/Chamfer's own
+ * pick mode (`edgePickModeFeatureId`), not as a general selection filter.
+ */
+export type SelectionFilterMode = "body" | "face";
+
 interface ViewportStore {
   displayMode: DisplayMode;
   /**
@@ -72,6 +83,15 @@ interface ViewportStore {
    * around the current view axis instead, tilting the horizon without changing what's
    * actually facing the camera. */
   rotateStepRequest: { direction: RotateStepDirection; nonce: number } | null;
+  /** See `SelectionFilterMode`'s own doc comment. */
+  selectionFilterMode: SelectionFilterMode;
+  /**
+   * The kernel Face id (`FaceGroup.id`, from the currently committed `MeshData`) currently
+   * highlighted under "face" priority, or `null`. Face ids are only stable for the mesh
+   * they came from — a rebuild can renumber them — so `SolidModel.tsx` clears this whenever
+   * the committed mesh reference changes, not just when the filter mode itself changes.
+   */
+  selectedFaceId: number | null;
 
   cycleDisplayMode: () => void;
   toggleFeatureVisibility: (id: string) => void;
@@ -83,6 +103,8 @@ interface ViewportStore {
   toggleGridVisible: () => void;
   toggleSnapToGrid: () => void;
   requestRotateStep: (direction: RotateStepDirection) => void;
+  setSelectionFilterMode: (mode: SelectionFilterMode) => void;
+  setSelectedFaceId: (id: number | null) => void;
 }
 
 export const useViewportStore = create<ViewportStore>((set) => ({
@@ -96,6 +118,8 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   gridVisible: true,
   snapToGridEnabled: false,
   rotateStepRequest: null,
+  selectionFilterMode: "body",
+  selectedFaceId: null,
 
   cycleDisplayMode: () =>
     set((state) => {
@@ -127,4 +151,9 @@ export const useViewportStore = create<ViewportStore>((set) => ({
     set((state) => ({
       rotateStepRequest: { direction, nonce: (state.rotateStepRequest?.nonce ?? 0) + 1 },
     })),
+
+  // Switching away from "face" drops whatever was highlighted — there's nothing to show it
+  // for once the filter no longer resolves individual faces.
+  setSelectionFilterMode: (mode) => set({ selectionFilterMode: mode, selectedFaceId: null }),
+  setSelectedFaceId: (id) => set({ selectedFaceId: id }),
 }));

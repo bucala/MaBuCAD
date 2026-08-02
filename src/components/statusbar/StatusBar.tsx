@@ -1,4 +1,4 @@
-import { Eye, Grid3x3, Magnet } from "lucide-react";
+import { Box, Eye, Grid3x3, Magnet, Square } from "lucide-react";
 
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -66,6 +66,9 @@ export function StatusBar() {
   const toggleGridVisible = useViewportStore((state) => state.toggleGridVisible);
   const snapToGridEnabled = useViewportStore((state) => state.snapToGridEnabled);
   const toggleSnapToGrid = useViewportStore((state) => state.toggleSnapToGrid);
+  const selectionFilterMode = useViewportStore((state) => state.selectionFilterMode);
+  const setSelectionFilterMode = useViewportStore((state) => state.setSelectionFilterMode);
+  const selectedFaceId = useViewportStore((state) => state.selectedFaceId);
   const versionVisible = useSettingsStore((state) => state.versionVisible);
   const { t } = useTranslation();
 
@@ -122,6 +125,36 @@ export function StatusBar() {
         >
           <Magnet size={13} strokeWidth={1.75} />
         </button>
+      )}
+
+      {!isSketchMode && (
+        <button
+          type="button"
+          className={styles.iconButton}
+          aria-pressed={selectionFilterMode === "face"}
+          title={
+            selectionFilterMode === "face"
+              ? "Selection filter: Face priority (click to switch to Body)"
+              : "Selection filter: Body priority (click to switch to Face)"
+          }
+          aria-label={
+            selectionFilterMode === "face" ? "Selection filter: Face priority" : "Selection filter: Body priority"
+          }
+          onClick={() => setSelectionFilterMode(selectionFilterMode === "face" ? "body" : "face")}
+        >
+          {selectionFilterMode === "face" ? (
+            <Square size={13} strokeWidth={1.75} />
+          ) : (
+            <Box size={13} strokeWidth={1.75} />
+          )}
+        </button>
+      )}
+
+      {!isSketchMode && selectionFilterMode === "face" && selectedFaceId !== null && (
+        <>
+          <div className={styles.divider} aria-hidden="true" />
+          <div className={styles.item}>Face {selectedFaceId + 1} selected</div>
+        </>
       )}
 
       {(toast || geometryStatus !== "empty" || geometryMessage) && (

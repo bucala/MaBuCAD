@@ -7,6 +7,62 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-02 — A real per-face selection filter (item 2), building on replicad's own mesh output
+
+The very next step after the previous entry: item 2's selection-priority filter, following
+the 4-step plan worked out together (tag each triangle with its kernel Face during
+tessellation → carry it through to the render layer → resolve it from a raycaster hit →
+drive a Zustand-backed filter). Step 1 turned out to already half-exist: replicad's own
+`Shape.mesh()` triangulates face-by-face internally and was already returning a
+`faceGroups: { start, count, faceId }[]` array describing exactly that — `kernel/rebuild.ts`
+was just discarding it. No OpenCascade/WASM binding changes were needed after all.
+
+### Added
+- **A working Face/Body selection-priority filter**, toggled from a new status-bar button
+  (`Box`/`Square` icon, next to the Visual Style toggle). "Body" is the existing behaviour
+  (unchanged) — clicking the solid does nothing on its own outside Hole Wizard placement or
+  Fillet/Chamfer's edge-pick mode, same as before this round. "Face" resolves the *exact*
+  kernel Face a click landed on and highlights just that face (a translucent cyan overlay,
+  `FACE_HIGHLIGHT_COLOR`), with the status bar showing which one ("Face 6 selected").
+  Switching a click at one face to a click at another swaps the highlight and the id
+  immediately; switching the filter back to "Body" clears both.
+- **Point and Body+Edge+Point priority are not implemented yet** — the plan called out
+  "point select, face select, face+edge+point select, etc."; this round ships the Face and
+  Body ends of that spectrum, since Face is what needed the new kernel-level identity and
+  Body already existed. Point priority doesn't need any of this (a point is already just a
+  clicked location), but has no UI yet; a combined multi-priority mode is future work once
+  each individual one exists.
+
+### Changed
+- **`kernel/rebuild.ts`**: `MeshData` gained a `faceGroups: FaceGroup[]` field —
+  `{ start, count, id }` triples describing each kernel Face's own contiguous range within
+  `indices`, re-keyed 0, 1, 2, ... in `shape.faces` order (rather than trusting OpenCascade's
+  raw, unfriendly `face.hashCode` straight through — a rebuild-scoped id is all a selection
+  filter needs, and small sequential numbers read better in a "Face 6 selected" readout).
+- **`SolidModel.tsx`**: a new `handleFaceSelectClick`, active only when the filter is set to
+  "Face", maps a raycaster hit back to a kernel Face without any GPU-side bookkeeping —
+  three.js's own `event.faceIndex` (the hit *triangle's* index in the geometry's index
+  buffer) times 3 lands inside exactly one `faceGroups` entry's `[start, start+count)` range.
+  This is a deliberate, simpler alternative to the originally discussed approach of adding a
+  custom `faceIndex` vertex attribute to the `BufferGeometry` and reading it back per-vertex:
+  three.js already reports which triangle a raycast hit natively, so no extra per-vertex GPU
+  attribute or shader-side bookkeeping is needed to get the same answer. The highlighted
+  face's overlay mesh reuses the base geometry's `position`/`normal` buffers with an index
+  buffer sliced to just that face's triangles (`mesh.indices.subarray(start, start+count)`),
+  the same "draw an overlay, don't mutate the base mesh" convention the edge-pick markers
+  below it already use.
+- **`viewportStore.ts`**: new `selectionFilterMode` ("body" | "face") and `selectedFaceId`,
+  the latter cleared whenever the committed mesh reference changes — a Face id is only
+  meaningful for the mesh it came from, since a rebuild can renumber faces entirely.
+
+### Known, still not attempted
+- **Edge priority** as a general selection filter (today edge-picking only exists inside
+  Fillet/Chamfer's own dedicated pick mode) and **Point priority**.
+- **Combined priority modes** ("face + edge + point", à la Inventor) — needs each individual
+  priority to exist first.
+- **Ribbon drag-to-rearrange**, **Trim** marquee-select and circle/spline support — unchanged
+  from the previous entry.
+
 ## 2026-08-02 — Ribbon chrome toggles, Hole Wizard face placement, and a click-blocking bug fix
 
 Continuing straight from the previous entry's finding on item 2 (face/edge selection):

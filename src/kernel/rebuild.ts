@@ -10,6 +10,21 @@ import { getImportedShape } from "./importedShapes";
 import { initKernel } from "./occ";
 import { profileRegions, type CircleLoop, type Loop } from "./profile";
 
+/**
+ * One kernel Face's triangle range within `MeshData.indices`, in index-buffer units (i.e.
+ * both are already ×3 from a triangle count — `indices.slice(start, start + count)` is
+ * exactly this face's own triangles). `id` is a small sequential number assigned in
+ * `shape.faces` order during this rebuild — stable for the lifetime of one mesh, but not
+ * across rebuilds (a parameter tweak can add, remove or reorder faces), which is why
+ * consumers (`SolidModel.tsx`) key any selection off the mesh reference too, not just the
+ * id alone.
+ */
+export interface FaceGroup {
+  start: number;
+  count: number;
+  id: number;
+}
+
 /** Triangulated result handed to three.js. */
 export interface MeshData {
   positions: Float32Array;
@@ -19,6 +34,16 @@ export interface MeshData {
   edges: Float32Array;
   /** Rotation that maps the sketch plane's local space into world space. */
   rotation: [number, number, number];
+  /**
+   * Per-face triangle ranges, straight from replicad's own `Shape.mesh()` — it already
+   * triangulates face by face and reports exactly this (`faceGroups`, keyed by
+   * `face.hashCode` upstream); this only re-keys each group by a friendlier sequential
+   * index instead of the raw OpenCascade hash. This is the real per-face identity a
+   * selection-priority filter needs — see `SolidModel.tsx`'s `handleFaceSelectClick` for
+   * how a raycaster hit's `event.faceIndex` (a three.js triangle number, not a kernel
+   * concept) is mapped back to one of these groups.
+   */
+  faceGroups: FaceGroup[];
 }
 
 export interface RebuildResult {
@@ -829,6 +854,7 @@ export async function rebuildDocument(
       vertices: number[];
       triangles: number[];
       normals: number[];
+      faceGroups: { start: number; count: number; faceId: number }[];
     };
     meshEdges: (options?: { keepMesh?: boolean }) => { lines: number[] };
   };
@@ -845,6 +871,15 @@ export async function rebuildDocument(
       indices: Uint32Array.from(triangulated.triangles),
       edges: Float32Array.from(wireframe.lines),
       rotation,
+      // Re-keyed 0, 1, 2, ... in `shape.faces` order rather than trusting the raw OpenCascade
+      // hash straight through: a hash is a fine unique key but a confusing one to show a user
+      // ("Face 3821490102"), and small sequential ids are cheap to assign here since
+      // `faceGroups` is already in that same face order.
+      faceGroups: triangulated.faceGroups.map((group, index) => ({
+        start: group.start,
+        count: group.count,
+        id: index,
+      })),
     },
     errors,
   };
