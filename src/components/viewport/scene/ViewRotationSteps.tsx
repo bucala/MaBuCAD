@@ -32,6 +32,21 @@ export function ViewRotationSteps() {
     if (!request) return;
 
     const target = controls?.target ?? new Vector3(0, 0, 0);
+
+    if (request.direction === "roll-cw" || request.direction === "roll-ccw") {
+      // Spins the camera's own up vector around the current view axis (camera -> target)
+      // — the horizon tilts, but the camera stays put and keeps looking at exactly the
+      // same point, unlike the orbit below, which moves the camera around the model.
+      const viewAxis = target.clone().sub(camera.position).normalize();
+      if (viewAxis.lengthSq() < 1e-8) return;
+      const angle = request.direction === "roll-cw" ? -STEP_RADIANS : STEP_RADIANS;
+      camera.up.applyAxisAngle(viewAxis, angle).normalize();
+      camera.lookAt(target);
+      controls?.update();
+      invalidate();
+      return;
+    }
+
     const offset = camera.position.clone().sub(target);
     const worldUp = new Vector3(0, 1, 0);
 

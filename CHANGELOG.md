@@ -7,13 +7,14 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
-## 2026-08-02 — ViewCube arrow direction, plain-arrow gizmo, dimension arrowheads
+## 2026-08-02 — ViewCube roll arrows, dimension arrowheads everywhere, a face-selection finding
 
-A fifth round of feedback covering a broad set of areas (Hole Wizard workflow, an
-Inventor-style selection filter, ribbon customisation, the bottom-left gizmo's look, the
-ViewCube arrows' rotation direction, Trim's coverage and multi-select, and dimension
-display) — this entry covers what's fixed; see the note at the end for what's deliberately
-scoped out of this round.
+A fifth round of feedback covering a broad set of areas. This entry's first pass (ViewCube
+direction, the plain-arrow gizmo, arrowheads on linear/radius/diameter dimensions) is
+below, followed by this pass's follow-up: the ViewCube's roll arrows, arrowheads on
+ordinate dimensions too, and — the actual reason items 1 and 2 below are still not
+attempted — a concrete finding about what this app's geometry pipeline would need before a
+real per-face/per-edge selection system is possible at all.
 
 ### Fixed
 - **The ViewCube's left/right navigation arrows rotated the view backwards.** Clicking
@@ -24,6 +25,12 @@ scoped out of this round.
   and by watching which ViewCube faces come into view across a sequence of clicks. Fixed by
   swapping which direction gets the positive rotation.
 
+### Added
+- **Two roll arrows** at the ViewCube's diagonal corners, distinct in both position and
+  icon from the four pan arrows — they spin the camera's own up vector around the current
+  view axis (the horizon tilts; the camera stays put, still looking at exactly the same
+  point), rather than orbiting around the model the way the four directional arrows do.
+
 ### Changed
 - **The bottom-left orientation gizmo no longer draws a filled circle behind each axis
   letter.** It's a plain coloured arrow per axis with the letter at the tip instead —
@@ -32,31 +39,42 @@ scoped out of this round.
   bespoke replacement (`LiveAxisGizmo.tsx`) built the same way `Origin.tsx`'s static triad
   already is (coloured `Line` + a plain-text `Html` label, no mesh disc). Still purely a
   visual orientation reference with no click-to-align behaviour, same as before.
-- **Dimension lines now have arrowheads.** A linear dimension's line and a radius/diameter
-  dimension's leader were previously drawn as plain, arrowless lines — at a glance,
-  especially before a label has been dragged away from its tight default position, that
-  can read as an unlabelled tangle rather than an obviously-a-dimension line pointing at
-  something specific. Small arrowheads now sit at both ends of a linear dimension's line
-  and at the centre end of a radius/diameter leader, matching the convention every other
-  CAD tool's dimension lines use.
+- **Dimension lines now have arrowheads** — linear, radius/diameter, and (this pass)
+  ordinate dimensions. Previously all drawn as plain, arrowless lines, which at a glance,
+  especially before a label has been dragged away from its tight default position, could
+  read as an unlabelled tangle rather than an obviously-a-dimension line pointing at
+  something specific. Angle dimensions don't have a leader line to attach an arrowhead to
+  at all yet (they're label-only today) — drawing one properly needs an arc between the two
+  measured lines, which is new geometry, not just an arrowhead on what's already drawn.
+
+### A concrete finding: why a real face/edge selection filter isn't "just a dropdown"
+Investigated what it would take to build the selection-priority filter from item 2
+(Component/Part/Body/**Face**/**Edge**/Sketch priority, à la Inventor) and hit a hard
+architectural wall worth stating plainly rather than shipping a dropdown that doesn't
+actually filter anything: **`SolidModel.tsx` renders the rebuilt solid as a single fused
+triangle mesh with no per-face or per-edge identity carried through from the kernel** —
+`mesh.positions`/`normals`/`indices` are one flat buffer, and the only "edge picking" that
+exists (Fillet/Chamfer's edge-selection mode) works by recording the raw 3D *point* a click
+landed near and matching future clicks by *distance*, not by a real topological edge id.
+There is nothing today that can answer "which face did this click land on" as a stable,
+selectable identity. A genuine per-face/per-edge selection filter needs the kernel's mesh
+builder (`kernel/rebuild.ts`) to tag each triangle with the OpenCASCADE face/edge index it
+came from, and the picking code to look that tag up on a raycast hit — real work, but well
+short of describable as "prepare the groundwork" and worth scoping as its own item rather
+than folding into a UI-only pass.
 
 ### Known, deliberately not attempted this round
-Several requests need either a design decision this session can't make alone, or enough
-surface area (rewriting hit-testing for every sketch entity type, a new selection-filter
-UI, a ribbon-customisation system) that attempting them under the same time budget as the
-items above risked shipping several half-finished features instead of a few solid ones:
-- **Hole Wizard**: a "pick an existing sketch, or click a plane/face to place a new point
-  there" placement flow, replacing today's requirement that a sketch with points already
-  exists before Hole Wizard is usable.
-- **A selection-priority filter** (Component/Part/Body/Feature/Face-Edge/Sketch/Annotation,
-  à la Inventor) — most of its value is in assembly contexts, which this app doesn't have
-  yet (see the roadmap in `README.md`); worth revisiting once Assembly exists, or scoping
-  down to a Part-only subset first.
+- **Hole Wizard**'s "pick an existing sketch, or click a plane/face to place a new point
+  there" placement flow — tractable without face identity (a raw click point on the solid
+  is enough, the same way Fillet/Chamfer's edge-pick mode already works), but still a real
+  UI + Hole-feature-parameter change, not attempted alongside everything above.
 - **Ribbon customisation** via a right-click context menu, plus extending the existing
   Settings export to include ribbon layout and chrome visibility (logo, title, version).
 - **Trim**: drag-to-marquee-select multiple entities to trim at once, and support for
   trimming circles and splines (today only lines can be trimmed — `trimLineAt`'s own doc
   comment already flagged this as a known gap).
+
+## 2026-08-02 — ViewCube arrow direction, plain-arrow gizmo, dimension arrowheads
 
 ## 2026-08-02 — Fixed the real cause of broken sketch drawing/dimensioning, viewport hint removed
 

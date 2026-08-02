@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, RotateCcw, RotateCw } from "lucide-react";
 
 import { useSettingsStore } from "@/state/settingsStore";
 import { useViewportStore } from "@/state/viewportStore";
@@ -12,11 +12,20 @@ const ARROWS = [
   { direction: "right" as const, Icon: ChevronRight, className: "right", label: "Rotate view right" },
 ];
 
+/** Diagonal corner buttons, distinct in both position and icon from the four pan arrows
+ * above — they spin the horizon (roll) rather than orbiting around the model. */
+const ROLL_ARROWS = [
+  { direction: "roll-ccw" as const, Icon: RotateCcw, className: "rollTopLeft", label: "Rotate view counter-clockwise" },
+  { direction: "roll-cw" as const, Icon: RotateCw, className: "rollBottomRight", label: "Rotate view clockwise" },
+];
+
 /**
- * Four arrow buttons ringing the ViewCube, for stepping the view by a fixed angle without
+ * Arrow buttons ringing the ViewCube, for stepping the view by a fixed angle without
  * having to grab it directly — the ViewCube itself (`GizmoViewcube` in `Scene.tsx`) only
  * jumps straight to a face/edge/corner's canonical orientation, which is not always what
- * you want.
+ * you want. Four step the camera around the model (up/down/left/right); two more, at the
+ * diagonal corners, roll the camera's own up vector around the current view axis instead
+ * — the view keeps looking at exactly the same thing, only the horizon tilts.
  *
  * A plain DOM overlay rather than more Hud geometry, for the same reason `SketchContextMenu`
  * is one (see its own doc comment): it needs to sit reliably on top of the canvas without
@@ -32,7 +41,7 @@ export function ViewCubeArrows() {
 
   return (
     <div className={styles.ring} aria-hidden={false}>
-      {ARROWS.map(({ direction, Icon, className, label }) => (
+      {[...ARROWS, ...ROLL_ARROWS].map(({ direction, Icon, className, label }) => (
         <button
           key={direction}
           type="button"
@@ -41,7 +50,7 @@ export function ViewCubeArrows() {
           aria-label={label}
           onClick={() => requestRotateStep(direction)}
         >
-          <Icon size={14} />
+          <Icon size={12} />
         </button>
       ))}
     </div>

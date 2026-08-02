@@ -54,3 +54,16 @@
   top: 75px;
   right: 13px;
 }
+
+/* Roll arrows sit on the diagonal, 62px out at 45° from the cube's centre — the same
+   radius as the four pan arrows, just rotated to the corners so they read as visually
+   distinct from stepping around the model. */
+.rollTopLeft {
+  top: 31px;
+  right: 119px;
+}
+
+.rollBottomRight {
+  top: 119px;
+  right: 31px;
+}

@@ -12,6 +12,9 @@ export type DisplayMode = "shaded" | "shaded-edges" | "wireframe";
 
 const DISPLAY_MODE_CYCLE: readonly DisplayMode[] = ["shaded", "shaded-edges", "wireframe"];
 
+/** See `ViewRotationSteps.tsx` for what each direction actually does to the camera. */
+export type RotateStepDirection = "up" | "down" | "left" | "right" | "roll-cw" | "roll-ccw";
+
 interface ViewportStore {
   displayMode: DisplayMode;
   /**
@@ -54,8 +57,11 @@ interface ViewportStore {
    * see `ZoomToFit.tsx`'s own doc comment for why a request object here, rather than a
    * direct call, is how DOM controls reach the camera). `null` until the first click; the
    * `nonce` is what the in-canvas handler actually watches, since two consecutive clicks in
-   * the same direction still need to trigger a step each time. */
-  rotateStepRequest: { direction: "up" | "down" | "left" | "right"; nonce: number } | null;
+   * the same direction still need to trigger a step each time. `up`/`down`/`left`/`right`
+   * orbit the camera around the model; `roll-cw`/`roll-ccw` spin the camera's own up vector
+   * around the current view axis instead, tilting the horizon without changing what's
+   * actually facing the camera. */
+  rotateStepRequest: { direction: RotateStepDirection; nonce: number } | null;
 
   cycleDisplayMode: () => void;
   toggleFeatureVisibility: (id: string) => void;
@@ -65,7 +71,7 @@ interface ViewportStore {
   setEdgePickMode: (featureId: string | null) => void;
   toggleGridVisible: () => void;
   toggleSnapToGrid: () => void;
-  requestRotateStep: (direction: "up" | "down" | "left" | "right") => void;
+  requestRotateStep: (direction: RotateStepDirection) => void;
 }
 
 export const useViewportStore = create<ViewportStore>((set) => ({

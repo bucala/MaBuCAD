@@ -243,6 +243,9 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
         [second.x, first.y - offset, 0],
         [first.x, first.y - offset, 0],
       ];
+      // Points back along the leader's first segment, toward the datum end — the same
+      // "arrowhead touches the measured point" convention the linear/radius dimensions use.
+      arrows = arrowheadPoints(second.x, second.y, 0, Math.sign(first.y - offset - second.y) || 1);
       labelPosition = [second.x + nudge.x, first.y - offset - 3, 0.05];
     } else {
       const offset = baseOffset - nudge.x;
@@ -251,6 +254,7 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
         [first.x - offset, second.y, 0],
         [first.x - offset, first.y, 0],
       ];
+      arrows = arrowheadPoints(second.x, second.y, Math.sign(first.x - offset - second.x) || 1, 0);
       labelPosition = [first.x - offset - 3, second.y + nudge.y, 0.05];
     }
 
