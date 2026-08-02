@@ -6,6 +6,7 @@ import { useSettingsStore } from "@/state/settingsStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 import { AXIS_COLORS, ORIGIN_AXIS_LENGTH as LEN } from "../constants";
+import styles from "./nonInteractiveLabel.module.css";
 
 const AXES = [
   { key: "x", label: "X", color: AXIS_COLORS.x, points: [[-LEN, 0, 0], [LEN, 0, 0]] },
@@ -56,10 +57,13 @@ export function Origin() {
             raycast={() => null}
           />
           {axisLabelsVisible && (
-            <Html position={axis.points[1] as [number, number, number]} center zIndexRange={[10, 0]}>
-              <span style={{ color: axis.color, fontSize: 11, fontWeight: 700, pointerEvents: "none" }}>
-                {axis.label}
-              </span>
+            <Html
+              position={axis.points[1] as [number, number, number]}
+              center
+              zIndexRange={[10, 0]}
+              wrapperClass={styles.noPointerEvents}
+            >
+              <span style={{ color: axis.color, fontSize: 11, fontWeight: 700 }}>{axis.label}</span>
             </Html>
           )}
         </group>

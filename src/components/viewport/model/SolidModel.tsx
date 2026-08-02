@@ -3,6 +3,7 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { useThree } from "@react-three/fiber";
 import { BufferAttribute, BufferGeometry, Euler, LineSegments, Quaternion } from "three";
 
+import { placeHoleAtPick } from "@/commands/commandRegistry";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { selectBuiltFeatures, useDocumentStore } from "@/state/documentStore";
 import { GEOMETRY_FEATURE_KINDS, useGeometryStore } from "@/state/geometryStore";
@@ -46,7 +47,21 @@ export function SolidModel() {
   const rollbackIndex = cadDocument.rollbackIndex;
   const edgePickModeFeatureId = useViewportStore((state) => state.edgePickModeFeatureId);
   const pickingFeature = features.find((feature) => feature.id === edgePickModeFeatureId);
+  const holePlacementActive = useViewportStore((state) => state.holePlacementActive);
+  const setHolePlacementActive = useViewportStore((state) => state.setHolePlacementActive);
   const isPick = useClickGuard();
+
+  // Escape backs out of Hole Wizard placement the same way it backs out of any other
+  // modal viewport interaction, since there is (yet) no feature selected to drive this
+  // the way `PropertyManager.tsx`'s effect drives `edgePickModeFeatureId`'s cancellation.
+  useEffect(() => {
+    if (!holePlacementActive) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setHolePlacementActive(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [holePlacementActive, setHolePlacementActive]);
 
   // While picking, show the body as it was *before* the picking feature — see
   // `geometryStore.ts`'s own note on `previewMesh` for why an already-applied Fillet/Chamfer
@@ -132,6 +147,24 @@ export function SolidModel() {
     updateParameters(pickingFeature.id, { edgePoints: next });
   };
 
+  /**
+   * Hole Wizard's "click a face to place a hole" flow — see `placeHoleAtPick`'s own doc
+   * comment in `commandRegistry.ts` for why a face's raycaster-reported normal is enough
+   * without any real per-face identity from the kernel. `event.face.normal` comes out in
+   * the mesh's own local space; this group's only transform is `mesh.rotation`, so
+   * rotating the normal by that same Euler is what turns it into a world-space normal —
+   * the forward version of the inverse rotation `handleEdgeClick` above already applies
+   * to points for the same reason.
+   */
+  const handleHolePlacementClick = (event: ThreeEvent<MouseEvent>) => {
+    if (!holePlacementActive || !mesh || !event.face || !isPick(event)) return;
+    event.stopPropagation();
+
+    const rotationEuler = new Euler(...mesh.rotation);
+    const worldNormal = event.face.normal.clone().applyEuler(rotationEuler).normalize();
+    placeHoleAtPick(event.point.clone(), worldNormal);
+  };
+
   const geometry = useMemo(() => {
     if (!mesh) return null;
 
@@ -193,6 +226,7 @@ export function SolidModel() {
         castShadow={false}
         receiveShadow={false}
         onContextMenu={isSketchMode ? undefined : handleContextMenu}
+        onClick={holePlacementActive ? handleHolePlacementClick : undefined}
       >
         {showShadedMaterial ? (
           <meshStandardMaterial

@@ -1,6 +1,7 @@
 import { Html, Line } from "@react-three/drei";
 
 import { AXIS_COLORS } from "../constants";
+import styles from "./nonInteractiveLabel.module.css";
 
 /** Arm length in the `GizmoHelper`'s own pixel-ish local space (see `GizmoViewport`'s
  * `scale={40}` for the equivalent drei convention this replaces). */
@@ -54,10 +55,8 @@ export function LiveAxisGizmo() {
             {arrowHeadPoints(axis.dir).map((points, index) => (
               <Line key={index} points={points} color={axis.color} lineWidth={2} />
             ))}
-            <Html position={labelPosition} center zIndexRange={[10, 0]}>
-              <span style={{ color: axis.color, fontSize: 12, fontWeight: 700, pointerEvents: "none" }}>
-                {axis.label}
-              </span>
+            <Html position={labelPosition} center zIndexRange={[10, 0]} wrapperClass={styles.noPointerEvents}>
+              <span style={{ color: axis.color, fontSize: 12, fontWeight: 700 }}>{axis.label}</span>
             </Html>
           </group>
         );

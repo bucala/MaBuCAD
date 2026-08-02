@@ -252,16 +252,19 @@ export function MenuBar() {
   const { t } = useTranslation();
   const autosaveEnabled = useSettingsStore((state) => state.autosaveEnabled);
   const toggleAutosave = useSettingsStore((state) => state.toggleAutosave);
+  const logoTitleVisible = useSettingsStore((state) => state.logoTitleVisible);
   const { canUndo, canRedo } = useUndoRedoAvailability();
 
   return (
     <div className={styles.menubar}>
-      <div className={styles.brand}>
-        <span className={styles.brandMark} aria-hidden="true">
-          <Box size={16} strokeWidth={2} />
-        </span>
-        MaBuCAD
-      </div>
+      {logoTitleVisible && (
+        <div className={styles.brand}>
+          <span className={styles.brandMark} aria-hidden="true">
+            <Box size={16} strokeWidth={2} />
+          </span>
+          MaBuCAD
+        </div>
+      )}
 
       <nav className={styles.menus} aria-label="Application menu">
         {MENUS.map((menu) => (

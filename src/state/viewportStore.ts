@@ -45,6 +45,16 @@ interface ViewportStore {
    * this feature" the same way `hiddenFeatureIds` already crosses that same sibling boundary.
    */
   edgePickModeFeatureId: string | null;
+  /**
+   * Whether the Hole Wizard is waiting for a click on a solid face to place its first
+   * hole. Set by `commandRegistry.ts`'s `feature.hole-wizard` when no sketch with an
+   * existing point could be resolved, and read by `SolidModel.tsx`, which is the one
+   * component that can turn a raycaster hit into a world point + face normal — the same
+   * sibling-store pattern `edgePickModeFeatureId` already uses, except there is no
+   * feature id yet to key this by: the sketch and the hole feature are only created once
+   * a suitable face is actually clicked (`placeHoleAtPick` in `commandRegistry.ts`).
+   */
+  holePlacementActive: boolean;
   /** Ground grid in the 3D viewport and, while a sketch is open, the sketcher's own
    * in-plane grid too — one toggle, since they're never both visible at once. */
   gridVisible: boolean;
@@ -69,6 +79,7 @@ interface ViewportStore {
   setProjection: (mode: ProjectionMode) => void;
   toggleConstraintsVisible: () => void;
   setEdgePickMode: (featureId: string | null) => void;
+  setHolePlacementActive: (active: boolean) => void;
   toggleGridVisible: () => void;
   toggleSnapToGrid: () => void;
   requestRotateStep: (direction: RotateStepDirection) => void;
@@ -81,6 +92,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   projection: "orthographic",
   constraintsVisible: true,
   edgePickModeFeatureId: null,
+  holePlacementActive: false,
   gridVisible: true,
   snapToGridEnabled: false,
   rotateStepRequest: null,
@@ -106,6 +118,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
     set((state) => ({ constraintsVisible: !state.constraintsVisible })),
 
   setEdgePickMode: (featureId) => set({ edgePickModeFeatureId: featureId }),
+  setHolePlacementActive: (active) => set({ holePlacementActive: active }),
 
   toggleGridVisible: () => set((state) => ({ gridVisible: !state.gridVisible })),
   toggleSnapToGrid: () => set((state) => ({ snapToGridEnabled: !state.snapToGridEnabled })),

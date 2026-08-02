@@ -7,6 +7,68 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-02 — Ribbon chrome toggles, Hole Wizard face placement, and a click-blocking bug fix
+
+Continuing straight from the previous entry's finding on item 2 (face/edge selection):
+agreed the kernel-side face/edge tagging is real, separate work, and started on the two
+items that don't need it — item 3 (ribbon customisation) first as the lowest-risk change,
+then item 1 (Hole Wizard placement) using the same "raw point + normal, no face identity
+required" approach the existing Fillet/Chamfer edge-pick mode already relies on.
+
+### Added
+- **Ribbon customisation, starting point.** Right-clicking anywhere on the ribbon (not just
+  empty space — none of its buttons had a context menu of their own to conflict with) opens
+  a menu with "Show Logo & Title" and "Show Version Number" checkboxes, plus direct Export
+  Settings…/Import Settings… entries. Both toggles live in `settingsStore.ts` next to every
+  other preference and are already covered by the existing Export/Import Settings
+  round-trip (`settingsIO.ts`) — no separate "ribbon settings" file, so a customised ribbon
+  travels with the rest of a backed-up/copied configuration for free. A full drag-to-rearrange
+  ribbon layout is still future work; this round only tackles the two chrome elements the
+  user specifically flagged as still fixed (`RibbonContextMenu.tsx`).
+- **Hole Wizard: click a face to place a hole, no sketch required first.** Invoking Hole
+  Wizard with no sketch-with-a-point already selected now arms a placement mode (a toast
+  explains what to do) instead of creating a broken feature; clicking a solid face creates
+  a backing sketch with a point at that location and the Hole feature in one step, ready to
+  tune (radius, depth, standard) in the Property Manager immediately. Uses the raycaster's
+  hit point *and* the clicked triangle's face normal — matched against the three default
+  planes' own normals to find which one the face is (anti-)parallel to — which is enough
+  to place a hole correctly without any real per-face identity from the kernel, the same way
+  Fillet/Chamfer's edge-pick mode only ever needed raw 3D points, never a real edge id. Only
+  faces (anti-)parallel to Front/Top/Right are accepted (an angled or revolved face is
+  rejected with a message rather than silently cutting in the wrong place) — the default
+  "through-all" end condition still reaches a face offset along that normal correctly, since
+  it's already a deliberately oversized cut in both directions from the sketch plane, so this
+  covers the common case (a hole on a box's face) without needing `planeBasis.ts` to support
+  an arbitrary plane offset yet.
+
+### Fixed
+- **A stray `<Html>` label could silently block every click meant for the geometry behind
+  it (found while testing Hole Wizard placement).** The origin triad's X/Y/Z text labels
+  (`Origin.tsx`) and the bottom-left orientation gizmo's axis letters (`LiveAxisGizmo.tsx`)
+  each render via drei's `<Html>`, and neither had its wrapper div's `pointer-events`
+  actually turned off — the inner `<span style={{ pointerEvents: "none" }}>}` only covers
+  the text itself, not the positioned wrapper `<Html>` creates around it, so that
+  invisible-but-present wrapper sat in front of the canvas and ate any click landing on or
+  near it, most noticeably right at the origin (where the model itself usually is). Verified
+  by an `elementFromPoint` check at the click coordinates, which returned that tiny wrapper
+  div instead of the canvas. `SketchDimensions.tsx` had already hit this exact drei quirk
+  and worked around it with `wrapperClass` (a real CSS `pointer-events: none` rule) instead
+  of the `pointerEvents` prop, which drei only honours in `transform` mode; both origin-label
+  components now use the same `wrapperClass` pattern (`nonInteractiveLabel.module.css`).
+  This was an existing bug, not introduced by this round's Hole Wizard work — but Hole
+  Wizard's placement clicks are exactly the kind of click this bug could silently swallow,
+  which is how it was found.
+
+### Known, still not attempted
+- **Item 2 (Component/Part/Body/Face/Edge/Sketch selection-priority filter)** — needs the
+  kernel-side face/edge tagging described in the previous entry
+  (`kernel/rebuild.ts` → per-triangle face index → a `faceIndex` `BufferGeometry` attribute
+  → read back from the raycaster hit → a Zustand-backed filter). Scoped as its own round.
+- **Ribbon drag-to-rearrange** — this round only added chrome (logo/title/version)
+  visibility toggles, not moving buttons or groups between tabs.
+- **Trim**: drag-to-marquee-select multiple entities, and support for trimming circles and
+  splines (still line-only).
+
 ## 2026-08-02 — ViewCube roll arrows, dimension arrowheads everywhere, a face-selection finding
 
 A fifth round of feedback covering a broad set of areas. This entry's first pass (ViewCube

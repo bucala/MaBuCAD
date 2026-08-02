@@ -1,11 +1,20 @@
+import type { Vector3 } from "three";
+
 import type { Feature, FeatureKind } from "@/types/document";
 import type { GeometricConstraintKind } from "@/sketch/types";
+import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
+import { useGeometryStore } from "@/state/geometryStore";
 import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 import { runOpenDocument, runSaveDocument } from "./documentIO";
 import { runExport, runImport } from "./interchange";
+
+/** How close to parallel (dot product of unit normals) a clicked face's normal needs to
+ * be to one of the three default planes' own normal to count as "on that plane" — allows
+ * for float error, not for a genuinely angled face. */
+const FACE_PLANE_ALIGNMENT_TOLERANCE = 0.98;
 
 /**
  * Ribbon command ids that create a feature, mapped to the kind they create.
@@ -115,10 +124,75 @@ function addSketchFeature(kind: "extrude" | "cut-extrude" | "revolve" | "cut-rev
  * section instead, opened by selecting the new feature after creation — consistent with
  * every other feature in this app, which is created with defaults and then tuned in the
  * property panel rather than through an upfront wizard dialog.
+ *
+ * If no selected/most-recent sketch actually has a point in it yet, there is nothing for
+ * `buildHoleSolid` (`kernel/rebuild.ts`) to cut a hole at — creating the feature anyway
+ * used to just hand the user a broken "Place at least one point..." error. Instead this
+ * arms `holePlacementActive`, and `SolidModel.tsx`'s click handler (`placeHoleAtPick`
+ * below) creates the backing sketch and the hole feature together once the user actually
+ * clicks a face.
  */
 function addHoleFeature() {
   const sketchId = resolveTargetSketchId();
-  useDocumentStore.getState().addFeature("hole", undefined, sketchId ? [sketchId] : []);
+  const sketch = sketchId ? useSketchStore.getState().sketches[sketchId] : undefined;
+  const hasPoint = sketch?.entities.some((entity) => entity.kind === "point") ?? false;
+
+  if (sketchId && hasPoint) {
+    useDocumentStore.getState().addFeature("hole", undefined, [sketchId]);
+    return;
+  }
+
+  useViewportStore.getState().setHolePlacementActive(true);
+  useGeometryStore
+    .getState()
+    .showToast("Hole Wizard: click a face parallel to Front, Top or Right to place a hole", 5000);
+}
+
+/**
+ * Turns a raycaster hit on the solid (a world point plus the clicked triangle's face
+ * normal, both from `SolidModel.tsx`'s own click handler) into a Hole Wizard feature —
+ * the part of item 1 ("Select" placement) that does not need real per-face identity from
+ * the kernel: a point and a normal are all `buildHoleSolid` needs, the same as the
+ * Fillet/Chamfer edge-pick flow only ever needed raw 3D points, never a real edge id.
+ *
+ * The face has to be (anti-)parallel to one of the three default planes, because
+ * `kernel/rebuild.ts` only knows how to orient a hole feature's cylinders by
+ * `sketch.planeId`, and `planeBasis()` only has a rotation for those three ids — there is
+ * no notion yet of a plane offset along its own normal (see `planeBasis.ts`). That is not
+ * the limitation it sounds like for the common case: `buildHoleSolid`'s default end
+ * condition is "through-all", which is already a deliberately oversized cut centred on
+ * the sketch plane in *both* directions (`extrusionRange`), so it reaches a face offset
+ * from the origin along that same normal regardless. An angled/non-axis-aligned face
+ * (e.g. a chamfer or a revolved surface) is correctly rejected rather than silently
+ * producing a hole in the wrong place.
+ *
+ * Returns whether a hole was placed, so the caller knows whether to stay in placement
+ * mode (misaligned face — let the user try a different one) or leave it (success).
+ */
+export function placeHoleAtPick(worldPoint: Vector3, worldNormal: Vector3): boolean {
+  const planeId = DEFAULT_PLANE_IDS.find(
+    (id) => Math.abs(planeBasis(id).normal.dot(worldNormal)) > FACE_PLANE_ALIGNMENT_TOLERANCE,
+  );
+
+  if (!planeId) {
+    useGeometryStore
+      .getState()
+      .showToast("That face isn't parallel to Front, Top or Right — pick another one", 4000);
+    return false;
+  }
+
+  const { x, y } = worldToSketch(planeId, worldPoint);
+
+  const documentState = useDocumentStore.getState();
+  const sketchStore = useSketchStore.getState();
+  const sketchFeatureId = documentState.addFeature("sketch");
+  sketchStore.beginSketch(sketchFeatureId, planeId);
+  sketchStore.drawPoint({ x, y });
+  sketchStore.exitSketch();
+
+  documentState.addFeature("hole", undefined, [sketchFeatureId]);
+  useViewportStore.getState().setHolePlacementActive(false);
+  return true;
 }
 
 /** Creates a Rib feature from the target sketch's first non-construction line — the same
