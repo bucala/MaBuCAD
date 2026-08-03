@@ -99,7 +99,8 @@ export function SketchPanel() {
   const diagnostics = useSketchStore((state) => state.diagnostics);
   const isClosed = useSketchStore(selectProfileClosed);
 
-  const applyConstraint = useSketchStore((state) => state.applyConstraint);
+  const armConstraint = useSketchStore((state) => state.armConstraint);
+  const pendingConstraintKind = useSketchStore((state) => state.pendingConstraintKind);
   const applyOrdinateDimension = useSketchStore((state) => state.applyOrdinateDimension);
   const setDimensionValue = useSketchStore((state) => state.setDimensionValue);
   const deleteDimension = useSketchStore((state) => state.deleteDimension);
@@ -156,8 +157,8 @@ export function SketchPanel() {
                 type="button"
                 className={styles.toolButton}
                 title={hint}
-                disabled={selection.length === 0}
-                onClick={() => applyConstraint(kind)}
+                aria-pressed={pendingConstraintKind === kind}
+                onClick={() => armConstraint(kind)}
               >
                 <Icon size={14} strokeWidth={1.75} />
                 {label}
@@ -165,9 +166,11 @@ export function SketchPanel() {
             ))}
           </div>
           <p className={styles.hint}>
-            {selection.length === 0
-              ? "Select geometry in the graphics area to add a relation."
-              : `${selection.length} selected`}
+            {pendingConstraintKind
+              ? "Click the elements it applies to in the graphics area."
+              : selection.length === 0
+                ? "Select geometry first, or click a relation above, then pick its elements."
+                : `${selection.length} selected`}
           </p>
         </section>
 

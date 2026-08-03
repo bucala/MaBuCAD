@@ -55,10 +55,13 @@ live in the Feature Manager tree.
 ### ✏️ Constraint-based sketcher
 
 Line/rectangle/circle/arc/spline/construction/point, trim, offset, mirror, linear/circular
-pattern, 9 geometric relations and smart/ordinate dimensioning, solved by a damped-Newton
+pattern, 10 geometric relations and smart/ordinate dimensioning, solved by a damped-Newton
 solver that reports live degrees of freedom. Smart Dimension follows an Inventor-style
 propose-then-commit flow, and dragging a point suggests coincident/tangent/midpoint
 relations live ("constrains smart") — both shown as a preview until you commit to them.
+Relations work select-then-apply or apply-then-select, either order; a length dimension can
+be switched between Horizontal/Vertical/Aligned from its right-click menu without re-adding
+it; and selected geometry gets a real halo highlight, not just a colour swap.
 
   </td>
   <td width="33%" valign="top">

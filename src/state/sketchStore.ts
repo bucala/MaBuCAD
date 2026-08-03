@@ -106,6 +106,16 @@ interface SketchStore {
   /** An uncommitted Smart Dimension proposal, or null. See `PendingDimension`'s own doc
    * comment. */
   pendingDimension: PendingDimension | null;
+  /**
+   * A relation button clicked with no selection (or an incomplete one) yet to satisfy it —
+   * `null` means no relation is waiting on picks. Set by `armConstraint`, consumed by
+   * `pickForConstraint` as the viewport is clicked, same "arm then accumulate picks" shape
+   * `pendingDimension` already uses for Smart Dimension. Lets "click the relation, then
+   * pick elements" work as well as the original "select elements, then click the
+   * relation" — `armConstraint` tries applying immediately first and only arms this if
+   * the current selection doesn't already satisfy the relation.
+   */
+  pendingConstraintKind: GeometricConstraintKind | null;
   /** "Constrains smart" — a relation the point currently being dragged is close enough
    * to for `commitDragSnap` to apply on release. See `DragSnapSuggestion`'s own doc
    * comment in `sketchModel.ts`. */
@@ -153,6 +163,17 @@ interface SketchStore {
   trimWindowSelect: (minX: number, minY: number, maxX: number, maxY: number) => void;
 
   applyConstraint: (kind: GeometricConstraintKind) => boolean;
+  /** The "click the relation first" entry point: tries `applyConstraint(kind)` against
+   * whatever is already selected, and only arms `pendingConstraintKind` (waiting on
+   * `pickForConstraint`) if that selection doesn't already satisfy it. */
+  armConstraint: (kind: GeometricConstraintKind) => void;
+  /** Picks (or unpicks) `id` toward the armed `pendingConstraintKind`, applying it — and
+   * clearing the arm — the moment the accumulated selection satisfies its shape. A no-op
+   * with nothing armed. */
+  pickForConstraint: (id: string) => void;
+  /** Discards the current `pendingConstraintKind` without applying it — Escape, or
+   * switching tools. */
+  cancelPendingConstraint: () => void;
   mirrorSelection: () => boolean;
   offsetSelection: (distance: number) => boolean;
   patternSelection: (options: PatternOptions) => boolean;
@@ -174,6 +195,11 @@ interface SketchStore {
   /** Radius <-> diameter on a circle/arc dimension, converting the driving value (2x or
    * /2) so the circle it drives doesn't jump size. A no-op for any other dimension kind. */
   toggleDimensionRadiusDiameter: (dimensionId: string) => void;
+  /** Switches a linear (two-point) dimension between Aligned (`distance`, true point-to-point
+   * length), Horizontal (`horizontal-distance`) and Vertical (`vertical-distance`) — a no-op
+   * for any other dimension kind. Re-measures the value from the current geometry rather
+   * than converting it algebraically, so it's exact regardless of the dimension's current mode. */
+  setLinearDimensionMode: (dimensionId: string, mode: "distance" | "horizontal-distance" | "vertical-distance") => void;
   /** The other of the two angles two intersecting lines actually form (θ and its
    * supplement, 180-θ) — the two numerically distinct choices at that vertex; the other
    * two visual quadrants are one of these two values again, by vertical angles. A no-op
@@ -249,6 +275,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     selection: [],
     contextMenu: null,
     pendingDimension: null,
+    pendingConstraintKind: null,
     dragSnapSuggestion: null,
     hoverPosition: null,
     past: [],
@@ -269,6 +296,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         contextMenu: null,
         pendingDimension: null,
+        pendingConstraintKind: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -286,6 +314,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         contextMenu: null,
         pendingDimension: null,
+        pendingConstraintKind: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -301,6 +330,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
         pendingDimension: null,
+        pendingConstraintKind: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -316,6 +346,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
         pendingDimension: null,
+        pendingConstraintKind: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -325,7 +356,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     // A pending Smart Dimension proposal only makes sense while that tool stays active —
     // switching to any other tool (including re-arming Smart Dimension itself, which goes
     // through this same setter) discards it rather than leaving a ghost proposal behind.
-    setTool: (tool) => set({ tool, selection: [], pendingDimension: null, dragSnapSuggestion: null }),
+    setTool: (tool) => set({ tool, selection: [], pendingDimension: null, pendingConstraintKind: null, dragSnapSuggestion: null }),
     setSelection: (ids) => set({ selection: ids }),
     clearSelection: () => set({ selection: [] }),
 
@@ -423,6 +454,32 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       set({ selection: [] });
       return true;
     },
+
+    armConstraint: (kind) => {
+      // Already-selected elements might already be exactly what this relation needs (e.g.
+      // the user selected two lines, then clicked Parallel) — try that first so arming is
+      // only ever a fallback, not the only path.
+      if (get().applyConstraint(kind)) return;
+      // Picking only reaches the sketch (rather than whatever a drawing tool would do
+      // with the same click) while the Select tool is active — force it so a relation
+      // armed from, say, still having the Line tool selected doesn't silently swallow
+      // the next click into drawing a new line instead of picking for the relation.
+      set({ pendingConstraintKind: kind, tool: "select" });
+    },
+
+    pickForConstraint: (id) => {
+      const { pendingConstraintKind, selection } = get();
+      if (!pendingConstraintKind) return;
+
+      const nextSelection = selection.includes(id) ? selection.filter((s) => s !== id) : [...selection, id];
+      set({ selection: nextSelection });
+
+      if (get().applyConstraint(pendingConstraintKind)) {
+        set({ pendingConstraintKind: null });
+      }
+    },
+
+    cancelPendingConstraint: () => set({ pendingConstraintKind: null, selection: [] }),
 
     mirrorSelection: () => {
       const { activeSketchId, sketches, selection } = get();
@@ -628,6 +685,35 @@ export const useSketchStore = create<SketchStore>((set, get) => {
             ? { ...dimension, value: 180 - dimension.value }
             : dimension,
         ),
+      })),
+
+    setLinearDimensionMode: (dimensionId, mode) =>
+      edit((sketch) => ({
+        ...sketch,
+        dimensions: sketch.dimensions.map((dimension) => {
+          if (dimension.id !== dimensionId) return dimension;
+          if (
+            dimension.kind !== "distance" &&
+            dimension.kind !== "horizontal-distance" &&
+            dimension.kind !== "vertical-distance"
+          ) {
+            return dimension;
+          }
+          const first = pointById(sketch, dimension.points[0]);
+          const second = pointById(sketch, dimension.points[1]);
+          if (!first || !second) return { ...dimension, kind: mode };
+          // Re-measured from the current geometry rather than converted algebraically from
+          // the old value (e.g. via the two points' angle) — simpler, and exact regardless
+          // of which mode the dimension is switching *from*, so a chain of mode switches
+          // never accumulates rounding.
+          const value =
+            mode === "horizontal-distance"
+              ? Math.abs(second.x - first.x)
+              : mode === "vertical-distance"
+                ? Math.abs(second.y - first.y)
+                : Math.hypot(second.x - first.x, second.y - first.y);
+          return { ...dimension, kind: mode, value: roundDimensionValue(value) };
+        }),
       })),
 
     /**

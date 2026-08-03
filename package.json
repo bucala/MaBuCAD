@@ -1,7 +1,7 @@
 {
   "name": "mabucad",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Parametric 3D/2D CAD system for Windows 11 x64",
   "type": "module",
   "scripts": {

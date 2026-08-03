@@ -7,6 +7,40 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-03 — Dimension mode switching, click-first relations, and clearer selection highlighting (v0.4.0)
+
+An eighth round of feedback, focused entirely on sketch-mode usability: two new interaction
+flows (switching a length dimension's measurement mode, and arming a relation before picking
+its elements) plus a real fix for selection being hard to spot at a glance.
+
+### Added — dimensions
+- **Right-click a Horizontal/Vertical/Aligned dimension to switch its measurement mode.** A
+  new context-menu section (only shown for these three dimension kinds — Radius, Diameter and
+  Angle dimensions are unaffected) lets you flip a length dimension between the three modes
+  without deleting and re-adding it; the value re-measures from current geometry on switch.
+  This surfaced a rendering gap along the way: `horizontal-distance`/`vertical-distance`
+  dimensions already had their own solver residuals (signed axis-delta, same as ordinate
+  dimensions) but were drawn identically to a plain `distance` dimension — an aligned leader
+  running point-to-point instead of the axis-locked, square-dropped extension lines the solver
+  behaviour actually implies. Both now render the same way ordinate dimensions already did.
+
+### Added — relations
+- **Relations can now be created "function first, elements second,"** in addition to the
+  existing "elements first, function second" flow — click a relation button in the Add
+  Relation panel to arm it (it stays highlighted while armed), then click the elements it
+  applies to in the viewport; the relation applies automatically once enough elements are
+  picked for that kind, the same "accumulate picks, auto-apply" pattern Smart Dimension
+  already used. Escape cancels an armed relation before touching anything else (selection,
+  active tool) — the same most-disruptive-first priority order Escape already followed.
+
+### Fixed — sketch selection clarity
+- **Selected sketch entities and points were hard to spot at a glance** — a selected point
+  changed colour only (no size change, on an already-tiny 3.5px dot), and a selected line's
+  only distinction was a 1px width bump plus colour. Both now also get a soft, translucent
+  accent-coloured halo rendered behind them, and a selected point's dot itself grows — a
+  clearer "this is what's active" signal than a colour/width change alone, regardless of theme
+  or zoom level.
+
 ## 2026-08-02 — Constraint solver fixes, screen-space UI sizing, a real ViewCube, and Hole Wizard seats (v0.3.0)
 
 A seventh round of feedback, the largest so far — a real constraint-solver bug, a

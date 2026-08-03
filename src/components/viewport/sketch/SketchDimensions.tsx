@@ -204,6 +204,12 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
 
   const isSelected = selection.includes(dimension.id);
   const isOrdinate = dimension.kind === "ordinate-x" || dimension.kind === "ordinate-y";
+  // Horizontal/Vertical distance dimensions share the ordinate leader's own axis-locked
+  // shape (extension lines dropped to a shared horizontal/vertical dimension line) — the
+  // same geometry, just not chained to a datum — so they reuse that branch below rather
+  // than the free-angle leader "Aligned" (`distance`) uses. Kept out of `isOrdinate` itself
+  // since that also drives the ordinate-only purple colour, which these two don't get.
+  const isAxisLockedDistance = dimension.kind === "horizontal-distance" || dimension.kind === "vertical-distance";
   const color = isSelected ? accent : isOrdinate ? ORDINATE_COLOR : DIMENSION_COLOR;
 
   const first = dimension.points[0] ? pointById(sketch, dimension.points[0]) : undefined;
@@ -227,13 +233,15 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
   // tools — a plain fixed offset here is what let the label detach from its line before.
   const nudge = dimension.labelOffset;
 
-  if (isOrdinate && first && second) {
+  if ((isOrdinate || isAxisLockedDistance) && first && second) {
     // Ordinate dimensions run back to the datum along one axis, which is what makes a
     // chain of them share a single zero rather than accumulating tolerance. The nudge
     // component along that axis grows or shrinks the shared offset (so witness lines and
     // label move out together); the cross-axis component just slides the label along its
-    // own dimension line.
-    const alongX = dimension.kind === "ordinate-x";
+    // own dimension line. A Horizontal/Vertical distance dimension isn't chained to a
+    // datum, but the leader shape — extension lines dropped square to a shared
+    // horizontal/vertical dimension line — is identical, so it reuses the same branch.
+    const alongX = dimension.kind === "ordinate-x" || dimension.kind === "horizontal-distance";
     const baseOffset = 6;
 
     if (alongX) {

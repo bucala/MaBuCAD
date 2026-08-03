@@ -35,6 +35,8 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   const selection = useSketchStore((state) => state.selection);
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
   const pickForSmartDimension = useSketchStore((state) => state.pickForSmartDimension);
+  const pendingConstraintKind = useSketchStore((state) => state.pendingConstraintKind);
+  const pickForConstraint = useSketchStore((state) => state.pickForConstraint);
   const trimAt = useSketchStore((state) => state.trimAt);
   const tool = useSketchStore((state) => state.tool);
   // Points and entities only intercept clicks for picking while Select or Smart Dimension
@@ -49,8 +51,15 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   // Select, a pick here always accumulates (see `pickForSmartDimension`'s own doc
   // comment on `PendingDimension`) rather than replacing the selection — that's what
   // lets a second, compatible pick refine a proposal (two lines -> angle) instead of the
-  // first one committing immediately and leaving no room for a second pick to matter.
+  // first one committing immediately and leaving no room for a second pick to matter. A
+  // relation armed via the "click the function first" flow (`pendingConstraintKind`) works
+  // the same way, and takes priority: while a relation is waiting on picks, a click always
+  // feeds it rather than plain-replacing the selection, even in ordinary Select mode.
   const pick = (id: string, additive: boolean) => {
+    if (pendingConstraintKind) {
+      pickForConstraint(id);
+      return;
+    }
     if (tool === "smart-dimension") {
       pickForSmartDimension(id);
       return;
@@ -105,6 +114,8 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
  * visible dot balloon to a nonsensical size once zoomed in far enough. */
 const POINT_VISIBLE_PIXELS = 3.5;
 const ORIGIN_VISIBLE_PIXELS = 5;
+const SELECTED_POINT_VISIBLE_PIXELS = 6;
+const SELECTED_POINT_HALO_PIXELS = 11;
 const POINT_PICK_TARGET_PIXELS = 9;
 
 function SketchPointDot({
@@ -123,7 +134,10 @@ function SketchPointDot({
   onPick: (additive: boolean) => void;
 }) {
   const pickRef = useScreenSpacePixelScale(POINT_PICK_TARGET_PIXELS);
-  const dotRef = useScreenSpacePixelScale(isOrigin ? ORIGIN_VISIBLE_PIXELS : POINT_VISIBLE_PIXELS);
+  const dotRef = useScreenSpacePixelScale(
+    isSelected ? SELECTED_POINT_VISIBLE_PIXELS : isOrigin ? ORIGIN_VISIBLE_PIXELS : POINT_VISIBLE_PIXELS,
+  );
+  const haloRef = useScreenSpacePixelScale(SELECTED_POINT_HALO_PIXELS);
 
   return (
     <group position={[point.x, point.y, 0.02]}>
@@ -156,6 +170,19 @@ function SketchPointDot({
         <circleGeometry args={[1, 12]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
+
+      {/*
+        Colour alone was too easy to miss at a glance (a 3.5px dot changing shade), so a
+        selected point also grows and gets a soft halo behind it — the same "it visibly
+        pops" treatment as the entity halo below, sized in screen pixels for the same
+        zoom-independence reason as the dot itself.
+      */}
+      {isSelected && (
+        <mesh ref={haloRef} raycast={() => null}>
+          <circleGeometry args={[1, 16]} />
+          <meshBasicMaterial color={accent} transparent opacity={0.3} depthTest={false} />
+        </mesh>
+      )}
 
       <mesh ref={dotRef} raycast={() => null}>
         <circleGeometry args={[1, 12]} />
@@ -246,31 +273,41 @@ function EntityView({
   const isAxis = entity.kind === "line" && entity.isAxis;
 
   return (
-    <Line
-      points={points}
-      color={isSelected ? color : isAxis ? STATIC_COLORS.axis : entity.construction ? STATIC_COLORS.construction : color}
-      lineWidth={isSelected ? 3 : entity.construction ? 1 : 2}
-      dashed={entity.construction}
-      // A real dash-dot centreline pattern (long dash, gap, dot, gap) isn't something
-      // drei's Line supports directly (one dash/gap pair only) — a tighter, more frequent
-      // dash reads as visually distinct from a plain construction line's dash at a glance,
-      // which is the part that actually matters for telling the two apart in the viewport.
-      dashSize={isAxis ? 3 : 2}
-      gapSize={isAxis ? 0.8 : 1.5}
-      onClick={
-        isSelectMode
-          ? (event) => {
-              event.stopPropagation();
-              onSelect(event.ctrlKey || event.metaKey);
-            }
-          : isTrimTarget
-            ? (event: ThreeEvent<MouseEvent>) => {
+    <>
+      {/*
+        A 1px lineWidth bump (2 -> 3) reads as barely-there next to a colour change alone,
+        which was the user's actual complaint — a soft, wider halo behind the selected
+        entity makes "this is what's selected" legible at a glance regardless of theme or
+        zoom, the same treatment given to selected sketch points above. No onClick here:
+        purely visual, so a click still falls through to the real line underneath it.
+      */}
+      {isSelected && <Line points={points} color={color} lineWidth={8} transparent opacity={0.3} depthTest={false} />}
+      <Line
+        points={points}
+        color={isSelected ? color : isAxis ? STATIC_COLORS.axis : entity.construction ? STATIC_COLORS.construction : color}
+        lineWidth={isSelected ? 3 : entity.construction ? 1 : 2}
+        dashed={entity.construction}
+        // A real dash-dot centreline pattern (long dash, gap, dot, gap) isn't something
+        // drei's Line supports directly (one dash/gap pair only) — a tighter, more frequent
+        // dash reads as visually distinct from a plain construction line's dash at a glance,
+        // which is the part that actually matters for telling the two apart in the viewport.
+        dashSize={isAxis ? 3 : 2}
+        gapSize={isAxis ? 0.8 : 1.5}
+        onClick={
+          isSelectMode
+            ? (event) => {
                 event.stopPropagation();
-                onTrim(event.point);
+                onSelect(event.ctrlKey || event.metaKey);
               }
-            : undefined
-      }
-      // See the point mesh above: not toggling `raycast` deliberately, only `onClick`.
-    />
+            : isTrimTarget
+              ? (event: ThreeEvent<MouseEvent>) => {
+                  event.stopPropagation();
+                  onTrim(event.point);
+                }
+              : undefined
+        }
+        // See the point mesh above: not toggling `raycast` deliberately, only `onClick`.
+      />
+    </>
   );
 }
