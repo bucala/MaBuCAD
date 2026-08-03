@@ -82,7 +82,6 @@ export const sk: Record<string, string> = {
   "sketch.spline": "Krivka",
   "sketch.construction": "Konštrukčná čiara",
   "sketch.point": "Bod",
-  "sketch.text": "Text",
   "sketch.trim": "Orezať",
   "sketch.offset": "Odsadiť",
   "sketch.mirror": "Zrkadliť",

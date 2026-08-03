@@ -6,12 +6,27 @@
 }
 
 .body {
+  /* A grid item's default `min-width` is `auto` (not `0`), meaning it refuses to shrink
+     below its content's intrinsic width — normally invisible, but `Group`/`Panel` from
+     react-resizable-panels compute their own pixel-to-percentage split from *this*
+     element's measured width, so any content-driven overflow here fed straight back into
+     a wider computed width next measurement, compounding every cycle: the split's own
+     recalculation was the thing keeping the viewport panel — and with it the WebGL canvas
+     — growing wider than the window, forever, the moment a sketch's property panel (wider
+     content than the idle Feature Manager) was on screen. `min-height: 0` already existed
+     for the equivalent vertical case; grid items need both axes pinned explicitly. */
   min-height: 0;
+  min-width: 0;
   padding: 0 var(--space-3) var(--space-2);
 }
 
 .group {
   height: 100%;
+  /* `react-resizable-panels` already sets `width: 100%` inline on this element; only
+     `min-width` needs stating explicitly here, for the same flex/grid-item shrink reason
+     `.body` above does — matching `.managerPanel`/`.viewportPanel` below, which already
+     have it. */
+  min-width: 0;
 }
 
 /* Panel applies className to a nested element, so this styles the panel content box. */

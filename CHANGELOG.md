@@ -7,6 +7,25 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-03 — Runaway viewport growth fix, a real Sketch Fillet, and Offset/Mirror/Pattern panel UI (v0.5.0)
+
+A ninth round, prompted by "keep finishing off unfinished corners of the Sketch section." Turned up a genuine, previously-unnoticed layout bug along the way that turned out to be the most important fix in this release.
+
+### Fixed — a real bug: the 3D viewport grew continuously while a sketch was open
+- **The viewport (and the WebGL canvas inside it) grew wider than the browser window, continuously, for as long as any sketch stayed open** — even completely idle, no drawing or clicking required, roughly 25px/second, unbounded, eventually pushing the ViewCube fully off-screen. Root cause: `.body` in `AppShell.module.css`, a CSS Grid item wrapping the resizable manager/viewport split, set `min-height: 0` (needed so it can shrink vertically) but never the equivalent `min-width: 0` — a grid item's default `min-width` is `auto`, meaning it refuses to shrink below its content's intrinsic width. `react-resizable-panels` computes its pixel-to-percentage panel split from *this* element's own measured width, so any content-driven overflow fed straight back into a wider computed width on the next measurement, compounding every cycle the instant a sketch's (wider) property panel replaced the idle Feature Manager's. Confirmed via direct DOM measurement over a 24-second idle window, in both dev and production builds — genuinely present, not a test artifact. Fixed by adding `min-width: 0` alongside the existing `min-height: 0`, and the equivalent on `.group`, the resizable-panels `Group` element one level down.
+
+### Added — Sketch Fillet
+- **A real sketch-level corner Fillet**, rounding the shared corner between two lines into a tangent arc at a given radius — trims each line back to its tangent point and inserts the arc, the same operation the PartDesign Fillet feature does on 3D edges, done directly on 2D profile geometry. New "Fillet" tool in the Sketch panel's Tools grid with its own Radius field; click two lines sharing a corner.
+- **`Tangent` now also accepts an arc, not just a circle** (`residuals.ts`) — picking a line and an arc and clicking Tangent by hand previously added a constraint that silently did nothing (the residual only recognised `kind === "circle"`); it's a real, working relation now.
+
+### Added — Offset/Mirror/Pattern get real panel UI
+- **Offset and Pattern previously only worked through a chain of browser `window.prompt()` dialogs** reachable from the ribbon, with no controls anywhere in the Sketch panel itself — functional, but visibly a placeholder, and easy to miss entirely. Added a "Modify" section to the Sketch panel with real inline fields: Mirror (select entities + one construction-line axis, click Mirror), Offset (distance field + Apply), and Pattern (Linear/Circular, count, spacing or sweep angle, + Apply Pattern). The ribbon buttons now point at the panel instead of opening prompts.
+
+### Removed — dead code
+- **The "Text" sketch tool ribbon button** ("Place sketch text along a curve") had zero backing implementation anywhere — no entity kind, no store action, permanently disabled. Removed rather than left as a dead button promising an unbuilt curve-following-text feature; a real placed-text annotation tool remains open future work.
+- Three unused `SketchTool` values (`"ordinate"`, `"ordinate-horizontal"`, `"ordinate-vertical"`) that no code path ever set — ordinate dimensioning is actually driven through the separate `applyOrdinateDimension` action.
+- Leftover `console.log("DEBUG edit()", ...)` calls in `sketchStore.ts`, printing on every single sketch edit.
+
 ## 2026-08-03 — Dimension mode switching, click-first relations, and clearer selection highlighting (v0.4.0)
 
 An eighth round of feedback, focused entirely on sketch-mode usability: two new interaction

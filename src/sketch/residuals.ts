@@ -195,17 +195,23 @@ function geometricResiduals(
     }
 
     case "tangent": {
-      // Line tangent to a circle: the perpendicular distance from the centre equals r.
+      // Line tangent to a circle or an arc — a Sketch Fillet's rounded corner is exactly
+      // this (a line tangent to the fillet arc), and an arc's rim is driven by the same
+      // centre/radius pair as a circle's (see `point-on-circle` above), so the same
+      // "perpendicular distance from the centre equals r" residual applies to either.
       const lineId = constraint.entities.find((id) => entities.get(id)?.kind === "line");
-      const circleId = constraint.entities.find((id) => entities.get(id)?.kind === "circle");
-      if (!lineId || !circleId) return [];
+      const curveId = constraint.entities.find((id) => {
+        const kind = entities.get(id)?.kind;
+        return kind === "circle" || kind === "arc";
+      });
+      if (!lineId || !curveId) return [];
 
       const ends = lineEnds(entities, values, layout, lineId);
-      const circle = entities.get(circleId);
-      if (!ends || !circle || circle.kind !== "circle") return [];
+      const curve = entities.get(curveId);
+      if (!ends || !curve || (curve.kind !== "circle" && curve.kind !== "arc")) return [];
 
-      const centre = readPoint(values, layout, circle.center);
-      const radius = values[layout.radiusIndex.get(circleId)!];
+      const centre = readPoint(values, layout, curve.center);
+      const radius = values[layout.radiusIndex.get(curveId)!];
       const u = direction(ends.a, ends.b);
       const denominator = Math.max(length(u), 1e-9);
       const distance = Math.abs(cross(u, direction(ends.a, centre))) / denominator;

@@ -37,14 +37,16 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   const pickForSmartDimension = useSketchStore((state) => state.pickForSmartDimension);
   const pendingConstraintKind = useSketchStore((state) => state.pendingConstraintKind);
   const pickForConstraint = useSketchStore((state) => state.pickForConstraint);
+  const pendingFilletLineId = useSketchStore((state) => state.pendingFilletLineId);
+  const pickForFillet = useSketchStore((state) => state.pickForFillet);
   const trimAt = useSketchStore((state) => state.trimAt);
   const tool = useSketchStore((state) => state.tool);
-  // Points and entities only intercept clicks for picking while Select or Smart Dimension
-  // is active. Any drawing tool needs those same clicks to reach the invisible drawing
-  // surface behind them (SketchCanvas), which is what actually creates and snaps
+  // Points and entities only intercept clicks for picking while Select, Smart Dimension or
+  // Fillet is active. Any drawing tool needs those same clicks to reach the invisible
+  // drawing surface behind them (SketchCanvas), which is what actually creates and snaps
   // geometry — otherwise clicking an existing point (or the origin) just picks it instead
   // of extending whatever is being drawn.
-  const isPickMode = tool === "select" || tool === "smart-dimension";
+  const isPickMode = tool === "select" || tool === "smart-dimension" || tool === "fillet";
   const isTrimMode = tool === "trim";
 
   // Smart Dimension stays armed after use (see commandRegistry.ts's own note). Unlike
@@ -54,7 +56,9 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   // first one committing immediately and leaving no room for a second pick to matter. A
   // relation armed via the "click the function first" flow (`pendingConstraintKind`) works
   // the same way, and takes priority: while a relation is waiting on picks, a click always
-  // feeds it rather than plain-replacing the selection, even in ordinary Select mode.
+  // feeds it rather than plain-replacing the selection, even in ordinary Select mode. The
+  // Fillet tool is its own tool rather than an armed relation (it needs a numeric radius
+  // alongside the two picks), so it's checked by `tool` like Smart Dimension is.
   const pick = (id: string, additive: boolean) => {
     if (pendingConstraintKind) {
       pickForConstraint(id);
@@ -64,6 +68,10 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
       pickForSmartDimension(id);
       return;
     }
+    if (tool === "fillet") {
+      pickForFillet(id);
+      return;
+    }
     toggleSelection(id, additive);
   };
 
@@ -71,23 +79,30 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
 
   return (
     <group>
-      {sketch.entities.map((entity) => (
-        <EntityView
-          key={entity.id}
-          entity={entity}
-          sketch={sketch}
-          color={selection.includes(entity.id) ? accent : baseColor}
-          isSelected={selection.includes(entity.id)}
-          isSelectMode={isPickMode}
-          onSelect={(additive) => pick(entity.id, additive)}
-          // Arcs and standalone points aren't trimmable yet (see trimEntityAt's doc
-          // comment) — they simply don't get a click handler in trim mode, so a click
-          // falls through to the drawing surface behind them instead of doing nothing
-          // silently on a hit.
-          isTrimTarget={isTrimMode && (entity.kind === "line" || entity.kind === "circle" || entity.kind === "spline")}
-          onTrim={(point) => trimAt(entity.id, worldToSketch(sketch.planeId, point))}
-        />
-      ))}
+      {sketch.entities.map((entity) => {
+        // The first line picked toward a Fillet reads as "selected" too, the same visual
+        // feedback `pendingConstraintKind`'s accumulated picks already get via `selection`
+        // — Fillet just tracks its one pick separately (`pendingFilletLineId`) since it
+        // isn't a relation and doesn't want to disturb the ordinary selection.
+        const isEntitySelected = selection.includes(entity.id) || entity.id === pendingFilletLineId;
+        return (
+          <EntityView
+            key={entity.id}
+            entity={entity}
+            sketch={sketch}
+            color={isEntitySelected ? accent : baseColor}
+            isSelected={isEntitySelected}
+            isSelectMode={isPickMode}
+            onSelect={(additive) => pick(entity.id, additive)}
+            // Arcs and standalone points aren't trimmable yet (see trimEntityAt's doc
+            // comment) — they simply don't get a click handler in trim mode, so a click
+            // falls through to the drawing surface behind them instead of doing nothing
+            // silently on a hit.
+            isTrimTarget={isTrimMode && (entity.kind === "line" || entity.kind === "circle" || entity.kind === "spline")}
+            onTrim={(point) => trimAt(entity.id, worldToSketch(sketch.planeId, point))}
+          />
+        );
+      })}
 
       {sketch.points.map((point) => (
         <SketchPointDot

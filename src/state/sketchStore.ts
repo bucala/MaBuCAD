@@ -14,6 +14,7 @@ import {
   defaultDimensionAnchor,
   entityById,
   entityPoints,
+  filletCorner,
   hasClosedProfile,
   inferDragSnap,
   inferSmartDimension,
@@ -51,10 +52,8 @@ export type SketchTool =
   | "point"
   | "arc"
   | "trim"
-  | "smart-dimension"
-  | "ordinate"
-  | "ordinate-horizontal"
-  | "ordinate-vertical";
+  | "fillet"
+  | "smart-dimension";
 
 const IDLE_DIAGNOSTICS: SketchDiagnostics = {
   dof: 0,
@@ -116,6 +115,15 @@ interface SketchStore {
    * the current selection doesn't already satisfy the relation.
    */
   pendingConstraintKind: GeometricConstraintKind | null;
+  /** Radius the Fillet tool applies to the next corner it picks — set from the Sketch
+   * panel's own numeric field, read by `pickForFillet` at the moment a second line
+   * completes a pick. Lives here (rather than as a one-shot argument) so it survives
+   * between picks the same way `pendingConstraintKind` does. */
+  filletRadius: number;
+  /** The first line picked toward a Fillet while `tool === "fillet"`, or null — same
+   * "arm then accumulate picks" shape as `pendingConstraintKind`, but for a tool rather
+   * than a relation, since a fillet also needs the numeric radius above. */
+  pendingFilletLineId: string | null;
   /** "Constrains smart" — a relation the point currently being dragged is close enough
    * to for `commitDragSnap` to apply on release. See `DragSnapSuggestion`'s own doc
    * comment in `sketchModel.ts`. */
@@ -174,6 +182,12 @@ interface SketchStore {
   /** Discards the current `pendingConstraintKind` without applying it — Escape, or
    * switching tools. */
   cancelPendingConstraint: () => void;
+  setFilletRadius: (value: number) => void;
+  /** Picks (or unpicks, on a repeat click) `id` toward the Fillet tool's two-line pick —
+   * applies `filletCorner` with the current `filletRadius` the moment a second, distinct
+   * line is picked, same accumulate-then-auto-apply shape as `pickForConstraint`. A no-op
+   * for anything that isn't a line. */
+  pickForFillet: (id: string) => void;
   mirrorSelection: () => boolean;
   offsetSelection: (distance: number) => boolean;
   patternSelection: (options: PatternOptions) => boolean;
@@ -250,9 +264,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     if (!current) return;
 
     const mutated = mutate(current);
-    console.log("DEBUG edit()", { currentEntities: current.entities.length, mutatedEntities: mutated.entities.length, sameRef: mutated === current });
     const { sketch, diagnostics } = solveSketch(mutated);
-    console.log("DEBUG edit() after solve", { solvedEntities: sketch.entities.length, sameAsCurrentRef: sketch === current });
     if (sketch === current) return;
 
     pushHistory(current);
@@ -276,6 +288,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     contextMenu: null,
     pendingDimension: null,
     pendingConstraintKind: null,
+    filletRadius: 5,
+    pendingFilletLineId: null,
     dragSnapSuggestion: null,
     hoverPosition: null,
     past: [],
@@ -297,6 +311,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         contextMenu: null,
         pendingDimension: null,
         pendingConstraintKind: null,
+        pendingFilletLineId: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -315,6 +330,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         contextMenu: null,
         pendingDimension: null,
         pendingConstraintKind: null,
+        pendingFilletLineId: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -331,6 +347,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         contextMenu: null,
         pendingDimension: null,
         pendingConstraintKind: null,
+        pendingFilletLineId: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -347,6 +364,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         contextMenu: null,
         pendingDimension: null,
         pendingConstraintKind: null,
+        pendingFilletLineId: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -356,7 +374,15 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     // A pending Smart Dimension proposal only makes sense while that tool stays active —
     // switching to any other tool (including re-arming Smart Dimension itself, which goes
     // through this same setter) discards it rather than leaving a ghost proposal behind.
-    setTool: (tool) => set({ tool, selection: [], pendingDimension: null, pendingConstraintKind: null, dragSnapSuggestion: null }),
+    setTool: (tool) =>
+      set({
+        tool,
+        selection: [],
+        pendingDimension: null,
+        pendingConstraintKind: null,
+        pendingFilletLineId: null,
+        dragSnapSuggestion: null,
+      }),
     setSelection: (ids) => set({ selection: ids }),
     clearSelection: () => set({ selection: [] }),
 
@@ -480,6 +506,41 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     },
 
     cancelPendingConstraint: () => set({ pendingConstraintKind: null, selection: [] }),
+
+    setFilletRadius: (value) => {
+      if (Number.isFinite(value) && value > 0) set({ filletRadius: value });
+    },
+
+    pickForFillet: (id) => {
+      const { activeSketchId, sketches, pendingFilletLineId, filletRadius } = get();
+      const sketch = activeSketchId ? sketches[activeSketchId] : undefined;
+      if (!sketch) return;
+
+      const entity = entityById(sketch, id);
+      if (!entity || entity.kind !== "line") return;
+
+      if (!pendingFilletLineId) {
+        set({ pendingFilletLineId: id });
+        return;
+      }
+      if (pendingFilletLineId === id) {
+        // A repeat click on the same line un-picks it rather than failing silently,
+        // matching how `pickForConstraint` treats a repeat pick.
+        set({ pendingFilletLineId: null });
+        return;
+      }
+
+      const before = sketch.entities.length;
+      edit((current) => filletCorner(current, pendingFilletLineId, id, filletRadius));
+      set({ pendingFilletLineId: null });
+
+      const after = get().sketches[activeSketchId!]?.entities.length ?? before;
+      if (after === before) {
+        useGeometryStore
+          .getState()
+          .showToast("Those two lines need to share a corner, and the radius has to fit both of them.", 3500);
+      }
+    },
 
     mirrorSelection: () => {
       const { activeSketchId, sketches, selection } = get();

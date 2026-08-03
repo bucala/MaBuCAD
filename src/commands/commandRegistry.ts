@@ -408,50 +408,27 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "dimension.horizontal-ordinate": () => useSketchStore.getState().applyOrdinateDimension("x"),
   "dimension.vertical-ordinate": () => useSketchStore.getState().applyOrdinateDimension("y"),
 
-  "sketch.mirror": () => useSketchStore.getState().mirrorSelection(),
+  "sketch.mirror": () => {
+    if (!useSketchStore.getState().mirrorSelection()) {
+      useGeometryStore
+        .getState()
+        .showToast("Select the entities to mirror plus one construction line to use as the axis.", 3500);
+    }
+  },
+  // Offset and Pattern both need more than one number, which a ribbon click alone can't
+  // gather — the Sketch panel's own "Modify" section is the real UI for both (numeric
+  // fields plus an Apply button, no browser-native prompt() dialogs breaking the app's own
+  // look). This entry exists so the ribbon button does something other than nothing; it
+  // just points at where the actual controls live rather than duplicating them here.
   "sketch.offset": () => {
-    // No inline numeric-entry UI exists for a one-shot tool like this yet (unlike a
-    // dimension, which is added and then edited afterward) — a prompt is the smallest
-    // way to ask for the one number this needs. Negative flips which side a line offsets
-    // to and shrinks rather than grows a circle or arc; both are explained right there.
-    const input = window.prompt("Offset distance (mm) — negative flips the side/shrinks:", "5");
-    if (input === null) return;
-    const distance = Number(input);
-    if (!Number.isFinite(distance) || distance === 0) return;
-    useSketchStore.getState().offsetSelection(distance);
+    useGeometryStore
+      .getState()
+      .showToast("Set the offset distance in the Modify section of the Sketch panel, then click Apply.", 3500);
   },
   "sketch.pattern": () => {
-    // Same reasoning as sketch.offset: a chain of prompts is the smallest UI a one-shot
-    // array tool needs. A circular pattern has no picked centre yet — no reference-point
-    // picking UI exists — so it always rotates about the sketch origin, the same stand-in
-    // FeatureParameters.axis documents for the feature-level pattern.
-    const kindInput = window.prompt('Pattern type — type "linear" or "circular":', "linear");
-    if (kindInput === null) return;
-    const mode = kindInput.trim().toLowerCase();
-    if (mode !== "linear" && mode !== "circular") return;
-
-    const countInput = window.prompt("Instance count (including the original):", "3");
-    if (countInput === null) return;
-    const count = Number(countInput);
-    if (!Number.isFinite(count) || count < 2) return;
-
-    if (mode === "linear") {
-      const dxInput = window.prompt("X spacing per instance (mm):", "10");
-      if (dxInput === null) return;
-      const dyInput = window.prompt("Y spacing per instance (mm):", "0");
-      if (dyInput === null) return;
-      const dx = Number(dxInput);
-      const dy = Number(dyInput);
-      if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
-      useSketchStore.getState().patternSelection({ mode: "linear", count, dx, dy });
-      return;
-    }
-
-    const angleInput = window.prompt("Total sweep angle (degrees):", "360");
-    if (angleInput === null) return;
-    const angleDegrees = Number(angleInput);
-    if (!Number.isFinite(angleDegrees)) return;
-    useSketchStore.getState().patternSelection({ mode: "circular", count, angleDegrees });
+    useGeometryStore
+      .getState()
+      .showToast("Set the pattern options in the Modify section of the Sketch panel, then click Apply Pattern.", 3500);
   },
 
   "view.zoom-fit": () => useViewportStore.getState().requestZoomFit(),

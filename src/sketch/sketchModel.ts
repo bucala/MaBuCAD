@@ -656,6 +656,145 @@ export function addArc(
 }
 
 /**
+ * Rounds the shared corner between two lines into a tangent arc of the given radius,
+ * trimming each line back to its tangent point — the sketch-level analogue of the
+ * PartDesign Fillet feature, done directly on 2D profile geometry before it's ever
+ * extruded.
+ *
+ * The two lines must already share an endpoint (the ordinary case right after drawing a
+ * polyline or rectangle corner) — there's no line-line intersection search here the way
+ * `trimLineAt` needs one, since the shared point already pins down exactly where the two
+ * lines meet.
+ *
+ * Deliberately does *not* add a `tangent` relation between the new arc and each line on
+ * top of the two `arc-radius` ones below — the geometry is already exactly tangent by
+ * construction, and adding it anyway makes the solver's constraint Jacobian rank-deficient
+ * at this exact configuration (the tangent residual's gradient is a linear combination of
+ * the existing ones here), which the diagnostics correctly read as "redundant" and shows
+ * as a false Over Defined status the instant the fillet is created. `residuals.ts`'s own
+ * `tangent` case was still extended to accept an arc as well as a circle — a real,
+ * independent fix for picking a line + arc and clicking Tangent by hand — this function
+ * just doesn't add one of its own. A line dragged later won't pull the arc back into
+ * tangency with it; only the arc's own radius/position stays fixed, the same one-shot
+ * relationship `mirrorEntities`/`offsetEntities`/`patternEntities` already have.
+ *
+ * Returns `sketch` unchanged (a no-op the caller can detect via entity count) if the two
+ * lines don't share a point, are colinear (no corner to round), or `radius` doesn't fit
+ * within both segments.
+ */
+export function filletCorner(sketch: Sketch, lineIdA: string, lineIdB: string, radius: number): Sketch {
+  if (!(radius > 0) || lineIdA === lineIdB) return sketch;
+
+  const lineA = entityById(sketch, lineIdA);
+  const lineB = entityById(sketch, lineIdB);
+  if (!lineA || !lineB || lineA.kind !== "line" || lineB.kind !== "line") return sketch;
+
+  const endsA: [string, string] = [lineA.start, lineA.end];
+  const endsB: [string, string] = [lineB.start, lineB.end];
+  const cornerId = endsA.find((id) => endsB.includes(id));
+  if (!cornerId) return sketch;
+
+  const otherAId = endsA.find((id) => id !== cornerId);
+  const otherBId = endsB.find((id) => id !== cornerId);
+  const corner = pointById(sketch, cornerId);
+  const otherA = otherAId ? pointById(sketch, otherAId) : undefined;
+  const otherB = otherBId ? pointById(sketch, otherBId) : undefined;
+  if (!corner || !otherA || !otherB) return sketch;
+
+  const lengthA = Math.hypot(otherA.x - corner.x, otherA.y - corner.y);
+  const lengthB = Math.hypot(otherB.x - corner.x, otherB.y - corner.y);
+  if (lengthA < 1e-6 || lengthB < 1e-6) return sketch;
+
+  const dirA = { x: (otherA.x - corner.x) / lengthA, y: (otherA.y - corner.y) / lengthA };
+  const dirB = { x: (otherB.x - corner.x) / lengthB, y: (otherB.y - corner.y) / lengthB };
+
+  const cosTheta = Math.min(1, Math.max(-1, dirA.x * dirB.x + dirA.y * dirB.y));
+  const theta = Math.acos(cosTheta);
+  // Nearly straight (no real corner) or the lines double back on each other — either way
+  // there's no well-defined fillet.
+  if (theta < 1e-3 || theta > Math.PI - 1e-3) return sketch;
+
+  const tangentDistance = radius / Math.tan(theta / 2);
+  if (!(tangentDistance < lengthA) || !(tangentDistance < lengthB)) return sketch;
+
+  const bisector = { x: dirA.x + dirB.x, y: dirA.y + dirB.y };
+  const bisectorLength = Math.hypot(bisector.x, bisector.y);
+  if (bisectorLength < 1e-9) return sketch;
+
+  const centreDistance = radius / Math.sin(theta / 2);
+  const centre = {
+    x: corner.x + (bisector.x / bisectorLength) * centreDistance,
+    y: corner.y + (bisector.y / bisectorLength) * centreDistance,
+  };
+
+  const tangentA = { x: corner.x + dirA.x * tangentDistance, y: corner.y + dirA.y * tangentDistance };
+  const tangentB = { x: corner.x + dirB.x * tangentDistance, y: corner.y + dirB.y * tangentDistance };
+
+  const tangentAPoint: SketchPoint = { id: uid("pt"), x: tangentA.x, y: tangentA.y };
+  const tangentBPoint: SketchPoint = { id: uid("pt"), x: tangentB.x, y: tangentB.y };
+  const centrePoint: SketchPoint = { id: uid("pt"), x: centre.x, y: centre.y };
+
+  const updatedLineA: SketchEntity =
+    lineA.start === cornerId ? { ...lineA, start: tangentAPoint.id } : { ...lineA, end: tangentAPoint.id };
+  const updatedLineB: SketchEntity =
+    lineB.start === cornerId ? { ...lineB, start: tangentBPoint.id } : { ...lineB, end: tangentBPoint.id };
+
+  // Sweep direction follows the same "always counter-clockwise from start to end"
+  // convention every other arc in the sketch relies on (see `EntityView`'s own comment in
+  // `SketchGeometry.tsx`) — start/end are picked by which tangent point actually is
+  // counter-clockwise from the other around the new centre, not by which line the caller
+  // happened to pass first.
+  const startAngle = angleAround(centre, tangentA);
+  const endAngleRaw = angleAround(centre, tangentB);
+  const sweepsForward = ((endAngleRaw - startAngle + Math.PI * 2) % (Math.PI * 2)) <= Math.PI;
+  const [arcStartPoint, arcEndPoint] = sweepsForward
+    ? [tangentAPoint, tangentBPoint]
+    : [tangentBPoint, tangentAPoint];
+
+  const arc: SketchEntity = {
+    id: uid("arc"),
+    kind: "arc",
+    center: centrePoint.id,
+    start: arcStartPoint.id,
+    end: arcEndPoint.id,
+    radius,
+    construction: false,
+  };
+
+  const constraints: GeometricConstraint[] = [
+    { id: uid("con"), kind: "arc-radius", entities: [arc.id], points: [arc.start] },
+    { id: uid("con"), kind: "arc-radius", entities: [arc.id], points: [arc.end] },
+  ];
+
+  // The old corner point is dropped unless some third entity still relies on it (e.g. a
+  // third line also meeting at that same point) — exactly `dropEntities`'s own rule,
+  // applied here by hand since this isn't a removal of lineA/lineB themselves.
+  const cornerSurvives = sketch.entities.some(
+    (entity) => entity.id !== lineA.id && entity.id !== lineB.id && entityPoints(entity).includes(cornerId),
+  );
+
+  return {
+    ...sketch,
+    points: [
+      ...(cornerSurvives ? sketch.points : sketch.points.filter((point) => point.id !== cornerId)),
+      tangentAPoint,
+      tangentBPoint,
+      centrePoint,
+    ],
+    entities: [
+      ...sketch.entities.map((entity) =>
+        entity.id === lineA.id ? updatedLineA : entity.id === lineB.id ? updatedLineB : entity,
+      ),
+      arc,
+    ],
+    constraints: [
+      ...sketch.constraints.filter((constraint) => cornerSurvives || !constraint.points.includes(cornerId)),
+      ...constraints,
+    ],
+  };
+}
+
+/**
  * Whether the non-construction geometry forms at least one closed loop.
  *
  * Reported in the sketch panel because a profile must close before it can be extruded.

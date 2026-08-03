@@ -149,7 +149,6 @@ export const RIBBON_TABS: RibbonTab[] = [
           { id: "sketch.spline", label: "Spline", icon: Spline, size: "small", description: "Draw a B-spline through control points" },
           { id: "sketch.construction", label: "Construction Line", icon: Route, size: "small", description: "Draw reference geometry excluded from profiles" },
           { id: "sketch.point", label: "Point", icon: CircleDot, size: "small", description: "Place a sketch point" },
-          { id: "sketch.text", label: "Text", icon: Type, size: "small", description: "Place sketch text along a curve" },
         ],
       },
       {
