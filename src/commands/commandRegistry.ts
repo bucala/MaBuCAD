@@ -292,11 +292,16 @@ function addPatternFeature(kind: "linear-pattern" | "circular-pattern" | "mirror
  * Creates a reference plane, offset from a selected default plane (or the Front plane, if
  * none is selected) along that plane's normal.
  *
- * A one-shot `window.prompt` for the offset matches `sketch.offset`/`sketch.pattern` below —
- * the smallest UI a single-number tool needs without a dedicated dialog. The base plane is
- * stored in `Feature.parents` rather than a new parameter, reusing the field that already
- * means "features this one consumes". Offsetting from another *user-created* reference plane
- * is not supported yet — that needs the same base-plane picking UI this stands in for.
+ * Lands with `FEATURE_CATALOG`'s own default distance (10mm) rather than prompting for
+ * one — exactly the same "create now, dial in the value afterward" flow every other
+ * feature (Extrude, Fillet, a pattern's count/spacing, ...) already uses: `addFeature`
+ * auto-selects the new feature, and `PropertyManager.tsx`'s generic field list already
+ * renders an editable "Distance" input for any feature whose parameters include one —
+ * no feature-specific UI needed here at all. The base plane is stored in `Feature.parents`
+ * rather than a new parameter, reusing the field that already means "features this one
+ * consumes". Offsetting from another *user-created* reference plane is not supported yet
+ * — that needs a base-plane picking UI, a separate gap from the one this used to stand in
+ * for with `window.prompt()`.
  */
 function addReferencePlane() {
   const documentState = useDocumentStore.getState();
@@ -304,33 +309,21 @@ function addReferencePlane() {
     documentState.selectedFeatureIds.find((id) => (DEFAULT_PLANE_IDS as readonly string[]).includes(id)) ??
     DEFAULT_PLANE_IDS[0];
 
-  const input = window.prompt("Offset distance from the selected plane (mm) — negative flips the side:", "10");
-  if (input === null) return;
-  const distance = Number(input);
-  if (!Number.isFinite(distance)) return;
-  documentState.addFeature("reference-plane", { distance }, [basePlaneId]);
+  documentState.addFeature("reference-plane", undefined, [basePlaneId]);
 }
 
-/** Creates a reference axis aligned to a world axis — the same stand-in `FeatureParameters.axis` already documents for patterns, until edge/face picking exists. */
+/** Creates a reference axis aligned to a world axis (`FEATURE_CATALOG`'s default, "z") —
+ * `PropertyManager.tsx`'s generic axis `<select>` (any feature whose parameters include
+ * `axis`) is what actually lets it be pointed anywhere else afterward. */
 function addReferenceAxis() {
-  const input = window.prompt('World axis to align to — "x", "y" or "z":', "z");
-  if (input === null) return;
-  const axis = input.trim().toLowerCase();
-  if (axis !== "x" && axis !== "y" && axis !== "z") return;
-  useDocumentStore.getState().addFeature("reference-axis", { axis });
+  useDocumentStore.getState().addFeature("reference-axis");
 }
 
-/** Creates a reference point offset from the origin along a world axis. */
+/** Creates a reference point offset from the origin along a world axis — same "create with
+ * `FEATURE_CATALOG` defaults, edit via the generic property fields" flow as
+ * `addReferenceAxis`/`addReferencePlane` above. */
 function addReferencePoint() {
-  const axisInput = window.prompt('Axis to offset along from the origin — "x", "y" or "z":', "z");
-  if (axisInput === null) return;
-  const axis = axisInput.trim().toLowerCase();
-  if (axis !== "x" && axis !== "y" && axis !== "z") return;
-  const distanceInput = window.prompt("Distance from the origin (mm):", "10");
-  if (distanceInput === null) return;
-  const distance = Number(distanceInput);
-  if (!Number.isFinite(distance)) return;
-  useDocumentStore.getState().addFeature("reference-point", { distance, axis });
+  useDocumentStore.getState().addFeature("reference-point");
 }
 
 /** Commands handled directly rather than by creating a feature. */
@@ -364,6 +357,11 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "doc.new": () => useDocumentStore.getState().openNewDocumentDialog(),
   "doc.open": () => void runOpenDocument(),
   "doc.save": () => void runSaveDocument(),
+  // There's no "drawing sheet" to print yet (Assembly and Drawing document types are
+  // still "Coming soon" in NewDocumentDialog.tsx) — this prints the 3D view as currently
+  // shown. `PrintCapture.tsx` (inside the Canvas) does the actual capture once it sees
+  // this request; `PrintOverlay.tsx` renders it and opens the browser's print dialog.
+  "doc.print": () => useViewportStore.getState().requestPrint(),
 
   // A sketch's own edits (drawing, dimensioning, dragging) never reach `documentStore` —
   // its history is a separate stack scoped to the current sketch session (see

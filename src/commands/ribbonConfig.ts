@@ -85,7 +85,7 @@ export const RIBBON_TABS: RibbonTab[] = [
           { id: "doc.new", label: "New", icon: FilePlus2, size: "large", description: "Create a new part, assembly or drawing" },
           { id: "doc.open", label: "Open", icon: FolderOpen, size: "small", description: "Open an existing document" },
           { id: "doc.save", label: "Save", icon: Save, size: "small", description: "Save the active document" },
-          { id: "doc.print", label: "Print", icon: Printer, size: "small", description: "Print the active drawing" },
+          { id: "doc.print", label: "Print", icon: Printer, size: "small", description: "Print the current 3D view" },
         ],
       },
       {
@@ -200,7 +200,6 @@ export const RIBBON_TABS: RibbonTab[] = [
           { id: "feature.revolve", label: "Revolved Boss", icon: RotateCw, size: "large", description: "Revolve a profile about an axis" },
           { id: "feature.sweep", label: "Swept Boss", icon: Waves, size: "large", description: "Sweep a profile along a path" },
           { id: "feature.loft", label: "Lofted Boss", icon: Cone, size: "large", description: "Blend between two or more profiles" },
-          { id: "feature.boundary", label: "Boundary", icon: Frame, size: "small", description: "Boundary surface between guide curves" },
         ],
       },
       {
@@ -217,9 +216,9 @@ export const RIBBON_TABS: RibbonTab[] = [
         id: "features-dressup",
         label: "Dress-up",
         items: [
-          { id: "feature.fillet", label: "Fillet", icon: CircleDashed, size: "large", description: "Round edges with a constant or variable radius" },
-          { id: "feature.chamfer", label: "Chamfer", icon: Triangle, size: "large", description: "Bevel edges by distance and angle" },
-          { id: "feature.shell", label: "Shell", icon: Cuboid, size: "large", description: "Hollow a solid, removing selected faces" },
+          { id: "feature.fillet", label: "Fillet", icon: CircleDashed, size: "large", description: "Round edges with a constant radius" },
+          { id: "feature.chamfer", label: "Chamfer", icon: Triangle, size: "large", description: "Bevel edges by a fixed distance" },
+          { id: "feature.shell", label: "Shell", icon: Cuboid, size: "large", description: "Hollow a solid, removing faces along a chosen axis" },
           { id: "feature.draft", label: "Draft", icon: Percent, size: "small", description: "Apply a draft angle for moulded parts" },
           { id: "feature.rib", label: "Rib", icon: Columns3, size: "small", description: "Add a stiffening rib from an open profile" },
         ],

@@ -92,6 +92,15 @@ interface ViewportStore {
    * the committed mesh reference changes, not just when the filter mode itself changes.
    */
   selectedFaceId: number | null;
+  /** Incremented, never read for its own value — same "request counter" shape as
+   * `zoomFitRequest`, watched by `PrintCapture.tsx` inside the `Canvas` (the only place
+   * that can reach the WebGL renderer to grab a snapshot of what's actually on screen). */
+  printRequest: number;
+  /** The most recently captured viewport snapshot as a data URL, or `null` between
+   * prints. Set by `PrintCapture.tsx`, consumed by `PrintOverlay.tsx` (a plain DOM
+   * sibling of the app, outside the `Canvas`) which renders it into a print-only layer
+   * and triggers the browser's print dialog once it's actually in the DOM. */
+  printSnapshot: string | null;
 
   cycleDisplayMode: () => void;
   toggleFeatureVisibility: (id: string) => void;
@@ -105,6 +114,8 @@ interface ViewportStore {
   requestRotateStep: (direction: RotateStepDirection) => void;
   setSelectionFilterMode: (mode: SelectionFilterMode) => void;
   setSelectedFaceId: (id: number | null) => void;
+  requestPrint: () => void;
+  setPrintSnapshot: (dataUrl: string | null) => void;
 }
 
 export const useViewportStore = create<ViewportStore>((set) => ({
@@ -120,6 +131,8 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   rotateStepRequest: null,
   selectionFilterMode: "body",
   selectedFaceId: null,
+  printRequest: 0,
+  printSnapshot: null,
 
   cycleDisplayMode: () =>
     set((state) => {
@@ -156,4 +169,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   // for once the filter no longer resolves individual faces.
   setSelectionFilterMode: (mode) => set({ selectionFilterMode: mode, selectedFaceId: null }),
   setSelectedFaceId: (id) => set({ selectedFaceId: id }),
+
+  requestPrint: () => set((state) => ({ printRequest: state.printRequest + 1 })),
+  setPrintSnapshot: (dataUrl) => set({ printSnapshot: dataUrl }),
 }));

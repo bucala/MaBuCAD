@@ -5,6 +5,14 @@
   overflow: hidden;
 }
 
+/* "Print" (Home ▸ Document) hides the ordinary app chrome so only PrintOverlay's own
+   captured viewport snapshot reaches paper — see PrintOverlay.tsx's own doc comment. */
+@media print {
+  .shell {
+    display: none;
+  }
+}
+
 .body {
   /* A grid item's default `min-width` is `auto` (not `0`), meaning it refuses to shrink
      below its content's intrinsic width — normally invisible, but `Group`/`Panel` from

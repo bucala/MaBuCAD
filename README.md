@@ -427,10 +427,10 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Project shell | Tauri + React + Vite scaffolding, Fluent 2 UI chrome | ✅ |
 | Viewport | CAD navigation, reference planes, origin, viewcube, axis-cross legend | ✅ |
 | Document model | Feature tree, rollback, suppress, undo/redo, rename, drag-reorder | ✅ |
-| Sketcher | Full entity set, 11 relations, dimensioning, damped-Newton solver | ✅ |
+| Sketcher | Full entity set, 10 relations, dimensioning, damped-Newton solver | ✅ |
 | Core solids | Extrude/Cut-Extrude, Revolve/Cut-Revolve | ✅ |
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
-| Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Offset, Mirror, Linear/Circular Pattern | ✅ |
+| Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Fillet, Offset, Mirror, Linear/Circular Pattern | ✅ |
 | Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence | ✅ |
 | Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point | ✅ |
 | Dress-up | Fillet, Chamfer, Shell, Draft, Rib — with edge-selective Fillet/Chamfer | ✅ |

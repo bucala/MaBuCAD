@@ -106,7 +106,6 @@ export const sk: Record<string, string> = {
   "feature.revolve": "Rotácia",
   "feature.sweep": "Ťahanie",
   "feature.loft": "Nafukovanie",
-  "feature.boundary": "Hraničná plocha",
   "feature.cut-extrude": "Vysunuté orezanie",
   "feature.hole-wizard": "Sprievodca dierou",
   "feature.cut-revolve": "Rotačné orezanie",

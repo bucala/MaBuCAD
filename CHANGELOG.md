@@ -7,6 +7,24 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-03 — A working Print, honest ribbon descriptions, and Reference Geometry off window.prompt() (v0.6.0)
+
+A tenth round, following a full audit of every ribbon tab (Home/Sketch/Features/Assembly/Drawing/Inspect) for the same "dead button" and "misleading description" defects earlier rounds found and fixed in the Sketch tab specifically. Confirmed **Assembly, Drawing and Inspect are entirely unbuilt scaffolding** — no command on any of the three tabs is implemented, and `NewDocumentDialog.tsx` already marks the Assembly/Drawing document types "Coming soon" — real future work, not something this round's smaller scope touches. Home and Features had smaller, fixable gaps:
+
+### Added — a real Print
+- **"Print" (Home ▸ Document) was a permanently disabled dead button** — implemented it: captures the current 3D view via the WebGL renderer (`preserveDrawingBuffer: true` added to the canvas so the frame is still readable after compositing) and opens the browser's print dialog on that snapshot, with a print stylesheet that hides the ordinary app chrome. There's no "drawing sheet" to print yet (see the Assembly/Drawing note above), so this honestly prints the current viewport as shown rather than pretending to print a real drawing.
+
+### Removed — dead code
+- **The "Boundary" surface feature button** (Features ▸ Add Material) had zero backing kernel code, unlike everything around it — removed rather than left as a dead promise; a real Boundary/surface-fill feature is future work, not a quick fix.
+
+### Fixed — misleading ribbon descriptions
+- **Fillet** claimed "constant or variable radius" — the kernel only ever applies one uniform radius; description now says so.
+- **Chamfer** claimed "distance and angle" — only a plain symmetric distance is implemented; description now says so.
+- **Shell** claimed "removing selected faces" — there's no face-picking UI yet, it removes whichever face(s) point along a chosen world axis (the property panel's own hint already says this); description now matches.
+
+### Fixed — Reference Geometry off `window.prompt()`
+- **Plane/Axis/Point reference geometry** (Features ▸ Reference Geometry) gathered their offset distance / world axis through browser `window.prompt()` dialogs, the same pattern already replaced for Offset/Mirror/Pattern in the Sketch panel. Turned out the real fix needed zero new UI: every other feature (Extrude, Fillet, a pattern's spacing, ...) already creates itself with sensible defaults and lets the Property Manager's existing generic field list (any parameter named `distance` gets a numeric field, any named `axis` gets an X/Y/Z dropdown) handle editing afterward — Plane/Axis/Point just needed to stop prompting and let that existing machinery do its job.
+
 ## 2026-08-03 — Runaway viewport growth fix, a real Sketch Fillet, and Offset/Mirror/Pattern panel UI (v0.5.0)
 
 A ninth round, prompted by "keep finishing off unfinished corners of the Sketch section." Turned up a genuine, previously-unnoticed layout bug along the way that turned out to be the most important fix in this release.
