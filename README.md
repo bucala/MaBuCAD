@@ -439,11 +439,12 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Theming | Light/Gray/Dark skins, 5 live accent colours, Model/Edge colour overrides | ✅ |
 | 3D Navigation | Zoom-to-cursor, ViewCube toggle + navigation arrows, origin indicator + axis labels | ✅ |
 | Autosave | Opt-in periodic recovery snapshot, restorable from the File menu | ✅ |
-| New Document picker | Visual Part/Assembly/Drawing chooser (Part wired, rest "coming soon") | ✅ |
+| New Document picker | Visual Part/Assembly/Drawing chooser (Part and Drawing wired, Assembly "coming soon") | ✅ |
 | Localisation | 9-language switcher; English and Slovak fully translated | 🟡 |
 | Boundary surface | Guide-curve boundary blending | ⬜ |
+| Multi-document workspace | Tabbed Part/Drawing documents, each with its own history, undo and sketches | ✅ |
 | Assembly | Components, mates, exploded views | ⬜ |
-| Drawing | 2D sheets, projected/section/detail views, annotations, BOM | ⬜ |
+| Drawing | Model View (Front/Top/Right/Iso, real projected B-Rep edges via replicad, visible+hidden), Update Views; section/detail views, annotations, BOM | 🟡 |
 | Inspect | Measure, Mass Properties, Section Properties, Check Geometry, Draft Analysis, Parent/Child, Equations, Sensors, Appearance; Curvature dropped (no kernel support) | ✅ |
 
 <sub>✅ done &nbsp;•&nbsp; 🟡 partial &nbsp;•&nbsp; ⬜ planned — see

@@ -7,6 +7,56 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-04 — Multi-document workspace + Drawing (v0.9.0)
+
+A thirteenth round, and the biggest architectural change since the app started: MaBuCAD
+can now have more than one document open at once. This was prompted by a design question —
+should a Drawing show views of whatever Part happens to be open, or reference a separately
+saved part file the way a real SolidWorks drawing references a `.sldprt`? The answer picked
+was the honest, SolidWorks-shaped one, which meant building the multi-document
+infrastructure to support it rather than faking it.
+
+### Added — multi-document workspace
+- A new tab strip (`DocumentTabs.tsx`) below the ribbon lists every open document; click to
+  switch, click the × to close, "+" opens the New Document dialog. Each tab keeps its own
+  feature history, sketches, undo/redo stack and unit system — switching tabs snapshots the
+  outgoing document's live state and restores the incoming one's, via a new
+  `workspaceStore.ts` sitting above the existing single-document stores rather than making
+  every one of those stores' several dozen call sites multi-instance-aware.
+- New (File ▸ New, or the ribbon) and Open each land in their own new tab instead of
+  replacing whatever was already open — nothing you're working on can be lost by opening or
+  creating another document anymore. Save writes the active tab; Restore Autosave still
+  overwrites the active tab in place, the one flow left that can discard edits, so it still
+  prompts first.
+- The ribbon and ManagerPanel/Viewport split now follow the active tab's document kind: a
+  Part gets the full Home/Sketch/Features/Inspect surface, a Drawing gets Home/Drawing and
+  its own 2D sheet instead of the 3D viewport.
+
+### Added — Drawing documents
+- The New Document dialog's Drawing card is live. A Drawing document has no feature history
+  of its own (`types/document.ts`'s `DrawingSheetData`) — it references another document's
+  saved `.mabucad` file, the same relationship a SolidWorks drawing has with its part.
+- **Drawing ▸ Insert Model View** picks a saved Part file, headlessly rebuilds it through
+  the same kernel every Part editor uses, and projects Front, Top, Right and Isometric
+  views onto the sheet in the classic third-angle layout — via replicad's own
+  `drawProjection`, new in `kernel/drawingProjection.ts`. Visible edges draw solid, hidden
+  edges dashed, both as real projected geometry (not a re-rendered 3D snapshot).
+- **Drawing ▸ Update Views** re-reads the referenced part and refreshes every view's cached
+  geometry in place. Under Tauri this re-reads silently from the real file path captured by
+  Open (`io/files.ts`'s `readFileAtPath`); in the browser dev build, which has no reusable
+  file handle, it re-prompts with the file picker.
+- Views are cached on the document itself (`DrawingViewData`'s `visiblePaths`/`hiddenPaths`),
+  so a saved-and-reopened drawing shows its last-generated geometry immediately rather than
+  needing the source part re-read before anything renders.
+
+### Notes
+- This is a deliberately scoped first pass: one fixed A3 sheet, no interactive
+  view-dragging or scale control yet, and Assembly stays "Coming soon". The kernel itself
+  is still a single OpenCascade WASM instance with no per-document isolation, so Insert
+  Model View / Update Views are one-off rebuilds rather than a live background sync — the
+  same "can go out of date, then you update it" relationship a real SolidWorks drawing has
+  with its part, not a new limitation this introduces.
+
 ## 2026-08-04 — The rest of the Inspect tab (v0.8.0)
 
 A twelfth round, finishing what the previous one started: every remaining Inspect command

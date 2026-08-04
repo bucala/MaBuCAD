@@ -1,6 +1,14 @@
 import { create } from "zustand";
 
-import type { CadDocument, Feature, FeatureKind, FeatureParameters, Sensor } from "@/types/document";
+import type {
+  CadDocument,
+  DocumentKind,
+  DrawingSheetData,
+  Feature,
+  FeatureKind,
+  FeatureParameters,
+  Sensor,
+} from "@/types/document";
 import type { UnitSystemId } from "@/types/ui";
 
 import { FEATURE_CATALOG } from "./featureCatalog";
@@ -27,12 +35,34 @@ function createDefaultFeatures(): Feature[] {
   ];
 }
 
-function createDocument(): CadDocument {
+/**
+ * Builds a fresh document of the given kind, named by the caller.
+ *
+ * `workspaceStore.ts` is what actually picks `name` (scanning every open tab so two open
+ * Parts don't both land on "Part1") and calls this for every new tab — New Document, Open,
+ * and Restore Autosave alike. A Part gets the usual reference-geometry starter features; a
+ * Drawing has no feature history of its own (see `DrawingSheetData`'s own doc comment in
+ * `types/document.ts`) so it starts with none and an empty sheet instead.
+ */
+export function createDocument(kind: DocumentKind, name: string): CadDocument {
+  if (kind === "drawing") {
+    return {
+      id: nextId("doc"),
+      name,
+      kind,
+      features: [],
+      rollbackIndex: 0,
+      variables: {},
+      sensors: [],
+      drawing: { sourcePart: null, views: [] },
+    };
+  }
+
   const features = createDefaultFeatures();
   return {
     id: nextId("doc"),
-    name: "Part1",
-    kind: "part",
+    name,
+    kind,
     features,
     rollbackIndex: features.length,
     variables: {},
@@ -131,6 +161,9 @@ interface DocumentStore {
 
   renameDocument: (name: string) => void;
   setUnitSystem: (unitSystem: UnitSystemId) => void;
+  /** Replaces a Drawing document's whole sheet — `commands/drawingCommands.ts`'s Insert
+   * Model View and Update Views, the only things that ever touch `CadDocument.drawing`. */
+  setDrawingSheet: (drawing: DrawingSheetData) => void;
 
   /**
    * Replaces the whole document — Open, loading a saved file. Bypasses `commit()`
@@ -139,8 +172,14 @@ interface DocumentStore {
    * would be meaningless applied to a different one anyway.
    */
   loadDocument: (document: CadDocument) => void;
-  /** New. Same reasoning as `loadDocument` — a blank document loaded the same way. */
-  newDocument: () => void;
+  /**
+   * Restores a previously snapshotted editing session verbatim — `workspaceStore.ts`'s own
+   * tab switch, restoring the tab being switched *to*. Unlike `loadDocument`, this keeps
+   * `past`/`future` rather than wiping them: the tab being switched to already had its own
+   * undo history before the user switched away from it, and losing that on every switch
+   * would make Undo useless the moment more than one document is open.
+   */
+  restoreSession: (document: CadDocument, past: CadDocument[], future: CadDocument[], unitSystem: UnitSystemId) => void;
 
   undo: () => void;
   redo: () => void;
@@ -166,7 +205,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
   };
 
   return {
-    document: createDocument(),
+    document: createDocument("part", "Part1"),
     selectedFeatureIds: [],
     unitSystem: "MMGS",
     past: [],
@@ -400,18 +439,13 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
 
     setUnitSystem: (unitSystem) => set({ unitSystem }),
 
+    setDrawingSheet: (drawing) => commit((document) => ({ ...document, drawing })),
+
     loadDocument: (document) =>
       set({ document, past: [], future: [], selectedFeatureIds: [], contextMenu: null }),
 
-    newDocument: () =>
-      set({
-        document: createDocument(),
-        past: [],
-        future: [],
-        selectedFeatureIds: [],
-        contextMenu: null,
-        unitSystem: "MMGS",
-      }),
+    restoreSession: (document, past, future, unitSystem) =>
+      set({ document, past, future, unitSystem, selectedFeatureIds: [], contextMenu: null }),
 
     undo: () => {
       const { past, document, future } = get();

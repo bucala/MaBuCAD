@@ -30,13 +30,12 @@ export function releaseImportedShape(featureId: string): void {
   importedShapes.delete(featureId);
 }
 
-/**
- * Releases every imported shape at once — for replacing the whole document (New, Open),
- * where every imported feature the old document had is about to stop existing rather
- * than being individually deleted through `deleteFeature`.
- */
-export function releaseAllImportedShapes(): void {
-  for (const featureId of [...importedShapes.keys()]) {
+/** Releases whichever of the given feature ids own an imported shape — `workspaceStore.ts`
+ * calls this for a tab's document whenever that tab is closed or its content replaced
+ * (Restore Autosave), scoped to that one document so other open tabs' own imported shapes
+ * are left alone. */
+export function releaseImportedShapesForFeatures(featureIds: Iterable<string>): void {
+  for (const featureId of featureIds) {
     releaseImportedShape(featureId);
   }
 }

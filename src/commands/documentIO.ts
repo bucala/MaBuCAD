@@ -1,15 +1,19 @@
 import type { Sketch } from "@/sketch/types";
-import { releaseAllImportedShapes } from "@/kernel/importedShapes";
-import { openFile, saveBlob } from "@/io/files";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
-import { useSettingsStore } from "@/state/settingsStore";
 import { useSketchStore } from "@/state/sketchStore";
-import type { CadDocument } from "@/types/document";
+import { confirmDiscard, useWorkspaceStore } from "@/state/workspaceStore";
+import type { CadDocument, DocumentKind } from "@/types/document";
 import type { UnitSystemId } from "@/types/ui";
 
 /**
  * Whole-document persistence: New, Open, Save.
+ *
+ * These are thin wrappers around `workspaceStore.ts`'s own tab-aware actions — New and
+ * Open each open a new tab rather than replacing whatever was already open, so (unlike
+ * before multi-document support existed) neither one can lose unsaved work; only closing
+ * a tab or restoring an autosave over the active one still can, which is what
+ * `confirmDiscard` below is for.
  *
  * Unlike STEP/STL interchange (`interchange.ts`), which round-trips a solid's B-Rep, this
  * saves the parametric history itself — every feature and every sketch, so a reopened
@@ -24,7 +28,6 @@ import type { UnitSystemId } from "@/types/ui";
  */
 
 const FORMAT_VERSION = 1;
-const EXTENSION = "mabucad";
 
 interface SavedDocument {
   formatVersion: number;
@@ -43,69 +46,19 @@ function isSavedDocument(value: unknown): value is SavedDocument {
   );
 }
 
-/** Whether proceeding would discard edits, and if so, whether the user is fine with that. */
-function confirmDiscard(message: string): boolean {
-  const { past } = useDocumentStore.getState();
-  if (past.length === 0) return true;
-  // Settings > General > "Confirm before discarding unsaved changes" — off means the
-  // prompt is skipped, not that anything is destroyed silently: New/Open were already
-  // the explicit action that discards, this only controls whether it double-checks first.
-  if (!useSettingsStore.getState().confirmBeforeDiscard) return true;
-  return window.confirm(message);
-}
-
 export async function runSaveDocument(): Promise<void> {
-  const { showToast } = useGeometryStore.getState();
-  const { document, unitSystem } = useDocumentStore.getState();
-  const { sketches } = useSketchStore.getState();
-
-  const payload: SavedDocument = { formatVersion: FORMAT_VERSION, document, sketches, unitSystem };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-
-  try {
-    const saved = await saveBlob(blob, `${document.name}.${EXTENSION}`, [EXTENSION]);
-    if (saved) {
-      showToast(`Saved ${document.name}.${EXTENSION}`);
-      // A real save just wrote this exact state to disk, so the recovery snapshot has
-      // nothing left to offer that Open wouldn't already give back.
-      clearAutosaveSnapshot();
-    }
-  } catch (error) {
-    showToast(`Save failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
-  }
+  const saved = await useWorkspaceStore.getState().saveActive();
+  // A real save just wrote this exact state to disk, so the recovery snapshot has nothing
+  // left to offer that Open wouldn't already give back.
+  if (saved) clearAutosaveSnapshot();
 }
 
 export async function runOpenDocument(): Promise<void> {
-  const { showToast } = useGeometryStore.getState();
-
-  if (!confirmDiscard("Discard unsaved changes and open a different document?")) return;
-
-  try {
-    const picked = await openFile([EXTENSION, "json"]);
-    if (!picked) return;
-
-    const parsed: unknown = JSON.parse(new TextDecoder().decode(picked.data));
-    if (!isSavedDocument(parsed)) {
-      throw new Error(`${picked.name} is not a MaBuCAD document`);
-    }
-
-    releaseAllImportedShapes();
-    useDocumentStore.getState().loadDocument(parsed.document);
-    useSketchStore.getState().loadSketches(parsed.sketches);
-    useDocumentStore.getState().setUnitSystem(parsed.unitSystem ?? "MMGS");
-
-    showToast(`Opened ${picked.name}`);
-  } catch (error) {
-    showToast(`Open failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
-  }
+  await useWorkspaceStore.getState().openFromDisk();
 }
 
-export function runNewDocument(): void {
-  if (!confirmDiscard("Discard unsaved changes and start a new document?")) return;
-
-  releaseAllImportedShapes();
-  useDocumentStore.getState().newDocument();
-  useSketchStore.getState().loadSketches({});
+export function runNewDocument(kind: DocumentKind = "part"): void {
+  useWorkspaceStore.getState().newDocument(kind);
 }
 
 /**
@@ -118,6 +71,10 @@ export function runNewDocument(): void {
  * one fixed key, so it never needs a path and never interrupts anything; `useAutosave.ts`
  * is what actually calls `writeAutosaveSnapshot` on an interval when Settings ▸ Autosave
  * (`settingsStore.autosaveEnabled`) is on.
+ *
+ * Scoped to the active tab only — autosaving every open document on the same timer would
+ * mean a slow kernel rebuild in a background tab stalling the one the user is actually
+ * looking at, for a recovery feature whose whole point is to be unobtrusive.
  */
 const AUTOSAVE_STORAGE_KEY = "mabucad-autosave";
 
@@ -177,12 +134,12 @@ export function runRestoreAutosave(): void {
     return;
   }
 
-  if (!confirmDiscard("Discard unsaved changes and restore the autosaved version?")) return;
+  const hasUnsavedChanges = useDocumentStore.getState().past.length > 0;
+  if (!confirmDiscard("Discard unsaved changes and restore the autosaved version?", hasUnsavedChanges)) return;
 
-  releaseAllImportedShapes();
-  useDocumentStore.getState().loadDocument(snapshot.document);
-  useSketchStore.getState().loadSketches(snapshot.sketches);
-  useDocumentStore.getState().setUnitSystem(snapshot.unitSystem ?? "MMGS");
+  useWorkspaceStore
+    .getState()
+    .restoreIntoActive(snapshot.document, snapshot.sketches, snapshot.unitSystem ?? "MMGS");
 
   showToast(`Restored autosave from ${new Date(snapshot.savedAt).toLocaleString()}`);
 }

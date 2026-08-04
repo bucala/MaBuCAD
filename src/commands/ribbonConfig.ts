@@ -298,6 +298,7 @@ export const RIBBON_TABS: RibbonTab[] = [
         items: [
           { id: "drawing.new", label: "New Drawing", icon: FileText, size: "large", description: "Create a drawing from the active model" },
           { id: "drawing.sheet-format", label: "Sheet Format", icon: Frame, size: "small", description: "Choose sheet size and title block" },
+          { id: "drawing.update-views", label: "Update Views", icon: RotateCw, size: "small", description: "Re-project every view from the referenced part's current geometry" },
         ],
       },
       {

@@ -10,6 +10,7 @@ import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 import { runOpenDocument, runSaveDocument } from "./documentIO";
+import { runInsertModelView, runUpdateViews } from "./drawingCommands";
 import { runExport, runImport } from "./interchange";
 
 /** How close to parallel (dot product of unit normals) a clicked face's normal needs to
@@ -358,6 +359,9 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "doc.new": () => useDocumentStore.getState().openNewDocumentDialog(),
   "doc.open": () => void runOpenDocument(),
   "doc.save": () => void runSaveDocument(),
+
+  "drawing.model-view": () => void runInsertModelView(),
+  "drawing.update-views": () => void runUpdateViews(),
   // There's no "drawing sheet" to print yet (Assembly and Drawing document types are
   // still "Coming soon" in NewDocumentDialog.tsx) — this prints the 3D view as currently
   // shown. `PrintCapture.tsx` (inside the Canvas) does the actual capture once it sees

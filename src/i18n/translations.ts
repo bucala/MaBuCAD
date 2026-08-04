@@ -202,8 +202,19 @@ export const sk: Record<string, string> = {
   "newdoc.assembly": "Zostava",
   "newdoc.assembly.description": "Spojenie viacerých dielov väzbami. Pripravujeme.",
   "newdoc.drawing": "Výkres",
-  "newdoc.drawing.description": "2D pohľady a kóty dielu alebo zostavy. Pripravujeme.",
+  "newdoc.drawing.description": "2D pohľady dielu, vygenerované z jeho uloženého súboru.",
   "newdoc.coming-soon": "Pripravujeme",
   "newdoc.cancel": "Zrušiť",
   "newdoc.create-part": "Vytvoriť diel",
+
+  // ---------------------------------------------------------------------- document tabs
+  "tabs.aria-label": "Otvorené dokumenty",
+  "tabs.close": "Zavrieť {{name}}",
+  "tabs.new": "Nový dokument",
+
+  // -------------------------------------------------------------------- drawing sheet
+  "drawing.insert-model-view": "Vložiť pohľad na model",
+  "drawing.update-views": "Aktualizovať pohľady",
+  "drawing.showing": "Zobrazuje sa",
+  "drawing.empty": "Vložením pohľadu na model zobrazíte premietnuté pohľady uloženého dielu.",
 };

@@ -13,6 +13,13 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 export interface PickedFile {
   name: string;
   data: ArrayBuffer;
+  /**
+   * The real filesystem path the user picked, only ever set inside Tauri — the browser's
+   * File API hands back a blob with no reusable location. A Drawing's "Update View" uses
+   * this (via `readFileAtPath` below) to silently re-read a referenced part without
+   * re-prompting; with no path it falls back to asking the user to pick the file again.
+   */
+  path: string | null;
 }
 
 /** Writes a blob to a location the user chooses. Returns false if they cancelled. */
@@ -56,7 +63,19 @@ export async function openFile(extensions: string[]): Promise<PickedFile | null>
   return {
     name: path.split(/[\\/]/).pop() ?? path,
     data: Uint8Array.from(contents).buffer,
+    path,
   };
+}
+
+/**
+ * Re-reads a file at a path previously returned by `openFile`, with no dialog — Tauri only,
+ * since it's the only mode that ever hands back a real `path` to begin with. Callers must
+ * check for a `null` path themselves (see `PickedFile.path`'s own doc comment) rather than
+ * calling this speculatively.
+ */
+export async function readFileAtPath(path: string): Promise<ArrayBuffer> {
+  const contents = await invoke<number[]>("read_binary_file", { path });
+  return Uint8Array.from(contents).buffer;
 }
 
 function downloadInBrowser(blob: Blob, fileName: string): void {
@@ -83,7 +102,7 @@ function pickInBrowser(extensions: string[]): Promise<PickedFile | null> {
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       input.remove();
-      resolve(file ? { name: file.name, data: await file.arrayBuffer() } : null);
+      resolve(file ? { name: file.name, data: await file.arrayBuffer(), path: null } : null);
     });
 
     // A cancelled picker fires no event in some browsers; the element is cleaned up when

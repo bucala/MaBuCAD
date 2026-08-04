@@ -164,6 +164,52 @@ export interface Feature {
 
 export type DocumentKind = "part" | "assembly" | "drawing";
 
+/** One of the four standard views `drawing.model-view` places — see `kernel/drawingProjection.ts`. */
+export type DrawingProjectionKind = "front" | "top" | "right" | "iso";
+
+/**
+ * One placed view on a Drawing sheet.
+ *
+ * `visiblePaths`/`hiddenPaths`/`width`/`height` are a cache of the last projection, not
+ * live geometry — a Drawing document has no feature history of its own to rebuild from
+ * (see `DrawingSheetData`'s own doc comment), so these are what makes a saved-and-reopened
+ * drawing show its views immediately rather than needing `sourcePart` re-read first. The
+ * "Update View" command (`kernel/drawingProjection.ts`'s `rebuildAndProjectPart`) is what
+ * refreshes this cache after the referenced part changes.
+ */
+export interface DrawingViewData {
+  id: string;
+  label: string;
+  projection: DrawingProjectionKind;
+  /** Sheet position (mm) of this view's own bounding-box centre. */
+  x: number;
+  y: number;
+  /** 1 = full size. */
+  scale: number;
+  /** SVG path `d` strings for edges visible from this projection. */
+  visiblePaths: string[];
+  /** SVG path `d` strings for edges hidden behind the solid from this projection, drawn dashed. */
+  hiddenPaths: string[];
+  /** Projected bounding box (mm, before `scale`) shared by `visiblePaths`/`hiddenPaths`. */
+  width: number;
+  height: number;
+}
+
+/**
+ * A Drawing document's sheet: which part it shows views of, and the views themselves.
+ *
+ * Unlike a Part (`Feature[]` replayed by `kernel/rebuild.ts`), a Drawing has no history of
+ * its own to rebuild — it references another document's saved file the way a SolidWorks
+ * drawing references a `.sldprt` on disk, rather than embedding that part's own feature
+ * history. `sourcePart.path` is only ever populated under Tauri (a real filesystem path);
+ * in the browser dev build there is no reusable file handle, so `path` stays null and
+ * "Update View" falls back to re-prompting with the file picker — see `io/files.ts`.
+ */
+export interface DrawingSheetData {
+  sourcePart: { fileName: string; path: string | null } | null;
+  views: DrawingViewData[];
+}
+
 /** A named number, referenced from a sketch dimension's value field as `=name` (see
  * `state/equations.ts`) — Inspect ▸ Equations' own data. Optional so a document saved
  * before this existed still loads: every reader treats a missing map as empty rather than
@@ -202,4 +248,6 @@ export interface CadDocument {
   variables?: Variables;
   /** Inspect ▸ Sensors' watch list. Optional for the same reason as `variables`. */
   sensors?: Sensor[];
+  /** Present only when `kind === "drawing"` — see `DrawingSheetData`'s own doc comment. */
+  drawing?: DrawingSheetData;
 }

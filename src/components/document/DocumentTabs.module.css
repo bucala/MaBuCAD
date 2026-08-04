@@ -1,0 +1,112 @@
+.strip {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--space-2);
+  margin: 0 var(--space-3) var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.tabList {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+
+.tabList::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.tab:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
+
+.tab[data-active] {
+  background: var(--fill-control);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.tabIcon {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+.tabLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 16ch;
+}
+
+.dirtyDot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.closeButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+}
+
+.tab:hover .closeButton,
+.tab[data-active] .closeButton {
+  opacity: 1;
+}
+
+.closeButton:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
+
+.newTabButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-tertiary);
+}
+
+.newTabButton:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
