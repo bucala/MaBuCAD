@@ -12,6 +12,7 @@ import type {
 import type { UnitSystemId } from "@/types/ui";
 
 import { FEATURE_CATALOG } from "./featureCatalog";
+import { DEFAULT_SHEET_FORMAT_ID, DEFAULT_TITLE_BLOCK_VALUES_SEED } from "./templateStore";
 
 /** Ids of the default planes, shared with the viewport so tree and 3D selection agree. */
 export const DEFAULT_PLANE_IDS = ["plane-front", "plane-top", "plane-right"] as const;
@@ -54,7 +55,12 @@ export function createDocument(kind: DocumentKind, name: string): CadDocument {
       rollbackIndex: 0,
       variables: {},
       sensors: [],
-      drawing: { sourcePart: null, views: [] },
+      drawing: {
+        sourcePart: null,
+        views: [],
+        sheetFormatId: DEFAULT_SHEET_FORMAT_ID,
+        titleBlockValues: { ...DEFAULT_TITLE_BLOCK_VALUES_SEED },
+      },
     };
   }
 

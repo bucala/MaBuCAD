@@ -7,6 +7,54 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-04 — Drawing Resources: Sheet Formats, Borders, Title Blocks (v0.10.0)
+
+A fourteenth round, built directly on the multi-document/Drawing work below: a Drawing
+document's sheet no longer draws a single hardcoded A3 border. It now has the same
+three-way "Drawing Resources" split Inventor's own Model tree uses — Sheet Formats,
+Borders and Title Blocks — as a shared, reusable library rather than something baked into
+one drawing.
+
+### Added — Drawing Resources library (`state/templateStore.ts`)
+- **Borders** are a parametric zone-grid recipe (margin, column/row counts, centre marks)
+  rather than freeform artwork, so one border works at any paper size. Seeded with one
+  "Default Border" (8x6 zones, centre marks on).
+- **Title Blocks** are a set of positioned, labelled fields. The seeded "Title Block"
+  mirrors a standard ISO field layout (Drawn By/Checked By + their dates, Material,
+  Title, Projection, Scale, Size, Drawing Number, Sheet, Rev, Weight, Surface Finish,
+  Company) — every field that would identify a person or a specific job starts with no
+  default value and renders blank; only generic ISO drafting boilerplate (tolerancing
+  note, "THIRD ANGLE", "1 / 1") ships with one.
+- **Sheet Formats** pair a paper size (A4–A0) + orientation with one Border and one Title
+  Block — seeded to match a standard set ("A4 size, Portrait, 1 view" through "A0 size, 7
+  views"). A Drawing document only stores which Sheet Format it uses and its own
+  per-document title block values, never a copy of the templates themselves.
+- Persisted to `localStorage` (`zustand/persist`, same as `settingsStore.ts`), with
+  per-item Export/Import to a `.mabutpl` JSON file for moving a border or title block to
+  another machine or sharing one with a colleague.
+
+### Added — rendering and inline editing (`DrawingSheet.tsx`)
+- The sheet renders the chosen Sheet Format's real paper size, a numbered/lettered zone
+  reference grid with centre marks, and the title block anchored bottom-right — all
+  parametric, not a fixed drawing.
+- Clicking a title block cell turns it into a plain text input (an SVG `foreignObject`,
+  which inherits the sheet's own mm-per-unit scale automatically) for typing that field's
+  value for *this* drawing — Enter or blur commits it.
+- A Sheet Format dropdown in the sheet's own toolbar switches paper size/border/title
+  block instantly.
+
+### Added — editing environment (`TemplateManagerDialog.tsx`, `BorderEditor.tsx`, `TitleBlockEditor.tsx`)
+- **Drawing ▸ Sheet Format** (previously an unimplemented stub) now opens Drawing
+  Resources: three tabs (Sheet Formats / Borders / Title Blocks), each a list + detail
+  editor, with New/Delete/Export per item and Import per category.
+- The Border editor is a plain numeric form (margin, zone columns/rows, centre marks)
+  with a live preview rendered by the exact same component the sheet itself uses.
+- The Title Block editor is interactive: fields can be dragged to reposition and resized
+  by a corner handle directly on a live SVG preview (Pointer Events + `setPointerCapture`),
+  alongside a side form for the selected field's label, value key, font size and bold —
+  the same pick-then-edit split Fillet/Chamfer's edge picking already uses elsewhere in
+  this app, applied to a title block's cells instead of a solid's edges.
+
 ## 2026-08-04 — Multi-document workspace + Drawing (v0.9.0)
 
 A thirteenth round, and the biggest architectural change since the app started: MaBuCAD

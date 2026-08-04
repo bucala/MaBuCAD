@@ -208,6 +208,15 @@ export interface DrawingViewData {
 export interface DrawingSheetData {
   sourcePart: { fileName: string; path: string | null } | null;
   views: DrawingViewData[];
+  /** Which `SheetFormat` (from `state/templateStore.ts`'s library) this sheet uses — the
+   * paper size/orientation and which Border/Title Block templates draw around the views.
+   * Optional so a Drawing saved before Drawing Resources existed still loads: absent means
+   * `templateStore.ts`'s `DEFAULT_SHEET_FORMAT_ID`. */
+  sheetFormatId?: string;
+  /** Per-document values for the chosen title block's fields, keyed by `TitleBlockField.key`
+   * — e.g. `{ title: "Bracket", scale: "1:2" }`. A field with no entry here renders blank,
+   * never a placeholder like a name or date filled in on the user's behalf. */
+  titleBlockValues?: Record<string, string>;
 }
 
 /** A named number, referenced from a sketch dimension's value field as `=name` (see
