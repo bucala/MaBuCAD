@@ -60,7 +60,12 @@ export function Viewport() {
         className={styles.canvas}
         frameloop="demand"
         dpr={[1, 2]}
-        gl={{ antialias: true, alpha: true }}
+        // `preserveDrawingBuffer` keeps the WebGL drawing buffer intact after compositing
+        // instead of the browser clearing it — needed so `PrintCapture.tsx`'s
+        // `gl.domElement.toDataURL()` reliably reads the frame actually on screen rather
+        // than a blank/black buffer, at the cost of a small, one-off memory copy per frame
+        // that `frameloop="demand"` already keeps rare.
+        gl={{ antialias: true, alpha: true, preserveDrawingBuffer: true }}
       >
         {/* Line pick tolerance is applied inside the tree, not here via `onCreated` — see
             `RaycasterTuning.tsx`: it needs to react to the Settings dialog changing the

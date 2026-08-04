@@ -204,6 +204,12 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
 
   const isSelected = selection.includes(dimension.id);
   const isOrdinate = dimension.kind === "ordinate-x" || dimension.kind === "ordinate-y";
+  // Horizontal/Vertical distance dimensions share the ordinate leader's own axis-locked
+  // shape (extension lines dropped to a shared horizontal/vertical dimension line) — the
+  // same geometry, just not chained to a datum — so they reuse that branch below rather
+  // than the free-angle leader "Aligned" (`distance`) uses. Kept out of `isOrdinate` itself
+  // since that also drives the ordinate-only purple colour, which these two don't get.
+  const isAxisLockedDistance = dimension.kind === "horizontal-distance" || dimension.kind === "vertical-distance";
   const color = isSelected ? accent : isOrdinate ? ORDINATE_COLOR : DIMENSION_COLOR;
 
   const first = dimension.points[0] ? pointById(sketch, dimension.points[0]) : undefined;
@@ -227,13 +233,15 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
   // tools — a plain fixed offset here is what let the label detach from its line before.
   const nudge = dimension.labelOffset;
 
-  if (isOrdinate && first && second) {
+  if ((isOrdinate || isAxisLockedDistance) && first && second) {
     // Ordinate dimensions run back to the datum along one axis, which is what makes a
     // chain of them share a single zero rather than accumulating tolerance. The nudge
     // component along that axis grows or shrinks the shared offset (so witness lines and
     // label move out together); the cross-axis component just slides the label along its
-    // own dimension line.
-    const alongX = dimension.kind === "ordinate-x";
+    // own dimension line. A Horizontal/Vertical distance dimension isn't chained to a
+    // datum, but the leader shape — extension lines dropped square to a shared
+    // horizontal/vertical dimension line — is identical, so it reuses the same branch.
+    const alongX = dimension.kind === "ordinate-x" || dimension.kind === "horizontal-distance";
     const baseOffset = 6;
 
     if (alongX) {
@@ -310,19 +318,41 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     const labelX = baseEdgeX + 6 + nudge.x;
     const labelY = baseEdgeY + 6 + nudge.y;
 
-    // The leader always runs straight from the centre to the label itself, rather than to
-    // a fixed point near the original edge, so it tracks the label wherever it is dragged
-    // instead of leaving it visually disconnected.
-    leader = [
-      [centre.x, centre.y, 0],
-      [labelX, labelY, 0],
-    ];
-    const toCentreX = centre.x - labelX;
-    const toCentreY = centre.y - labelY;
-    const toCentreLength = Math.hypot(toCentreX, toCentreY) || 1;
-    // The arrowhead sits at the centre end, pointing back out toward the label — a radius
-    // or diameter dimension conventionally points at the centre it was measured from.
-    arrows = arrowheadPoints(centre.x, centre.y, -toCentreX / toCentreLength, -toCentreY / toCentreLength);
+    // Direction from centre toward the label, used to find where the dimension line
+    // crosses the rim — the standard radius/diameter convention (SolidWorks, Inventor)
+    // anchors the arrow at that rim point, not at the centre itself: a radius dimension's
+    // leader runs rim -> label, and a diameter's runs clear across the circle, rim -> rim,
+    // continuing on to the label. Anchoring at the centre instead (this app's previous
+    // behaviour) put the arrowhead on top of the centre point's own dot, and for a circle
+    // smaller than the arrowhead's own fixed size, let its wings overshoot past the far
+    // rim — both of which read as "the arrow doesn't cleanly point at anything."
+    const toLabelX = labelX - centre.x;
+    const toLabelY = labelY - centre.y;
+    const toLabelLength = Math.hypot(toLabelX, toLabelY) || 1;
+    const dirX = toLabelX / toLabelLength;
+    const dirY = toLabelY / toLabelLength;
+    const nearRimX = centre.x + dirX * entity.radius;
+    const nearRimY = centre.y + dirY * entity.radius;
+
+    if (dimension.kind === "diameter") {
+      const farRimX = centre.x - dirX * entity.radius;
+      const farRimY = centre.y - dirY * entity.radius;
+      leader = [
+        [farRimX, farRimY, 0],
+        [nearRimX, nearRimY, 0],
+        [labelX, labelY, 0],
+      ];
+      arrows = [
+        ...arrowheadPoints(nearRimX, nearRimY, -dirX, -dirY),
+        ...arrowheadPoints(farRimX, farRimY, dirX, dirY),
+      ];
+    } else {
+      leader = [
+        [nearRimX, nearRimY, 0],
+        [labelX, labelY, 0],
+      ];
+      arrows = arrowheadPoints(nearRimX, nearRimY, -dirX, -dirY);
+    }
     labelPosition = [labelX, labelY, 0.05];
     text = `${dimension.kind === "diameter" ? "⌀" : "R"}${dimension.value.toFixed(2)}`;
   } else if (dimension.kind === "angle") {

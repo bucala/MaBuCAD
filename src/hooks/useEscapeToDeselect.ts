@@ -9,10 +9,12 @@ import { useSketchStore } from "@/state/sketchStore";
  * selection, since a half-started draw is more disruptive to lose track of than a
  * selection is.
  *
- * 1. A non-Select sketch tool is active → back to Select (an in-progress multi-click
+ * 1. A relation armed via "click the function first, then pick elements" is waiting on
+ *    picks → cancel it, same as it not having been armed at all.
+ * 2. A non-Select sketch tool is active → back to Select (an in-progress multi-click
  *    entity like a spline or arc is abandoned, the same as the existing right-click
  *    "finish chain" gesture SketchCanvas.tsx already offers for a *completed* one).
- * 2. Otherwise, a sketch or feature selection exists → clear it.
+ * 3. Otherwise, a sketch or feature selection exists → clear it.
  *
  * Skipped while a form field has focus (an open `<input>`/`<textarea>`/`<select>`) so
  * Escape can do its ordinary "cancel editing this field" job instead — components that
@@ -28,6 +30,10 @@ export function useEscapeToDeselect() {
 
       const sketchState = useSketchStore.getState();
       if (sketchState.activeSketchId) {
+        if (sketchState.pendingConstraintKind) {
+          sketchState.cancelPendingConstraint();
+          return;
+        }
         if (sketchState.tool !== "select") {
           sketchState.setTool("select");
           return;

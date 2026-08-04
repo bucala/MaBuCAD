@@ -13,6 +13,16 @@ import { useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 import { DOCUMENT_SCALE, SKETCH_GRID_SIZE } from "../constants";
+import { useScreenSpacePixelScale, worldUnitsPerPixel } from "./screenSpaceScale";
+
+/** How close (in screen pixels) a click in Select mode must land to an existing point to
+ * start dragging it, rather than falling through to whatever's behind it (an entity's own
+ * body, or empty canvas). Deliberately independent of Settings ▸ Sketch's "Snap tolerance"
+ * (a world-space/mm value meant for snapping newly-drawn geometry onto existing points) —
+ * reusing that here meant a click landing anywhere within a few mm of a point, easily most
+ * of a short or heavily zoomed-in line, grabbed and dragged the point instead of letting
+ * the click reach the line body the user actually meant to click. */
+const DRAG_PICK_TARGET_PX = 9;
 
 interface Point2 {
   x: number;
@@ -21,6 +31,27 @@ interface Point2 {
 
 /** Work surface size; generous enough that drawing never runs off the pickable area. */
 const CANVAS_SIZE = DOCUMENT_SCALE * 20;
+
+/** Stand-in world point for `worldUnitsPerPixel`'s perspective-camera distance calculation
+ * — sketches are drawn through the world origin (see `drawPlane` below), so this is exact
+ * for the app's default orthographic camera (which ignores it entirely) and a reasonable
+ * approximation for perspective. */
+const PLANE_ORIGIN = new Vector3(0, 0, 0);
+
+const CURSOR_DOT_PIXELS = 4;
+
+/** The small dot marking the drawing cursor's snapped position — a constant on-screen size
+ * rather than a fixed world-space radius, the same fix applied to sketch point dots
+ * (`SketchGeometry.tsx`'s `SketchPointDot`) and for the same reason. */
+function CursorDot({ x, y, color }: { x: number; y: number; color: string }) {
+  const ref = useScreenSpacePixelScale(CURSOR_DOT_PIXELS);
+  return (
+    <mesh ref={ref} position={[x, y, 0.03]}>
+      <circleGeometry args={[1, 12]} />
+      <meshBasicMaterial color={color} depthTest={false} />
+    </mesh>
+  );
+}
 
 /**
  * Pointer handling for the active sketch.
@@ -72,6 +103,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
    * `DRAG_THRESHOLD_PX` for the identical click-vs-drag question in the 3D viewport. */
   const trimPointerDownAt = useRef<{ x: number; y: number } | null>(null);
   const invalidate = useThree((state) => state.invalidate);
+  const size = useThree((state) => state.size);
   const accent = useSceneAccentColor();
 
   const camera = useThree((state) => state.camera);
@@ -163,7 +195,11 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
 
     const local = screenToSketch(event.nativeEvent.clientX, event.nativeEvent.clientY);
     if (!local) return;
-    const hit = findPointNear(sketch, local.x, local.y, snapTolerance);
+    // A fixed pixel radius, not `snapTolerance` — see `DRAG_PICK_TARGET_PX`'s own doc
+    // comment on why reusing the (world-space) drawing-snap tolerance here made a click
+    // anywhere near a point drag it instead of reaching whatever was actually clicked.
+    const dragPickRadius = DRAG_PICK_TARGET_PX * worldUnitsPerPixel(camera, size.height, PLANE_ORIGIN);
+    const hit = findPointNear(sketch, local.x, local.y, dragPickRadius);
     if (hit) {
       // One history entry per drag gesture, not per pointer-move — see `beginDrag`'s own
       // doc comment for why `dragPoint` below does not push its own history.
@@ -367,12 +403,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
         />
       )}
 
-      {cursor && isDrawingTool && (
-        <mesh position={[cursor.x, cursor.y, 0.03]}>
-          <circleGeometry args={[0.9, 12]} />
-          <meshBasicMaterial color={accent} depthTest={false} />
-        </mesh>
-      )}
+      {cursor && isDrawingTool && <CursorDot x={cursor.x} y={cursor.y} color={accent} />}
     </group>
   );
 }

@@ -1,31 +1,45 @@
 import { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
-import { Vector3 } from "three";
+import { MathUtils, Vector3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { useViewportStore } from "@/state/viewportStore";
 
-/** Degrees the camera orbits per up/down/roll arrow click — small enough to stay
- * oriented, large enough that a click is visibly a step rather than a nudge. */
-const STEP_DEGREES = 45;
-const STEP_RADIANS = (STEP_DEGREES * Math.PI) / 180;
-
 /**
- * Degrees per left/right click — a full quarter turn rather than up/down's 45°.
- * Horizontal orbit around the world Y axis has no pole to run into (unlike up/down, which
- * has to stop shy of looking straight down/up), so a step here can always go the full
- * distance between two of the ViewCube's own corners: each click reliably lands on the
- * next octant (Front/Right/Top → Left/Front/Top → Back/Left/Top → ...) with the current
- * elevation preserved, instead of an odd 45°-off in-between orientation two clicks would
- * otherwise pass through on the way there.
+ * Degrees between two adjacent ViewCube landmarks — a face, edge or corner. A real cube has
+ * 26 of these (6 faces + 12 edges + 8 corners), laid out on an 8-position azimuth ring (45°
+ * apart) crossed with a 5-position elevation ring (-90/-45/0/45/90°); every arrow click
+ * moves exactly one step along one of those two rings. This is the same step size Rotate
+ * View CW/CCW's own roll already used and still uses below — kept identical so all six
+ * arrows read as one consistent system.
  */
-const LEFT_RIGHT_STEP_DEGREES = 90;
-const LEFT_RIGHT_STEP_RADIANS = (LEFT_RIGHT_STEP_DEGREES * Math.PI) / 180;
+const STEP_RADIANS = Math.PI / 4;
 
-/** How close the view is allowed to get to looking straight down/up the world Y axis —
- * past that the "left/right" horizontal axis becomes degenerate (gimbal lock), same
- * reason `OrbitControls` clamps `minPolarAngle`/`maxPolarAngle` by default. */
-const POLE_GUARD_RADIANS = (5 * Math.PI) / 180;
+/** How close the view is allowed to get to looking straight down/up the world Y axis
+ * (elevation ±90°) before it's nudged back off the exact pole — azimuth is undefined
+ * exactly at the pole (every azimuth reconstructs the same direction there), which would
+ * otherwise make `Math.atan2`'s read-back of the *next* click's azimuth numerically
+ * unstable. Small enough to be visually indistinguishable from a true Top/Bottom view. */
+const POLE_EPSILON_RADIANS = 1e-3;
+
+/** World-space azimuth (around Y, 0 = +Z) and elevation (0 = horizon, +90° = straight up)
+ * of a unit direction vector — the ViewCube's own two rings of landmarks, reduced to plain
+ * spherical coordinates so "step to the next one" is just rounding to a 45° grid. */
+function directionToAzimuthElevation(direction: Vector3): { azimuth: number; elevation: number } {
+  return {
+    elevation: Math.asin(MathUtils.clamp(direction.y, -1, 1)),
+    azimuth: Math.atan2(direction.x, direction.z),
+  };
+}
+
+function azimuthElevationToDirection(azimuth: number, elevation: number): Vector3 {
+  const cosElevation = Math.cos(elevation);
+  return new Vector3(cosElevation * Math.sin(azimuth), Math.sin(elevation), cosElevation * Math.cos(azimuth));
+}
+
+function snapToStep(value: number, step: number): number {
+  return Math.round(value / step) * step;
+}
 
 /**
  * Performs the actual camera rotation for the ViewCube's navigation arrows (a plain DOM
@@ -59,28 +73,44 @@ export function ViewRotationSteps() {
       return;
     }
 
+    // Up/down/left/right all move the camera to the *next ViewCube landmark* in that
+    // direction, not by a fixed angle from wherever the camera happens to currently be —
+    // that distinction is the actual fix here. A fixed-angle orbit only lands cleanly on a
+    // recognizable face/edge/corner if the starting view already was one; from anywhere
+    // else (an isometric start, or a view left mid-orbit by a mouse drag) it drifts into
+    // odd in-between orientations that compound with every further click, which is what
+    // "left/right rotate incorrectly" and "down doesn't work" both actually were. Snapping
+    // the *current* view to the nearest landmark first, then stepping exactly one grid
+    // unit from there, makes every click land cleanly regardless of where the view started
+    // — the same "flip to the next face" behaviour up/down already had, now shared by all
+    // four directional arrows instead of only working for two of them by accident.
     const offset = camera.position.clone().sub(target);
-    const worldUp = new Vector3(0, 1, 0);
+    const distance = offset.length();
+    if (distance < 1e-6) return;
+
+    const { azimuth, elevation } = directionToAzimuthElevation(offset.clone().normalize());
+    let nextAzimuth = snapToStep(azimuth, STEP_RADIANS);
+    let nextElevation = MathUtils.clamp(snapToStep(elevation, STEP_RADIANS), -Math.PI / 2, Math.PI / 2);
 
     if (request.direction === "left" || request.direction === "right") {
-      // Right orbits the camera toward the model's right-hand side (bringing more of its
-      // right-adjacent faces into view), not away from it.
-      const angle = request.direction === "right" ? LEFT_RIGHT_STEP_RADIANS : -LEFT_RIGHT_STEP_RADIANS;
-      offset.applyAxisAngle(worldUp, angle);
+      nextAzimuth += request.direction === "right" ? STEP_RADIANS : -STEP_RADIANS;
     } else {
-      // Pitching around the camera's own local right axis tilts the view up/down without
-      // introducing roll, since the camera is always looking straight at `target`.
-      const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
-      const angle = request.direction === "up" ? STEP_RADIANS : -STEP_RADIANS;
-      const currentPolar = offset.angleTo(worldUp);
-      const nextPolar = currentPolar - angle;
-      if (nextPolar <= POLE_GUARD_RADIANS || nextPolar >= Math.PI - POLE_GUARD_RADIANS) {
-        return;
-      }
-      offset.applyAxisAngle(right, angle);
+      const stepped = nextElevation + (request.direction === "up" ? STEP_RADIANS : -STEP_RADIANS);
+      // Already at the Top or Bottom landmark and asked to go further the same way —
+      // there is no next landmark that direction, so this is a no-op, the same as the
+      // ViewCube's own up/down arrows being unavailable from a Top/Bottom face view.
+      if (stepped > Math.PI / 2 + 1e-6 || stepped < -Math.PI / 2 - 1e-6) return;
+      nextElevation = MathUtils.clamp(stepped, -Math.PI / 2, Math.PI / 2);
     }
 
-    camera.position.copy(target).add(offset);
+    // Nudge an exact pole landmark very slightly off it — see `POLE_EPSILON_RADIANS`'s own
+    // comment — rather than leaving azimuth truly undefined there.
+    if (Math.abs(nextElevation) >= Math.PI / 2 - 1e-9) {
+      nextElevation = Math.sign(nextElevation) * (Math.PI / 2 - POLE_EPSILON_RADIANS);
+    }
+
+    const nextDirection = azimuthElevationToDirection(nextAzimuth, nextElevation);
+    camera.position.copy(target).addScaledVector(nextDirection, distance);
     camera.up.set(0, 1, 0);
     camera.lookAt(target);
     controls?.update();

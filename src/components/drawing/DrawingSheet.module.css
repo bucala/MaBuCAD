@@ -1,0 +1,311 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+.toolbarButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+}
+
+.toolbarButton:hover {
+  background: var(--fill-subtle-hover);
+}
+
+.sourceLabel {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+}
+
+.sheetFormatSelect {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+}
+
+.sheetScroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-md);
+  background: var(--bg-viewport-top, #d9d9d9);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: var(--space-4);
+}
+
+.sheet {
+  flex: 0 0 auto;
+  background: #fff;
+  box-shadow: var(--shadow-card);
+}
+
+.paperEdge {
+  fill: none;
+  stroke: #999;
+  stroke-width: 0.3;
+}
+
+.borderLine {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.5;
+}
+
+.zoneLabel {
+  fill: #444;
+  font-size: 3px;
+  font-weight: 500;
+}
+
+.zoneTick {
+  stroke: #999;
+  stroke-width: 0.25;
+}
+
+.centreMark {
+  fill: #1a1a1a;
+}
+
+.titleBlockOutline {
+  fill: #fff;
+  stroke: #1a1a1a;
+  stroke-width: 0.5;
+}
+
+.titleBlockCell {
+  fill: transparent;
+  stroke: #1a1a1a;
+  stroke-width: 0.25;
+  cursor: text;
+}
+
+.titleBlockCell:hover {
+  fill: rgba(0, 120, 212, 0.06);
+}
+
+.titleBlockCellSelected {
+  fill: rgba(0, 120, 212, 0.1);
+  stroke: var(--accent, #0078d4);
+  stroke-width: 0.5;
+  cursor: move;
+}
+
+.titleBlockLabel {
+  fill: #777;
+  font-size: 1.7px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+
+.titleBlockValue {
+  fill: #1a1a1a;
+}
+
+.titleBlockInput {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: none;
+  outline: 1px solid var(--accent, #0078d4);
+  background: #fff;
+  color: #1a1a1a;
+  font-family: inherit;
+  padding: 0 1px;
+}
+
+.hatchFill {
+  fill: url(#section-hatch);
+  stroke: none;
+}
+
+.hatchLine {
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
+}
+
+.visibleEdge {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
+  vector-effect: non-scaling-stroke;
+}
+
+.hiddenEdge {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.25;
+  stroke-dasharray: 2 1.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.viewLabel {
+  fill: #1a1a1a;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.viewHandle {
+  fill: transparent;
+  cursor: move;
+}
+
+.viewHandleSelected {
+  fill: transparent;
+  stroke: var(--accent, #0078d4);
+  stroke-width: 0.5;
+  stroke-dasharray: 3 2;
+  cursor: move;
+}
+
+.pickable {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.pickable:hover {
+  fill: rgba(0, 120, 212, 0.08);
+}
+
+.noteBox {
+  fill: transparent;
+  cursor: move;
+}
+
+.noteBoxSelected {
+  fill: rgba(0, 120, 212, 0.06);
+  stroke: var(--accent, #0078d4);
+  stroke-width: 0.4;
+  stroke-dasharray: 2 1.5;
+  cursor: move;
+}
+
+.noteText {
+  fill: #1a1a1a;
+  white-space: pre;
+}
+
+.noteInput {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: none;
+  outline: 1px solid var(--accent, #0078d4);
+  background: #fff;
+  color: #1a1a1a;
+  font-family: inherit;
+  resize: none;
+  padding: 1px 2px;
+}
+
+.noteDelete {
+  fill: var(--status-over, #d13438);
+  cursor: pointer;
+}
+
+.noteDeleteIcon {
+  fill: #fff;
+  font-size: 3px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.sectionLine {
+  stroke: var(--accent, #0078d4);
+  stroke-width: 0.6;
+  stroke-dasharray: 4 2;
+}
+
+.sectionHandleHit {
+  fill: transparent;
+  cursor: ns-resize;
+}
+
+.sectionHandleHitVertical {
+  fill: transparent;
+  cursor: ew-resize;
+}
+
+.detailCircle {
+  fill: rgba(0, 120, 212, 0.08);
+  stroke: var(--accent, #0078d4);
+  stroke-width: 0.6;
+  stroke-dasharray: 3 2;
+}
+
+.detailCentreHit {
+  fill: transparent;
+  cursor: move;
+}
+
+.detailRadiusHandle {
+  fill: var(--accent, #0078d4);
+  cursor: ew-resize;
+}
+
+.overlayToolbar {
+  display: flex;
+  gap: 4px;
+}
+
+.overlayButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--stroke-control, #ccc);
+  border-radius: 4px;
+  background: #fff;
+  color: #1a1a1a;
+  cursor: pointer;
+  padding: 0;
+}
+
+.overlayButton:hover {
+  background: #f0f0f0;
+}
+
+.overlayButtonPrimary {
+  background: var(--accent, #0078d4);
+  border-color: var(--accent, #0078d4);
+  color: #fff;
+}
+
+.emptyState {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-body);
+  pointer-events: none;
+}

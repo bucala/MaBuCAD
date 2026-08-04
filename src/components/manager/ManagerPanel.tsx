@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { ListTree, Settings2, SlidersHorizontal } from "lucide-react";
 
+import { InspectPanel } from "@/components/property/InspectPanel";
 import { SketchPanel } from "@/components/property/SketchPanel";
 import { useDocumentStore } from "@/state/documentStore";
+import { useInspectStore } from "@/state/inspectStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
 import { ConfigurationManager } from "@/components/manager/ConfigurationManager";
@@ -25,6 +27,7 @@ const TABS: { id: ManagerTabId; label: string; icon: typeof ListTree }[] = [
 export function ManagerPanel() {
   const [activeTab, setActiveTab] = useState<ManagerTabId>("features");
   const isSketchMode = useSketchStore(selectIsSketchMode);
+  const inspectTool = useInspectStore((state) => state.activeTool);
   const selectedFeatureId = useDocumentStore((state) =>
     state.selectedFeatureIds.length === 1 ? state.selectedFeatureIds[0] : null,
   );
@@ -34,6 +37,12 @@ export function ManagerPanel() {
   useEffect(() => {
     if (isSketchMode) setActiveTab("properties");
   }, [isSketchMode]);
+
+  // An Inspect tool (Measure, Mass Properties) does the same thing — its own results live
+  // in the property manager slot too, the same "command takes over" convention as above.
+  useEffect(() => {
+    if (inspectTool) setActiveTab("properties");
+  }, [inspectTool]);
 
   // A single feature becoming selected — most commonly a brand new one, since
   // `documentStore.addFeature` selects whatever it just created — swings the panel to its
@@ -73,7 +82,8 @@ export function ManagerPanel() {
         aria-labelledby={`manager-tab-${activeTab}`}
       >
         {activeTab === "features" && <FeatureTree />}
-        {activeTab === "properties" && (isSketchMode ? <SketchPanel /> : <PropertyManager />)}
+        {activeTab === "properties" &&
+          (isSketchMode ? <SketchPanel /> : inspectTool ? <InspectPanel /> : <PropertyManager />)}
         {activeTab === "configurations" && <ConfigurationManager />}
       </div>
     </div>

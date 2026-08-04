@@ -7,6 +7,459 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-04 — ISO 128-50 section hatching (v0.12.0)
+
+A sixteenth round, closing the one gap the previous round's own Section entry called
+out on purpose: the cut face(s) exposed by a Section view now render filled with the
+standard 45°-diagonal ISO 128-50 hatch pattern, not just their bare outline.
+
+### Added
+- Every Section view's newly exposed cut face is now traced and filled with a shared
+  45°, evenly-spaced hatch pattern (`DrawingSheet.tsx`'s `<pattern id="section-hatch">`),
+  drawn under the section's own visible/hidden edges so the real outline still reads on
+  top. Faces with holes punch through correctly (`fillRule="evenodd"` over the outer
+  wire plus every inner wire in one path).
+- Also fixed the section-cutting tool's size: it now scales off the part's own bounding
+  box (`10× the largest dimension + 100mm` margin) instead of a fixed 100-metre
+  constant, avoiding the numerical precision loss extreme scale mismatches caused in
+  OpenCascade's boolean cut.
+
+### Fixed — replicad quirks the hatch tracing had to work around
+- `drawProjection(face, camera)` on an isolated planar face crashes
+  (`Unexpected numItems value: 0`) whenever hidden-line removal finds the face entirely
+  visible or entirely hidden from that camera — always true for a cut face viewed
+  head-on, so it crashed every time. Traced the cut face's own outline directly instead:
+  a `Wire` is itself a `_1DShape` (`pointAt(t)` walks its whole loop as one continuous
+  curve, correctly ordered, regardless of the underlying edges' individual
+  orientations), sampled and projected onto the same camera basis `drawProjection`
+  itself resolves a named plane to (`lookFromPlane`'s cameras all sit at the world
+  origin, so `point · axis` alone matches its real projector).
+- `Face#outerWire()`/`#innerWires()` each delete the face they're called on (replicad's
+  own GC-scoping convention) — calling one after the other on the same face threw "This
+  object has been deleted". Fixed by running `outerWire()` on a throwaway `clone()`.
+
+Partial/local sections (a freehand break-line boundary rather than a straight full cut)
+remain a separate, larger feature, not attempted this round.
+
+## 2026-08-04 — View dragging, Section/Detail views, Note annotations (v0.11.0)
+
+A fifteenth round, closing out the three gaps the previous round's own "Notes" called out:
+views could only be placed where Insert Model View put them, and Section, Detail and Note
+were unimplemented ribbon stubs.
+
+### Added — drag-to-reposition
+- Every placed view (standard, section or detail alike) can now be dragged anywhere on the
+  sheet, and text notes the same way — Pointer Events + `setPointerCapture`, the same drag
+  shape the Title Block editor's fields already used last round. Delete/Backspace removes
+  whichever view or note is selected; a Delete button in the sheet's own toolbar does the
+  same for mouse-only use.
+
+### Added — Note annotations
+- **Drawing ▸ Annotation ▸ Note** places a freeform text note wherever you click next;
+  double-click (or the initial placement) turns it into a plain text input to type into,
+  Enter/blur commits it. New `DrawingNoteData` on `DrawingSheetData`.
+
+### Added — Detail views
+- **Drawing ▸ Views ▸ Detail** picks an existing view, then a draggable/resizable circle
+  crops and magnifies (2×) that region into a new "DETAIL A" view — pure 2D work on
+  geometry that's already been projected (an SVG `clipPath` circle + a re-windowed
+  viewBox), no kernel rebuild involved. `kernel/drawingProjection.ts`'s `projectOne` now
+  also returns each view's `originX`/`originY` (the world-space offset its cached paths
+  were shifted by to land at the origin), which is what makes a click on a view mappable
+  back to real coordinates at all — see the Section entry below for what that unlocked.
+
+### Added — Section views
+- **Drawing ▸ Views ▸ Section** picks a Front/Top/Right view (Isometric's axes aren't
+  world-aligned, so it's excluded), then a draggable horizontal/vertical cut line plus a
+  flip-side toggle. Confirming re-reads the referenced part, boolean-cuts its real solid
+  with a half-space tool positioned from the cut line's on-screen position mapped back
+  through the source view's own camera basis (`kernel/drawingProjection.ts`'s new
+  `sectionAxisAndOffset`, derived from replicad's own per-plane camera vectors), and
+  projects what remains from the same camera — a genuine section, not a re-styled copy of
+  the original view. Verified end to end: a vertical cut through a 48mm-wide part's Front
+  view produced a section exactly 24mm wide.
+- No hatching of the newly exposed cut face(s) yet — the cut's own new boundary edges
+  still render correctly (it's a real projection of the actually-cut solid), which reads
+  as a correct section even without the fill convention; a documented, deliberate scope
+  cut rather than an oversight.
+
+## 2026-08-04 — Drawing Resources: Sheet Formats, Borders, Title Blocks (v0.10.0)
+
+A fourteenth round, built directly on the multi-document/Drawing work below: a Drawing
+document's sheet no longer draws a single hardcoded A3 border. It now has the same
+three-way "Drawing Resources" split Inventor's own Model tree uses — Sheet Formats,
+Borders and Title Blocks — as a shared, reusable library rather than something baked into
+one drawing.
+
+### Added — Drawing Resources library (`state/templateStore.ts`)
+- **Borders** are a parametric zone-grid recipe (margin, column/row counts, centre marks)
+  rather than freeform artwork, so one border works at any paper size. Seeded with one
+  "Default Border" (8x6 zones, centre marks on).
+- **Title Blocks** are a set of positioned, labelled fields. The seeded "Title Block"
+  mirrors a standard ISO field layout (Drawn By/Checked By + their dates, Material,
+  Title, Projection, Scale, Size, Drawing Number, Sheet, Rev, Weight, Surface Finish,
+  Company) — every field that would identify a person or a specific job starts with no
+  default value and renders blank; only generic ISO drafting boilerplate (tolerancing
+  note, "THIRD ANGLE", "1 / 1") ships with one.
+- **Sheet Formats** pair a paper size (A4–A0) + orientation with one Border and one Title
+  Block — seeded to match a standard set ("A4 size, Portrait, 1 view" through "A0 size, 7
+  views"). A Drawing document only stores which Sheet Format it uses and its own
+  per-document title block values, never a copy of the templates themselves.
+- Persisted to `localStorage` (`zustand/persist`, same as `settingsStore.ts`), with
+  per-item Export/Import to a `.mabutpl` JSON file for moving a border or title block to
+  another machine or sharing one with a colleague.
+
+### Added — rendering and inline editing (`DrawingSheet.tsx`)
+- The sheet renders the chosen Sheet Format's real paper size, a numbered/lettered zone
+  reference grid with centre marks, and the title block anchored bottom-right — all
+  parametric, not a fixed drawing.
+- Clicking a title block cell turns it into a plain text input (an SVG `foreignObject`,
+  which inherits the sheet's own mm-per-unit scale automatically) for typing that field's
+  value for *this* drawing — Enter or blur commits it.
+- A Sheet Format dropdown in the sheet's own toolbar switches paper size/border/title
+  block instantly.
+
+### Added — editing environment (`TemplateManagerDialog.tsx`, `BorderEditor.tsx`, `TitleBlockEditor.tsx`)
+- **Drawing ▸ Sheet Format** (previously an unimplemented stub) now opens Drawing
+  Resources: three tabs (Sheet Formats / Borders / Title Blocks), each a list + detail
+  editor, with New/Delete/Export per item and Import per category.
+- The Border editor is a plain numeric form (margin, zone columns/rows, centre marks)
+  with a live preview rendered by the exact same component the sheet itself uses.
+- The Title Block editor is interactive: fields can be dragged to reposition and resized
+  by a corner handle directly on a live SVG preview (Pointer Events + `setPointerCapture`),
+  alongside a side form for the selected field's label, value key, font size and bold —
+  the same pick-then-edit split Fillet/Chamfer's edge picking already uses elsewhere in
+  this app, applied to a title block's cells instead of a solid's edges.
+
+## 2026-08-04 — Multi-document workspace + Drawing (v0.9.0)
+
+A thirteenth round, and the biggest architectural change since the app started: MaBuCAD
+can now have more than one document open at once. This was prompted by a design question —
+should a Drawing show views of whatever Part happens to be open, or reference a separately
+saved part file the way a real SolidWorks drawing references a `.sldprt`? The answer picked
+was the honest, SolidWorks-shaped one, which meant building the multi-document
+infrastructure to support it rather than faking it.
+
+### Added — multi-document workspace
+- A new tab strip (`DocumentTabs.tsx`) below the ribbon lists every open document; click to
+  switch, click the × to close, "+" opens the New Document dialog. Each tab keeps its own
+  feature history, sketches, undo/redo stack and unit system — switching tabs snapshots the
+  outgoing document's live state and restores the incoming one's, via a new
+  `workspaceStore.ts` sitting above the existing single-document stores rather than making
+  every one of those stores' several dozen call sites multi-instance-aware.
+- New (File ▸ New, or the ribbon) and Open each land in their own new tab instead of
+  replacing whatever was already open — nothing you're working on can be lost by opening or
+  creating another document anymore. Save writes the active tab; Restore Autosave still
+  overwrites the active tab in place, the one flow left that can discard edits, so it still
+  prompts first.
+- The ribbon and ManagerPanel/Viewport split now follow the active tab's document kind: a
+  Part gets the full Home/Sketch/Features/Inspect surface, a Drawing gets Home/Drawing and
+  its own 2D sheet instead of the 3D viewport.
+
+### Added — Drawing documents
+- The New Document dialog's Drawing card is live. A Drawing document has no feature history
+  of its own (`types/document.ts`'s `DrawingSheetData`) — it references another document's
+  saved `.mabucad` file, the same relationship a SolidWorks drawing has with its part.
+- **Drawing ▸ Insert Model View** picks a saved Part file, headlessly rebuilds it through
+  the same kernel every Part editor uses, and projects Front, Top, Right and Isometric
+  views onto the sheet in the classic third-angle layout — via replicad's own
+  `drawProjection`, new in `kernel/drawingProjection.ts`. Visible edges draw solid, hidden
+  edges dashed, both as real projected geometry (not a re-rendered 3D snapshot).
+- **Drawing ▸ Update Views** re-reads the referenced part and refreshes every view's cached
+  geometry in place. Under Tauri this re-reads silently from the real file path captured by
+  Open (`io/files.ts`'s `readFileAtPath`); in the browser dev build, which has no reusable
+  file handle, it re-prompts with the file picker.
+- Views are cached on the document itself (`DrawingViewData`'s `visiblePaths`/`hiddenPaths`),
+  so a saved-and-reopened drawing shows its last-generated geometry immediately rather than
+  needing the source part re-read before anything renders.
+
+### Notes
+- This is a deliberately scoped first pass: one fixed A3 sheet, no interactive
+  view-dragging or scale control yet, and Assembly stays "Coming soon". The kernel itself
+  is still a single OpenCascade WASM instance with no per-document isolation, so Insert
+  Model View / Update Views are one-off rebuilds rather than a live background sync — the
+  same "can go out of date, then you update it" relationship a real SolidWorks drawing has
+  with its part, not a new limitation this introduces.
+
+## 2026-08-04 — The rest of the Inspect tab (v0.8.0)
+
+A twelfth round, finishing what the previous one started: every remaining Inspect command
+except Curvature now does something real. Measure and Mass Properties (v0.7.0) proved the
+kernel already had enough exposed through replicad to make Inspect worth building; this
+round works through the other eight commands one at a time, building real functionality
+for seven of them and being honest about the eighth.
+
+### Added — Section Properties
+- **Inspect ▸ Section Properties** picks a single face and reports its Area, Centroid
+  (X/Y/Z) and surface type, via `measureShapeSurfaceProperties` — the same exact,
+  kernel-level measurement Measure already uses, just for one face instead of up to two.
+  A non-planar pick still gets exact numbers but a visible caveat, since a "centroid" only
+  fully means what it sounds like for a flat face. New `computeSectionProperties` in
+  `kernel/measure.ts`.
+
+### Added — Check Geometry
+- **Inspect ▸ Check Geometry** flags any face with zero area or edge with zero length —
+  the one class of degenerate B-Rep this kernel can actually detect. The compiled
+  OpenCascade build this app ships exposes no `BRepCheck_Analyzer` (or equivalent) through
+  replicad at all, confirmed by an exhaustive check of its type definitions, so this is
+  deliberately not a full topology validator (no self-intersection or non-manifold-edge
+  detection) — the panel says so. New `kernel/checkGeometry.ts`.
+
+### Added — Draft Analysis
+- **Inspect ▸ Draft Analysis** colours every face of the body green or red by its angle to
+  a chosen pull axis (X/Y/Z) against an adjustable limit, live as either changes, plus a
+  running "N of M faces need more draft" count. Colours come from the triangulated mesh's
+  own per-vertex normals (`kernel/faceColoring.ts`'s `faceAngleToAxis`) rather than an
+  exact kernel surface normal — a deliberate, documented approximation good enough for a
+  visual pass/fail, the same way a mesh-based tool always trades exactness for coverage
+  across every face kind (planar or not) at once.
+
+### Added — Parent / Child
+- **Inspect ▸ Parent / Child** shows the selected feature's parents and children, reading
+  `Feature.parents` (already recorded by every feature-creating command) and reverse-
+  scanning the tree for anything pointing back at it. Along the way, fixed a real gap this
+  surfaced: creating a sketch never recorded which plane it was placed on as a parent, so
+  Plane → Sketch never showed up as a dependency — both sketch-creation paths in
+  `commandRegistry.ts` now pass the plane id through. Dress-up features (Fillet/Chamfer/
+  Shell/Draft) still record no explicit parent, since they act on the whole body rather
+  than one upstream feature; the panel says so instead of showing a bare, misleading "None".
+
+### Added — Equations
+- **Inspect ▸ Equations** defines named numbers, evaluated through a small hand-written
+  expression parser (`state/equations.ts` — arithmetic and parentheses only, deliberately
+  not `eval()`/`Function()`, since a document is a file opened from disk and an expression
+  in it is just as much untrusted input as anything else in that file). A sketch dimension's
+  value field now accepts `=name` (or `=width*2`, referencing one) instead of a literal
+  number — `DimensionValueField.tsx`'s existing "keep showing what's actually typed, only
+  resync on an external change" logic already covers a live formula the same way it always
+  covered a partially-typed number. Variables are plain numbers, resolved once at the
+  moment you set them — editing one doesn't retroactively recompute a dimension that
+  referenced it, only the next explicit `=` re-entry does.
+
+### Added — Sensors
+- **Inspect ▸ Sensors** watches Volume or Surface Area against a threshold and alerts (a
+  toast, plus a status badge in the panel) when it's crossed. Evaluated once per rebuild
+  from `SolidModel.tsx` — not from the Sensors panel itself — specifically so an alert can
+  still fire while a different Inspect tool (or none) is open; the panel only shows the
+  latest result.
+
+### Added — Appearance
+- **Inspect ▸ Appearance** paints individual faces with a colour override — pick a swatch
+  (or a custom colour), click faces to paint them, click a face already in that colour to
+  clear it. Rendered via a per-vertex colour buffer built from the same `FaceGroup` data
+  every other face-pick tool already uses (`kernel/faceColoring.ts`'s
+  `buildFaceColorAttribute`, shared with Draft Analysis). Described honestly as a colour
+  override, not "materials and appearances" — there is no material/texture system behind it.
+
+### Removed — Curvature
+- **Inspect ▸ Curvature** ("Display curvature combs and colour maps") is gone. replicad
+  exposes no curvature-evaluation API at all (`GeomLProp`/`BRepLProp` and friends aren't
+  present anywhere in its type definitions) — computing real curvature would mean
+  extending the compiled OpenCascade WASM build itself, not writing more TypeScript, the
+  same reason IGES export stays unavailable. Left as a permanently-disabled button, it
+  would have been exactly the kind of dead promise earlier rounds already removed
+  (Boundary, Text); removed for the same reason.
+
+### Fixed — misleading Inspect descriptions
+- Corrected four ribbon descriptions written before their commands existed, now that their
+  real scope is known: **Measure** ("distance, angle, radius and arc length" → a picked
+  face/edge plus the distance between two picks — angle and radius aren't measured
+  directly), **Mass Properties** ("mass... and inertia" → volume, surface area and centre
+  of mass — there's no assigned material/density, so no real mass or inertia tensor to
+  report), **Section Properties** ("...or sketch" → a picked face only), **Appearance**
+  ("materials and appearances" → a colour override).
+
+## 2026-08-04 — Inspect tab: Measure and Mass Properties (v0.7.0)
+
+An eleventh round, starting on the Inspect tab — one of the three entirely-unbuilt major tabs the previous round's audit identified (Assembly, Drawing, Inspect all had zero implemented commands). Chosen as the first of the three to build because two of its ten commands, Measure and Mass Properties, turned out to be squarely within reach: replicad already exposes exact kernel-level measurement functions (`measureArea`, `measureLength`, `measureDistanceBetween`, `measureShapeVolumeProperties`), and the kernel already keeps the last-built solid around for STEP/STL export (`kernel/rebuild.ts`'s `getCurrentShape()`) — reusing that reference is all real Inspect measurement needed. The other eight Inspect commands (Section Properties, Check Geometry, Curvature, Draft Analysis, Parent/Child, Equations, Sensors, Appearance) remain unbuilt; none has anywhere near the same "the kernel already does this" head start.
+
+### Added — Measure
+- **Inspect ▸ Measure** picks up to two faces and/or edges in the 3D viewport and reports each one's own Area/Length plus the straight-line distance between them — resolved against the kernel's own B-Rep (`getCurrentShape().faces`/`.edges`, indexed the same way `SolidModel.tsx`'s existing face/edge-pick machinery already does), so the numbers are exact, not derived from the triangulated display mesh. Clicking an already-picked entity again deselects it; a third pick replaces the oldest. New `kernel/measure.ts` (`computeMeasureSummary`) and `state/inspectStore.ts` hold the logic and pick state; `SolidModel.tsx` gained a violet highlight for whatever is currently picked, distinct from every other viewport highlight colour already in use (face-select cyan, Fillet/Chamfer edge-pick amber/pink, Hole Wizard red).
+
+### Added — Mass Properties
+- **Inspect ▸ Mass Properties** reports the whole current body's Volume, Surface area and Centre of Mass (X/Y/Z), straight from `measureShapeVolumeProperties`/`measureArea` — recomputed live on every rebuild, not a one-shot snapshot.
+
+### Changed
+- `SolidModel.tsx`'s Fillet/Chamfer picked-edge-highlight logic (`pickedEdgeHighlightGeometry`) had its "nearest `EdgeGroup` to a raycaster hit point" search pulled out into a shared `nearestEdgeGroupId` helper, now reused by Measure's own edge pick — same lookup, one definition instead of two.
+
+## 2026-08-03 — A working Print, honest ribbon descriptions, and Reference Geometry off window.prompt() (v0.6.0)
+
+A tenth round, following a full audit of every ribbon tab (Home/Sketch/Features/Assembly/Drawing/Inspect) for the same "dead button" and "misleading description" defects earlier rounds found and fixed in the Sketch tab specifically. Confirmed **Assembly, Drawing and Inspect are entirely unbuilt scaffolding** — no command on any of the three tabs is implemented, and `NewDocumentDialog.tsx` already marks the Assembly/Drawing document types "Coming soon" — real future work, not something this round's smaller scope touches. Home and Features had smaller, fixable gaps:
+
+### Added — a real Print
+- **"Print" (Home ▸ Document) was a permanently disabled dead button** — implemented it: captures the current 3D view via the WebGL renderer (`preserveDrawingBuffer: true` added to the canvas so the frame is still readable after compositing) and opens the browser's print dialog on that snapshot, with a print stylesheet that hides the ordinary app chrome. There's no "drawing sheet" to print yet (see the Assembly/Drawing note above), so this honestly prints the current viewport as shown rather than pretending to print a real drawing.
+
+### Removed — dead code
+- **The "Boundary" surface feature button** (Features ▸ Add Material) had zero backing kernel code, unlike everything around it — removed rather than left as a dead promise; a real Boundary/surface-fill feature is future work, not a quick fix.
+
+### Fixed — misleading ribbon descriptions
+- **Fillet** claimed "constant or variable radius" — the kernel only ever applies one uniform radius; description now says so.
+- **Chamfer** claimed "distance and angle" — only a plain symmetric distance is implemented; description now says so.
+- **Shell** claimed "removing selected faces" — there's no face-picking UI yet, it removes whichever face(s) point along a chosen world axis (the property panel's own hint already says this); description now matches.
+
+### Fixed — Reference Geometry off `window.prompt()`
+- **Plane/Axis/Point reference geometry** (Features ▸ Reference Geometry) gathered their offset distance / world axis through browser `window.prompt()` dialogs, the same pattern already replaced for Offset/Mirror/Pattern in the Sketch panel. Turned out the real fix needed zero new UI: every other feature (Extrude, Fillet, a pattern's spacing, ...) already creates itself with sensible defaults and lets the Property Manager's existing generic field list (any parameter named `distance` gets a numeric field, any named `axis` gets an X/Y/Z dropdown) handle editing afterward — Plane/Axis/Point just needed to stop prompting and let that existing machinery do its job.
+
+## 2026-08-03 — Runaway viewport growth fix, a real Sketch Fillet, and Offset/Mirror/Pattern panel UI (v0.5.0)
+
+A ninth round, prompted by "keep finishing off unfinished corners of the Sketch section." Turned up a genuine, previously-unnoticed layout bug along the way that turned out to be the most important fix in this release.
+
+### Fixed — a real bug: the 3D viewport grew continuously while a sketch was open
+- **The viewport (and the WebGL canvas inside it) grew wider than the browser window, continuously, for as long as any sketch stayed open** — even completely idle, no drawing or clicking required, roughly 25px/second, unbounded, eventually pushing the ViewCube fully off-screen. Root cause: `.body` in `AppShell.module.css`, a CSS Grid item wrapping the resizable manager/viewport split, set `min-height: 0` (needed so it can shrink vertically) but never the equivalent `min-width: 0` — a grid item's default `min-width` is `auto`, meaning it refuses to shrink below its content's intrinsic width. `react-resizable-panels` computes its pixel-to-percentage panel split from *this* element's own measured width, so any content-driven overflow fed straight back into a wider computed width on the next measurement, compounding every cycle the instant a sketch's (wider) property panel replaced the idle Feature Manager's. Confirmed via direct DOM measurement over a 24-second idle window, in both dev and production builds — genuinely present, not a test artifact. Fixed by adding `min-width: 0` alongside the existing `min-height: 0`, and the equivalent on `.group`, the resizable-panels `Group` element one level down.
+
+### Added — Sketch Fillet
+- **A real sketch-level corner Fillet**, rounding the shared corner between two lines into a tangent arc at a given radius — trims each line back to its tangent point and inserts the arc, the same operation the PartDesign Fillet feature does on 3D edges, done directly on 2D profile geometry. New "Fillet" tool in the Sketch panel's Tools grid with its own Radius field; click two lines sharing a corner.
+- **`Tangent` now also accepts an arc, not just a circle** (`residuals.ts`) — picking a line and an arc and clicking Tangent by hand previously added a constraint that silently did nothing (the residual only recognised `kind === "circle"`); it's a real, working relation now.
+
+### Added — Offset/Mirror/Pattern get real panel UI
+- **Offset and Pattern previously only worked through a chain of browser `window.prompt()` dialogs** reachable from the ribbon, with no controls anywhere in the Sketch panel itself — functional, but visibly a placeholder, and easy to miss entirely. Added a "Modify" section to the Sketch panel with real inline fields: Mirror (select entities + one construction-line axis, click Mirror), Offset (distance field + Apply), and Pattern (Linear/Circular, count, spacing or sweep angle, + Apply Pattern). The ribbon buttons now point at the panel instead of opening prompts.
+
+### Removed — dead code
+- **The "Text" sketch tool ribbon button** ("Place sketch text along a curve") had zero backing implementation anywhere — no entity kind, no store action, permanently disabled. Removed rather than left as a dead button promising an unbuilt curve-following-text feature; a real placed-text annotation tool remains open future work.
+- Three unused `SketchTool` values (`"ordinate"`, `"ordinate-horizontal"`, `"ordinate-vertical"`) that no code path ever set — ordinate dimensioning is actually driven through the separate `applyOrdinateDimension` action.
+- Leftover `console.log("DEBUG edit()", ...)` calls in `sketchStore.ts`, printing on every single sketch edit.
+
+## 2026-08-03 — Dimension mode switching, click-first relations, and clearer selection highlighting (v0.4.0)
+
+An eighth round of feedback, focused entirely on sketch-mode usability: two new interaction
+flows (switching a length dimension's measurement mode, and arming a relation before picking
+its elements) plus a real fix for selection being hard to spot at a glance.
+
+### Added — dimensions
+- **Right-click a Horizontal/Vertical/Aligned dimension to switch its measurement mode.** A
+  new context-menu section (only shown for these three dimension kinds — Radius, Diameter and
+  Angle dimensions are unaffected) lets you flip a length dimension between the three modes
+  without deleting and re-adding it; the value re-measures from current geometry on switch.
+  This surfaced a rendering gap along the way: `horizontal-distance`/`vertical-distance`
+  dimensions already had their own solver residuals (signed axis-delta, same as ordinate
+  dimensions) but were drawn identically to a plain `distance` dimension — an aligned leader
+  running point-to-point instead of the axis-locked, square-dropped extension lines the solver
+  behaviour actually implies. Both now render the same way ordinate dimensions already did.
+
+### Added — relations
+- **Relations can now be created "function first, elements second,"** in addition to the
+  existing "elements first, function second" flow — click a relation button in the Add
+  Relation panel to arm it (it stays highlighted while armed), then click the elements it
+  applies to in the viewport; the relation applies automatically once enough elements are
+  picked for that kind, the same "accumulate picks, auto-apply" pattern Smart Dimension
+  already used. Escape cancels an armed relation before touching anything else (selection,
+  active tool) — the same most-disruptive-first priority order Escape already followed.
+
+### Fixed — sketch selection clarity
+- **Selected sketch entities and points were hard to spot at a glance** — a selected point
+  changed colour only (no size change, on an already-tiny 3.5px dot), and a selected line's
+  only distinction was a 1px width bump plus colour. Both now also get a soft, translucent
+  accent-coloured halo rendered behind them, and a selected point's dot itself grows — a
+  clearer "this is what's active" signal than a colour/width change alone, regardless of theme
+  or zoom level.
+
+## 2026-08-02 — Constraint solver fixes, screen-space UI sizing, a real ViewCube, and Hole Wizard seats (v0.3.0)
+
+A seventh round of feedback, the largest so far — a real constraint-solver bug, a
+foundational screen-space-vs-world-space rendering fix that turned out to explain three
+separate complaints at once, a full ViewCube rewrite, and a genuine Hole Wizard feature
+expansion (seats, drill points, a fourth hole type) backed by real data pulled from
+Autodesk's own Hole Wizard reference spreadsheets.
+
+### Fixed — sketch constraints
+- **A `Fix` constraint didn't hold when the fixed point was dragged.** Root cause: `dragPoint`
+  moved the point to the cursor position *before* solving, so `fix`'s own anchor (always
+  captured fresh from the sketch at the start of a solve) simply adopted the drag destination
+  as the new "original" position — the point followed the cursor exactly, silently defeating
+  the constraint. Dragging a genuinely fixed point is now a no-op, matching every other CAD
+  sketcher's own behaviour.
+- **A "Midpoint" snap didn't hold** — it was a one-time positional snap with no solver
+  support at all (its own doc comment said as much), so anything that later moved the line
+  left the "midpoint" point behind. Added a real, persisted `midpoint` constraint kind with
+  its own solver residual; the smart drag-snap now adds this constraint instead of just
+  repositioning the point once.
+- **Constraints on a trimmed line vanished instead of carrying to the surviving pieces.**
+  `horizontal`/`vertical` relations on the original line are now re-applied to every
+  surviving segment, and a new split point created where the trim crossed another entity is
+  now pinned back onto that entity (`point-on-line`/`point-on-circle`/`point-on-spline`,
+  whichever fits) instead of being left as a bare, unconstrained point. Applies to
+  `trimLineAt`, `trimCircleAt`, and `trimSplineAt` alike.
+- **New `Colinear` constraint** (two lines share the same infinite line without their
+  endpoints needing to touch) and **Coincident now accepts a point plus a curve** (line,
+  circle/arc, or spline), not just two points — dispatches internally to
+  `point-on-line`/`point-on-circle`/`point-on-spline`.
+
+### Fixed — sketch rendering and interaction
+- **Sketch point dots rendered at a fixed world-space size**, so they ballooned to a
+  nonsensical size zoomed in and shrank to nothing zoomed out — the same underlying bug also
+  explained "clicking a line drags the whole thing": the invisible point pick-target used the
+  same fixed world-space radius as the drawing tools' snap tolerance, so a click anywhere
+  within a few mm of a point (most of a short or zoomed-in line) grabbed and dragged that
+  point instead of reaching the line body. Added a `useScreenSpacePixelScale` hook (exact for
+  the app's default orthographic camera, since one world unit spans exactly `camera.zoom`
+  pixels there) and used it for point dots, the drawing cursor dot, and — separately — a new
+  fixed-pixel drag-pick radius that no longer reuses the Settings ▸ Sketch snap-tolerance
+  value at all.
+- **Radius/diameter dimension arrows always anchored at the circle's exact centre**, which
+  overlapped the centre point's own dot and could overshoot past a small circle's far rim
+  (the arrowhead's own fixed size was larger than the circle). Arrows now anchor at the rim
+  point toward the label — a radius dimension's leader runs rim → label, a diameter's runs
+  the full rim → rim chord, continuing on to the label — the standard SolidWorks/Inventor
+  convention.
+- **The sketch Origin point's delete was a silent no-op.** It's correctly protected (every
+  mainstream CAD tool blocks deleting a sketch's origin) but gave zero feedback; selecting it
+  and hitting Delete now shows a toast explaining why, instead of doing nothing.
+
+### Added — ViewCube
+- **All four directional arrows (up/down/left/right) rewritten to snap to the next ViewCube
+  landmark** (one of the 26 canonical face/edge/corner orientations — an 8-position azimuth
+  ring crossed with a 5-position elevation ring) instead of orbiting by a fixed angle from
+  wherever the camera happened to be. A fixed-angle orbit only lands cleanly on a recognizable
+  face/edge/corner if the starting view already was one; from anywhere else (an isometric
+  start, or a view left mid-orbit by a mouse drag) it drifted into odd in-between orientations
+  that compounded with every further click — this was the real "left/right rotate
+  incorrectly" bug, and also explains "down doesn't work" (the old fixed 5° pole guard could
+  reject a legitimate transition near a pole even when the actual target landmark was
+  perfectly reachable; landmarks now include the poles themselves as valid stops). Rotate
+  View CW/CCW (the roll arrows) are unchanged, as requested.
+
+### Added — Fillet/Chamfer edge highlight
+- **Picked edges are now highlighted as their own contour** in a distinct colour, replacing
+  the small sphere markers dropped at the click point. Uses a new `EdgeGroup` export from the
+  kernel — replicad's own `meshEdges()` already returns per-edge groups (`{start, count,
+  edgeId}`), just omitted from this file's own hand-written type annotation until now, the
+  same shape of gap `faceGroups` closed for face selection a few rounds back.
+
+### Added — Hole Wizard
+- **Seat types**: None / Counterbore / Spotface / Countersink, each with real kernel geometry
+  (a wider cylindrical recess, or a countersink's conical taper sized from its own included
+  angle) and real dimensions sourced from Autodesk's own Clearance Hole Spreadsheet — Socket
+  Head Cap Screw ISO 4762 for counterbore, Hex Head Cap Screw ISO 24014 for spotface,
+  Countersunk Flat Head Screw ISO 2009/7046 for countersink, the same per-seat fastener style
+  choice Inventor's own Hole Wizard defaults to.
+- **Drill Point**: Flat (unchanged) or Angle — a blind hole's bottom now tapers to a real
+  118° conical point like an actual twist drill, instead of always cutting flat.
+  Through-all/up-to-surface holes have no "bottom" to shape, so this only applies to Blind.
+- **Taper Tapped**, a fourth Hole Type alongside Simple/Clearance/Tapped, sized from real NPT
+  tap-drill data (published standard values, not derived from the thread-geometry sheet's
+  pitch-diameter columns, which don't capture practical tapping allowances). Cuts a straight
+  hole at the correct tap-drill diameter; the actual 1:16 pipe taper itself is not modelled —
+  said so directly in the panel rather than silently pretending it is.
+- **Thread Direction** (Right/Left hand, shown in the thread designation as "(RH)"/"(LH)")
+  and **Full Depth** are tracked for Tapped/Taper Tapped holes; both are display-only for now
+  (this app still doesn't model a real thread profile at all), not yet read by the kernel.
+
+### Test plan
+- `npx tsc --noEmit` clean, `npm run build` clean
+- Existing `tree.mjs` (12), `trim.mjs` (14), `fillet-edge-picking.mjs` (17),
+  `settings-export-import.mjs` (3), `constraint-glyph-check.mjs` (2) all still pass on a
+  freshly-started dev server
+- Fix-constraint-holds-under-drag and Colinear-button-exists verified directly via Playwright
+- Fillet edge highlight verified visually (screenshot from a 3D angle) after confirming the
+  new `EdgeGroup` start/count convention empirically (12 groups for a 6-face box, exact
+  vertex-count match)
+- Hole Wizard seat-type change and drill-point change both verified to rebuild cleanly with
+  no console errors
+- `sketch.mjs`'s rectangle-profile-closes assertion was investigated as a possible
+  regression — confirmed via repeated fresh-dev-server runs to fail identically on an
+  unmodified baseline, i.e. pre-existing timing flakiness in the test itself, not a
+  regression from this round
+
 ## 2026-08-02 — A round of real bugs, one important discoverability fix, and two toggles
 
 A sixth round of feedback, mostly bug reports rather than new-feature asks. Several turned

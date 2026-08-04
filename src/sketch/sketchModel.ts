@@ -280,6 +280,27 @@ export function addConstraint(
   };
 }
 
+/** Which point-on-curve constraint kind pins a point onto this entity's curve — the shared
+ * dispatch behind both the "Coincident" button (`sketchStore.ts`'s `applyConstraint`, one
+ * point plus one curve selected) and trim's own split-point constraints below. `undefined`
+ * for entity kinds a point can't be pinned onto this way (a standalone `point` entity, or
+ * another `point`-anchored thing). */
+export function curveConstraintKind(
+  entity: SketchEntity,
+): Extract<GeometricConstraintKind, "point-on-line" | "point-on-circle" | "point-on-spline"> | undefined {
+  switch (entity.kind) {
+    case "line":
+      return "point-on-line";
+    case "circle":
+    case "arc":
+      return "point-on-circle";
+    case "spline":
+      return "point-on-spline";
+    default:
+      return undefined;
+  }
+}
+
 export function addDimension(
   sketch: Sketch,
   kind: DimensionKind,
@@ -420,13 +441,12 @@ export function defaultDimensionAnchor(
  * and only actually applied on release (`commitDragSnap`), so a suggestion never fights
  * the drag itself, only what happens when the user lets go near one.
  *
- * `"midpoint"` is a positional snap only — there is no midpoint constraint kind in
- * `GeometricConstraintKind`, and no solver support for one, so this just moves the point
- * exactly onto the midpoint rather than adding a persisted relation. The other two reuse
- * existing constraint kinds the solver already knows: `"coincident"` also covers "drag a
- * point onto a circle's centre", since a circle's centre is a plain point in this model,
- * and `"tangent"` reuses the same line-circle residual `applyConstraint`'s own Tangent
- * button already drives.
+ * `"midpoint"` adds a real, persisted `"midpoint"` constraint on release (`commitDragSnap`),
+ * so the point keeps tracking the line's midpoint as the line's endpoints move afterward,
+ * rather than a one-time positional snap that quietly stops holding the moment anything else
+ * moves the line. `"coincident"` also covers "drag a point onto a circle's centre", since a
+ * circle's centre is a plain point in this model, and `"tangent"` reuses the same line-circle
+ * residual `applyConstraint`'s own Tangent button already drives.
  */
 export type DragSnapSuggestion =
   | { kind: "coincident"; targetPointId: string; position: { x: number; y: number } }
@@ -632,6 +652,145 @@ export function addArc(
       constraints: [...endPoint.sketch.constraints, ...constraints],
     },
     entityId: entity.id,
+  };
+}
+
+/**
+ * Rounds the shared corner between two lines into a tangent arc of the given radius,
+ * trimming each line back to its tangent point — the sketch-level analogue of the
+ * PartDesign Fillet feature, done directly on 2D profile geometry before it's ever
+ * extruded.
+ *
+ * The two lines must already share an endpoint (the ordinary case right after drawing a
+ * polyline or rectangle corner) — there's no line-line intersection search here the way
+ * `trimLineAt` needs one, since the shared point already pins down exactly where the two
+ * lines meet.
+ *
+ * Deliberately does *not* add a `tangent` relation between the new arc and each line on
+ * top of the two `arc-radius` ones below — the geometry is already exactly tangent by
+ * construction, and adding it anyway makes the solver's constraint Jacobian rank-deficient
+ * at this exact configuration (the tangent residual's gradient is a linear combination of
+ * the existing ones here), which the diagnostics correctly read as "redundant" and shows
+ * as a false Over Defined status the instant the fillet is created. `residuals.ts`'s own
+ * `tangent` case was still extended to accept an arc as well as a circle — a real,
+ * independent fix for picking a line + arc and clicking Tangent by hand — this function
+ * just doesn't add one of its own. A line dragged later won't pull the arc back into
+ * tangency with it; only the arc's own radius/position stays fixed, the same one-shot
+ * relationship `mirrorEntities`/`offsetEntities`/`patternEntities` already have.
+ *
+ * Returns `sketch` unchanged (a no-op the caller can detect via entity count) if the two
+ * lines don't share a point, are colinear (no corner to round), or `radius` doesn't fit
+ * within both segments.
+ */
+export function filletCorner(sketch: Sketch, lineIdA: string, lineIdB: string, radius: number): Sketch {
+  if (!(radius > 0) || lineIdA === lineIdB) return sketch;
+
+  const lineA = entityById(sketch, lineIdA);
+  const lineB = entityById(sketch, lineIdB);
+  if (!lineA || !lineB || lineA.kind !== "line" || lineB.kind !== "line") return sketch;
+
+  const endsA: [string, string] = [lineA.start, lineA.end];
+  const endsB: [string, string] = [lineB.start, lineB.end];
+  const cornerId = endsA.find((id) => endsB.includes(id));
+  if (!cornerId) return sketch;
+
+  const otherAId = endsA.find((id) => id !== cornerId);
+  const otherBId = endsB.find((id) => id !== cornerId);
+  const corner = pointById(sketch, cornerId);
+  const otherA = otherAId ? pointById(sketch, otherAId) : undefined;
+  const otherB = otherBId ? pointById(sketch, otherBId) : undefined;
+  if (!corner || !otherA || !otherB) return sketch;
+
+  const lengthA = Math.hypot(otherA.x - corner.x, otherA.y - corner.y);
+  const lengthB = Math.hypot(otherB.x - corner.x, otherB.y - corner.y);
+  if (lengthA < 1e-6 || lengthB < 1e-6) return sketch;
+
+  const dirA = { x: (otherA.x - corner.x) / lengthA, y: (otherA.y - corner.y) / lengthA };
+  const dirB = { x: (otherB.x - corner.x) / lengthB, y: (otherB.y - corner.y) / lengthB };
+
+  const cosTheta = Math.min(1, Math.max(-1, dirA.x * dirB.x + dirA.y * dirB.y));
+  const theta = Math.acos(cosTheta);
+  // Nearly straight (no real corner) or the lines double back on each other — either way
+  // there's no well-defined fillet.
+  if (theta < 1e-3 || theta > Math.PI - 1e-3) return sketch;
+
+  const tangentDistance = radius / Math.tan(theta / 2);
+  if (!(tangentDistance < lengthA) || !(tangentDistance < lengthB)) return sketch;
+
+  const bisector = { x: dirA.x + dirB.x, y: dirA.y + dirB.y };
+  const bisectorLength = Math.hypot(bisector.x, bisector.y);
+  if (bisectorLength < 1e-9) return sketch;
+
+  const centreDistance = radius / Math.sin(theta / 2);
+  const centre = {
+    x: corner.x + (bisector.x / bisectorLength) * centreDistance,
+    y: corner.y + (bisector.y / bisectorLength) * centreDistance,
+  };
+
+  const tangentA = { x: corner.x + dirA.x * tangentDistance, y: corner.y + dirA.y * tangentDistance };
+  const tangentB = { x: corner.x + dirB.x * tangentDistance, y: corner.y + dirB.y * tangentDistance };
+
+  const tangentAPoint: SketchPoint = { id: uid("pt"), x: tangentA.x, y: tangentA.y };
+  const tangentBPoint: SketchPoint = { id: uid("pt"), x: tangentB.x, y: tangentB.y };
+  const centrePoint: SketchPoint = { id: uid("pt"), x: centre.x, y: centre.y };
+
+  const updatedLineA: SketchEntity =
+    lineA.start === cornerId ? { ...lineA, start: tangentAPoint.id } : { ...lineA, end: tangentAPoint.id };
+  const updatedLineB: SketchEntity =
+    lineB.start === cornerId ? { ...lineB, start: tangentBPoint.id } : { ...lineB, end: tangentBPoint.id };
+
+  // Sweep direction follows the same "always counter-clockwise from start to end"
+  // convention every other arc in the sketch relies on (see `EntityView`'s own comment in
+  // `SketchGeometry.tsx`) — start/end are picked by which tangent point actually is
+  // counter-clockwise from the other around the new centre, not by which line the caller
+  // happened to pass first.
+  const startAngle = angleAround(centre, tangentA);
+  const endAngleRaw = angleAround(centre, tangentB);
+  const sweepsForward = ((endAngleRaw - startAngle + Math.PI * 2) % (Math.PI * 2)) <= Math.PI;
+  const [arcStartPoint, arcEndPoint] = sweepsForward
+    ? [tangentAPoint, tangentBPoint]
+    : [tangentBPoint, tangentAPoint];
+
+  const arc: SketchEntity = {
+    id: uid("arc"),
+    kind: "arc",
+    center: centrePoint.id,
+    start: arcStartPoint.id,
+    end: arcEndPoint.id,
+    radius,
+    construction: false,
+  };
+
+  const constraints: GeometricConstraint[] = [
+    { id: uid("con"), kind: "arc-radius", entities: [arc.id], points: [arc.start] },
+    { id: uid("con"), kind: "arc-radius", entities: [arc.id], points: [arc.end] },
+  ];
+
+  // The old corner point is dropped unless some third entity still relies on it (e.g. a
+  // third line also meeting at that same point) — exactly `dropEntities`'s own rule,
+  // applied here by hand since this isn't a removal of lineA/lineB themselves.
+  const cornerSurvives = sketch.entities.some(
+    (entity) => entity.id !== lineA.id && entity.id !== lineB.id && entityPoints(entity).includes(cornerId),
+  );
+
+  return {
+    ...sketch,
+    points: [
+      ...(cornerSurvives ? sketch.points : sketch.points.filter((point) => point.id !== cornerId)),
+      tangentAPoint,
+      tangentBPoint,
+      centrePoint,
+    ],
+    entities: [
+      ...sketch.entities.map((entity) =>
+        entity.id === lineA.id ? updatedLineA : entity.id === lineB.id ? updatedLineB : entity,
+      ),
+      arc,
+    ],
+    constraints: [
+      ...sketch.constraints.filter((constraint) => cornerSurvives || !constraint.points.includes(cornerId)),
+      ...constraints,
+    ],
   };
 }
 
@@ -1119,10 +1278,17 @@ export function trimLineAt(sketch: Sketch, entityId: string, x: number, y: numbe
   const dy = end.y - start.y;
   const lengthSquared = dx * dx + dy * dy || 1e-12;
 
+  // Which other entity produced each cut, so a newly-created interior split point can be
+  // pinned back onto whatever crossed the line there (task: trim should add a coincident-
+  // style relation at a split point, not just leave a bare unconstrained point behind).
   const cutSet = new Set<number>([0, 1]);
+  const cutSource = new Map<number, SketchEntity>();
   for (const other of sketch.entities) {
     if (other.id === entityId) continue;
-    for (const t of lineIntersectionParams(start, end, other, sketch)) cutSet.add(t);
+    for (const t of lineIntersectionParams(start, end, other, sketch)) {
+      cutSet.add(t);
+      if (!cutSource.has(t)) cutSource.set(t, other);
+    }
   }
   const cuts = [...cutSet].sort((a, b) => a - b);
 
@@ -1138,11 +1304,16 @@ export function trimLineAt(sketch: Sketch, entityId: string, x: number, y: numbe
   if (clickedIndex === -1) return sketch;
 
   let working = sketch;
+  // Split points pinned back onto whatever crossing entity created them, applied once the
+  // survivors (and thus the final point set) are known.
+  const splitPins: { pointId: string; source: SketchEntity }[] = [];
   const pointAt = (t: number): string => {
     if (t <= 1e-9) return entity.start;
     if (t >= 1 - 1e-9) return entity.end;
     const result = ensurePoint(working, start.x + t * dx, start.y + t * dy, 0);
     working = result.sketch;
+    const source = cutSource.get(t);
+    if (source) splitPins.push({ pointId: result.pointId, source });
     return result.pointId;
   };
 
@@ -1158,12 +1329,25 @@ export function trimLineAt(sketch: Sketch, entityId: string, x: number, y: numbe
     });
   }
 
+  // Horizontal/vertical are the line's own single-entity relations — trimming into several
+  // segments should not silently drop the fact that the original line was, say, horizontal;
+  // every surviving segment inherits it, the same as SolidWorks/Inventor keep a trimmed
+  // line's own orientation constraints on each remaining piece.
+  const carriedKinds = sketch.constraints
+    .filter(
+      (constraint) =>
+        (constraint.kind === "horizontal" || constraint.kind === "vertical") &&
+        constraint.entities.length === 1 &&
+        constraint.entities[0] === entityId,
+    )
+    .map((constraint) => constraint.kind);
+
   const removed = new Set([entityId]);
   const entities = [...working.entities.filter((candidate) => !removed.has(candidate.id)), ...survivors];
   const survivingPoints = new Set(entities.flatMap(entityPoints));
   survivingPoints.add(originPointId(working.id));
 
-  return {
+  let result: Sketch = {
     ...working,
     entities,
     points: working.points.filter((point) => survivingPoints.has(point.id)),
@@ -1178,6 +1362,17 @@ export function trimLineAt(sketch: Sketch, entityId: string, x: number, y: numbe
         dimension.points.every((id) => survivingPoints.has(id)),
     ),
   };
+
+  for (const survivor of survivors) {
+    for (const kind of carriedKinds) result = addConstraint(result, kind, [survivor.id], []);
+  }
+  for (const pin of splitPins) {
+    if (!survivingPoints.has(pin.pointId)) continue;
+    const kind = curveConstraintKind(pin.source);
+    if (kind) result = addConstraint(result, kind, [pin.source.id], [pin.pointId]);
+  }
+
+  return result;
 }
 
 /** Drops `removed` entities and every point/constraint/dimension left orphaned by that —
@@ -1292,10 +1487,13 @@ export function trimCircleAt(sketch: Sketch, entityId: string, x: number, y: num
   if (!centre) return sketch;
 
   const angleSet = new Set<number>();
+  const angleSource = new Map<number, SketchEntity>();
   for (const other of sketch.entities) {
     if (other.id === entityId) continue;
     for (const angle of circleCrossingAngles(sketch, entity, centre, other)) {
-      angleSet.add(Math.round(angle * 1e6) / 1e6);
+      const rounded = Math.round(angle * 1e6) / 1e6;
+      angleSet.add(rounded);
+      if (!angleSource.has(rounded)) angleSource.set(rounded, other);
     }
   }
   const cuts = [...angleSet].sort((a, b) => a - b);
@@ -1321,6 +1519,7 @@ export function trimCircleAt(sketch: Sketch, entityId: string, x: number, y: num
   if (clickedIndex === -1) return sketch;
 
   let working = sketch;
+  const splitPins: { pointId: string; source: SketchEntity }[] = [];
   const pointAtAngle = (angle: number): string => {
     const result = ensurePoint(
       working,
@@ -1329,6 +1528,8 @@ export function trimCircleAt(sketch: Sketch, entityId: string, x: number, y: num
       0,
     );
     working = result.sketch;
+    const source = angleSource.get(angle);
+    if (source) splitPins.push({ pointId: result.pointId, source });
     return result.pointId;
   };
 
@@ -1348,7 +1549,7 @@ export function trimCircleAt(sketch: Sketch, entityId: string, x: number, y: num
     });
   }
 
-  return dropEntities(working, new Set([entityId]), survivors);
+  return withSplitPins(dropEntities(working, new Set([entityId]), survivors), splitPins);
 }
 
 /**
@@ -1373,10 +1574,14 @@ export function trimSplineAt(sketch: Sketch, entityId: string, x: number, y: num
   const segmentCount = points.length - 1;
 
   const cutSet = new Set<number>([0, segmentCount]);
+  const cutSource = new Map<number, SketchEntity>();
   for (const other of sketch.entities) {
     if (other.id === entityId) continue;
     for (let i = 0; i < segmentCount; i += 1) {
-      for (const t of lineIntersectionParams(points[i], points[i + 1], other, sketch)) cutSet.add(i + t);
+      for (const t of lineIntersectionParams(points[i], points[i + 1], other, sketch)) {
+        cutSet.add(i + t);
+        if (!cutSource.has(i + t)) cutSource.set(i + t, other);
+      }
     }
   }
   const cuts = [...cutSet].sort((a, b) => a - b);
@@ -1406,6 +1611,7 @@ export function trimSplineAt(sketch: Sketch, entityId: string, x: number, y: num
   if (clickedIndex === -1) return sketch;
 
   let working = sketch;
+  const splitPins: { pointId: string; source: SketchEntity }[] = [];
   const pointAtParam = (param: number): string => {
     const rounded = Math.round(param);
     if (Math.abs(param - rounded) < 1e-9 && rounded >= 0 && rounded <= segmentCount) {
@@ -1420,6 +1626,8 @@ export function trimSplineAt(sketch: Sketch, entityId: string, x: number, y: num
       0,
     );
     working = result.sketch;
+    const source = cutSource.get(param);
+    if (source) splitPins.push({ pointId: result.pointId, source });
     return result.pointId;
   };
 
@@ -1440,7 +1648,24 @@ export function trimSplineAt(sketch: Sketch, entityId: string, x: number, y: num
     }
   }
 
-  return dropEntities(working, new Set([entityId]), survivors);
+  return withSplitPins(dropEntities(working, new Set([entityId]), survivors), splitPins);
+}
+
+/** Pins each surviving split point back onto the entity that produced it — shared tail for
+ * `trimCircleAt`/`trimSplineAt` (`trimLineAt` inlines the same idea since it also needs to
+ * carry the trimmed line's own horizontal/vertical constraints in the same pass). A point
+ * that didn't survive the trim (e.g. it fell inside the removed stretch) is silently
+ * skipped rather than erroring — `addConstraint` would just as happily add a constraint on
+ * a since-deleted point id, which is worse than not adding one. */
+function withSplitPins(sketch: Sketch, splitPins: { pointId: string; source: SketchEntity }[]): Sketch {
+  const survivingPointIds = new Set(sketch.points.map((point) => point.id));
+  let result = sketch;
+  for (const pin of splitPins) {
+    if (!survivingPointIds.has(pin.pointId)) continue;
+    const kind = curveConstraintKind(pin.source);
+    if (kind) result = addConstraint(result, kind, [pin.source.id], [pin.pointId]);
+  }
+  return result;
 }
 
 /** Dispatches a trim click to the right kind-specific trim function — the single entry

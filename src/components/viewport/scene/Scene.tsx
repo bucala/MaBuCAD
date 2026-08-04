@@ -16,6 +16,7 @@ import { CameraRig, type ProjectionMode } from "./CameraRig";
 import { InactiveSketches } from "./InactiveSketches";
 import { LiveAxisGizmo } from "./LiveAxisGizmo";
 import { Origin } from "./Origin";
+import { PrintCapture } from "./PrintCapture";
 import { RaycasterTuning } from "./RaycasterTuning";
 import { ReferencePlanes } from "./ReferencePlanes";
 import { UserReferenceGeometry } from "./UserReferenceGeometry";
@@ -53,6 +54,7 @@ export function Scene({ projection }: SceneProps) {
       <CameraRig mode={projection} />
       <CadControls />
       <ZoomToFit />
+      <PrintCapture />
       <ViewRotationSteps />
       <RaycasterTuning />
 

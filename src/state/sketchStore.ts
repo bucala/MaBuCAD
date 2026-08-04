@@ -10,9 +10,11 @@ import {
   addRectangle,
   addSpline,
   createSketch,
+  curveConstraintKind,
   defaultDimensionAnchor,
   entityById,
   entityPoints,
+  filletCorner,
   hasClosedProfile,
   inferDragSnap,
   inferSmartDimension,
@@ -34,6 +36,7 @@ import type {
   Sketch,
   SketchDiagnostics,
 } from "@/sketch/types";
+import { useGeometryStore } from "@/state/geometryStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import type { SketchStatus } from "@/types/ui";
 
@@ -49,10 +52,8 @@ export type SketchTool =
   | "point"
   | "arc"
   | "trim"
-  | "smart-dimension"
-  | "ordinate"
-  | "ordinate-horizontal"
-  | "ordinate-vertical";
+  | "fillet"
+  | "smart-dimension";
 
 const IDLE_DIAGNOSTICS: SketchDiagnostics = {
   dof: 0,
@@ -104,6 +105,25 @@ interface SketchStore {
   /** An uncommitted Smart Dimension proposal, or null. See `PendingDimension`'s own doc
    * comment. */
   pendingDimension: PendingDimension | null;
+  /**
+   * A relation button clicked with no selection (or an incomplete one) yet to satisfy it —
+   * `null` means no relation is waiting on picks. Set by `armConstraint`, consumed by
+   * `pickForConstraint` as the viewport is clicked, same "arm then accumulate picks" shape
+   * `pendingDimension` already uses for Smart Dimension. Lets "click the relation, then
+   * pick elements" work as well as the original "select elements, then click the
+   * relation" — `armConstraint` tries applying immediately first and only arms this if
+   * the current selection doesn't already satisfy the relation.
+   */
+  pendingConstraintKind: GeometricConstraintKind | null;
+  /** Radius the Fillet tool applies to the next corner it picks — set from the Sketch
+   * panel's own numeric field, read by `pickForFillet` at the moment a second line
+   * completes a pick. Lives here (rather than as a one-shot argument) so it survives
+   * between picks the same way `pendingConstraintKind` does. */
+  filletRadius: number;
+  /** The first line picked toward a Fillet while `tool === "fillet"`, or null — same
+   * "arm then accumulate picks" shape as `pendingConstraintKind`, but for a tool rather
+   * than a relation, since a fillet also needs the numeric radius above. */
+  pendingFilletLineId: string | null;
   /** "Constrains smart" — a relation the point currently being dragged is close enough
    * to for `commitDragSnap` to apply on release. See `DragSnapSuggestion`'s own doc
    * comment in `sketchModel.ts`. */
@@ -151,6 +171,23 @@ interface SketchStore {
   trimWindowSelect: (minX: number, minY: number, maxX: number, maxY: number) => void;
 
   applyConstraint: (kind: GeometricConstraintKind) => boolean;
+  /** The "click the relation first" entry point: tries `applyConstraint(kind)` against
+   * whatever is already selected, and only arms `pendingConstraintKind` (waiting on
+   * `pickForConstraint`) if that selection doesn't already satisfy it. */
+  armConstraint: (kind: GeometricConstraintKind) => void;
+  /** Picks (or unpicks) `id` toward the armed `pendingConstraintKind`, applying it — and
+   * clearing the arm — the moment the accumulated selection satisfies its shape. A no-op
+   * with nothing armed. */
+  pickForConstraint: (id: string) => void;
+  /** Discards the current `pendingConstraintKind` without applying it — Escape, or
+   * switching tools. */
+  cancelPendingConstraint: () => void;
+  setFilletRadius: (value: number) => void;
+  /** Picks (or unpicks, on a repeat click) `id` toward the Fillet tool's two-line pick —
+   * applies `filletCorner` with the current `filletRadius` the moment a second, distinct
+   * line is picked, same accumulate-then-auto-apply shape as `pickForConstraint`. A no-op
+   * for anything that isn't a line. */
+  pickForFillet: (id: string) => void;
   mirrorSelection: () => boolean;
   offsetSelection: (distance: number) => boolean;
   patternSelection: (options: PatternOptions) => boolean;
@@ -172,6 +209,11 @@ interface SketchStore {
   /** Radius <-> diameter on a circle/arc dimension, converting the driving value (2x or
    * /2) so the circle it drives doesn't jump size. A no-op for any other dimension kind. */
   toggleDimensionRadiusDiameter: (dimensionId: string) => void;
+  /** Switches a linear (two-point) dimension between Aligned (`distance`, true point-to-point
+   * length), Horizontal (`horizontal-distance`) and Vertical (`vertical-distance`) — a no-op
+   * for any other dimension kind. Re-measures the value from the current geometry rather
+   * than converting it algebraically, so it's exact regardless of the dimension's current mode. */
+  setLinearDimensionMode: (dimensionId: string, mode: "distance" | "horizontal-distance" | "vertical-distance") => void;
   /** The other of the two angles two intersecting lines actually form (θ and its
    * supplement, 180-θ) — the two numerically distinct choices at that vertex; the other
    * two visual quadrants are one of these two values again, by vertical angles. A no-op
@@ -221,7 +263,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     const current = sketches[activeSketchId];
     if (!current) return;
 
-    const { sketch, diagnostics } = solveSketch(mutate(current));
+    const mutated = mutate(current);
+    const { sketch, diagnostics } = solveSketch(mutated);
     if (sketch === current) return;
 
     pushHistory(current);
@@ -244,6 +287,9 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     selection: [],
     contextMenu: null,
     pendingDimension: null,
+    pendingConstraintKind: null,
+    filletRadius: 5,
+    pendingFilletLineId: null,
     dragSnapSuggestion: null,
     hoverPosition: null,
     past: [],
@@ -264,6 +310,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         contextMenu: null,
         pendingDimension: null,
+        pendingConstraintKind: null,
+        pendingFilletLineId: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -281,6 +329,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         contextMenu: null,
         pendingDimension: null,
+        pendingConstraintKind: null,
+        pendingFilletLineId: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -296,6 +346,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
         pendingDimension: null,
+        pendingConstraintKind: null,
+        pendingFilletLineId: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -311,6 +363,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         diagnostics: IDLE_DIAGNOSTICS,
         contextMenu: null,
         pendingDimension: null,
+        pendingConstraintKind: null,
+        pendingFilletLineId: null,
         dragSnapSuggestion: null,
         hoverPosition: null,
         past: [],
@@ -320,7 +374,15 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     // A pending Smart Dimension proposal only makes sense while that tool stays active —
     // switching to any other tool (including re-arming Smart Dimension itself, which goes
     // through this same setter) discards it rather than leaving a ghost proposal behind.
-    setTool: (tool) => set({ tool, selection: [], pendingDimension: null, dragSnapSuggestion: null }),
+    setTool: (tool) =>
+      set({
+        tool,
+        selection: [],
+        pendingDimension: null,
+        pendingConstraintKind: null,
+        pendingFilletLineId: null,
+        dragSnapSuggestion: null,
+      }),
     setSelection: (ids) => set({ selection: ids }),
     clearSelection: () => set({ selection: [] }),
 
@@ -365,18 +427,42 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
       const { entities, points } = partitionSelection(sketch);
 
+      // Coincident is two shapes at once: two points pinned together (the original case),
+      // or one point pinned onto one curve — dispatched to whichever of `point-on-line`/
+      // `point-on-circle`/`point-on-spline` matches the curve's kind, since each needs its
+      // own residual but all read the same way from the "Coincident" button.
+      if (kind === "coincident") {
+        if (points.length === 2 && entities.length === 0) {
+          edit((current) => addConstraint(current, "coincident", [], points));
+          set({ selection: [] });
+          return true;
+        }
+        if (points.length === 1 && entities.length === 1) {
+          const curve = entityById(sketch, entities[0]);
+          const curveKind = curve ? curveConstraintKind(curve) : undefined;
+          if (!curveKind) return false;
+          edit((current) => addConstraint(current, curveKind, entities, points));
+          set({ selection: [] });
+          return true;
+        }
+        return false;
+      }
+
       // Each constraint kind needs a specific selection shape; refusing an ill-formed
       // selection is better than silently adding a constraint that does nothing.
-      const needsTwoEntities = ["parallel", "perpendicular", "equal", "tangent", "concentric"].includes(
-        kind,
-      );
+      const needsTwoEntities = [
+        "parallel",
+        "perpendicular",
+        "equal",
+        "tangent",
+        "concentric",
+        "colinear",
+      ].includes(kind);
       const needsOneEntity = ["horizontal", "vertical"].includes(kind);
-      const needsTwoPoints = kind === "coincident";
       const needsOnePoint = kind === "fix";
 
       if (needsTwoEntities && entities.length !== 2) return false;
       if (needsOneEntity && entities.length === 0) return false;
-      if (needsTwoPoints && points.length !== 2) return false;
       if (needsOnePoint && points.length !== 1) return false;
       if (kind === "point-on-line" && (entities.length !== 1 || points.length !== 1)) return false;
 
@@ -393,6 +479,67 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
       set({ selection: [] });
       return true;
+    },
+
+    armConstraint: (kind) => {
+      // Already-selected elements might already be exactly what this relation needs (e.g.
+      // the user selected two lines, then clicked Parallel) — try that first so arming is
+      // only ever a fallback, not the only path.
+      if (get().applyConstraint(kind)) return;
+      // Picking only reaches the sketch (rather than whatever a drawing tool would do
+      // with the same click) while the Select tool is active — force it so a relation
+      // armed from, say, still having the Line tool selected doesn't silently swallow
+      // the next click into drawing a new line instead of picking for the relation.
+      set({ pendingConstraintKind: kind, tool: "select" });
+    },
+
+    pickForConstraint: (id) => {
+      const { pendingConstraintKind, selection } = get();
+      if (!pendingConstraintKind) return;
+
+      const nextSelection = selection.includes(id) ? selection.filter((s) => s !== id) : [...selection, id];
+      set({ selection: nextSelection });
+
+      if (get().applyConstraint(pendingConstraintKind)) {
+        set({ pendingConstraintKind: null });
+      }
+    },
+
+    cancelPendingConstraint: () => set({ pendingConstraintKind: null, selection: [] }),
+
+    setFilletRadius: (value) => {
+      if (Number.isFinite(value) && value > 0) set({ filletRadius: value });
+    },
+
+    pickForFillet: (id) => {
+      const { activeSketchId, sketches, pendingFilletLineId, filletRadius } = get();
+      const sketch = activeSketchId ? sketches[activeSketchId] : undefined;
+      if (!sketch) return;
+
+      const entity = entityById(sketch, id);
+      if (!entity || entity.kind !== "line") return;
+
+      if (!pendingFilletLineId) {
+        set({ pendingFilletLineId: id });
+        return;
+      }
+      if (pendingFilletLineId === id) {
+        // A repeat click on the same line un-picks it rather than failing silently,
+        // matching how `pickForConstraint` treats a repeat pick.
+        set({ pendingFilletLineId: null });
+        return;
+      }
+
+      const before = sketch.entities.length;
+      edit((current) => filletCorner(current, pendingFilletLineId, id, filletRadius));
+      set({ pendingFilletLineId: null });
+
+      const after = get().sketches[activeSketchId!]?.entities.length ?? before;
+      if (after === before) {
+        useGeometryStore
+          .getState()
+          .showToast("Those two lines need to share a corner, and the radius has to fit both of them.", 3500);
+      }
     },
 
     mirrorSelection: () => {
@@ -601,6 +748,35 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         ),
       })),
 
+    setLinearDimensionMode: (dimensionId, mode) =>
+      edit((sketch) => ({
+        ...sketch,
+        dimensions: sketch.dimensions.map((dimension) => {
+          if (dimension.id !== dimensionId) return dimension;
+          if (
+            dimension.kind !== "distance" &&
+            dimension.kind !== "horizontal-distance" &&
+            dimension.kind !== "vertical-distance"
+          ) {
+            return dimension;
+          }
+          const first = pointById(sketch, dimension.points[0]);
+          const second = pointById(sketch, dimension.points[1]);
+          if (!first || !second) return { ...dimension, kind: mode };
+          // Re-measured from the current geometry rather than converted algebraically from
+          // the old value (e.g. via the two points' angle) — simpler, and exact regardless
+          // of which mode the dimension is switching *from*, so a chain of mode switches
+          // never accumulates rounding.
+          const value =
+            mode === "horizontal-distance"
+              ? Math.abs(second.x - first.x)
+              : mode === "vertical-distance"
+                ? Math.abs(second.y - first.y)
+                : Math.hypot(second.x - first.x, second.y - first.y);
+          return { ...dimension, kind: mode, value: roundDimensionValue(value) };
+        }),
+      })),
+
     /**
      * Drags a point by re-solving with it pinned to the cursor.
      *
@@ -621,6 +797,16 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
       const current = sketches[activeSketchId];
       if (!current) return;
+
+      // A point under a real Fix constraint must not move at all — without this check the
+      // point is set to the cursor position below *before* solveSketch runs, so "fix"'s own
+      // anchor (captured fresh from the sketch at the start of every solve) simply adopts
+      // the drag destination as the new "original" position and the point follows the
+      // cursor anyway, silently defeating the constraint.
+      const isFixed = current.constraints.some(
+        (constraint) => constraint.kind === "fix" && constraint.points.includes(pointId),
+      );
+      if (isFixed) return;
 
       const moved: Sketch = {
         ...current,
@@ -688,17 +874,32 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           ),
         };
 
-        return dragSnapSuggestion.kind === "coincident"
-          ? addConstraint(snapped, "coincident", [], [pointId, dragSnapSuggestion.targetPointId])
-          : snapped;
+        if (dragSnapSuggestion.kind === "coincident") {
+          return addConstraint(snapped, "coincident", [], [pointId, dragSnapSuggestion.targetPointId]);
+        }
+        if (dragSnapSuggestion.kind === "midpoint") {
+          return addConstraint(snapped, "midpoint", [dragSnapSuggestion.lineEntityId], [pointId]);
+        }
+        return snapped;
       });
 
       set({ dragSnapSuggestion: null });
     },
 
     deleteSelection: () => {
-      const { selection } = get();
+      const { activeSketchId, sketches, selection } = get();
       if (selection.length === 0) return;
+
+      // The origin is permanent reference geometry (same rule every mainstream CAD tool
+      // enforces — SolidWorks/Inventor don't let you delete a sketch's origin either) and
+      // silently survives the filtering below no matter what. Left with no feedback at
+      // all, though, selecting just the origin and hitting Delete reads as "Delete is
+      // broken" rather than "this one thing is protected" — so say so explicitly instead
+      // of doing nothing.
+      const activeSketch = activeSketchId ? sketches[activeSketchId] : undefined;
+      if (activeSketch && selection.includes(originPointId(activeSketch.id))) {
+        useGeometryStore.getState().showToast("The origin point is permanent and can't be deleted.", 3000);
+      }
 
       edit((sketch) => {
         const removed = new Set(selection);

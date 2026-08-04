@@ -85,7 +85,7 @@ export const RIBBON_TABS: RibbonTab[] = [
           { id: "doc.new", label: "New", icon: FilePlus2, size: "large", description: "Create a new part, assembly or drawing" },
           { id: "doc.open", label: "Open", icon: FolderOpen, size: "small", description: "Open an existing document" },
           { id: "doc.save", label: "Save", icon: Save, size: "small", description: "Save the active document" },
-          { id: "doc.print", label: "Print", icon: Printer, size: "small", description: "Print the active drawing" },
+          { id: "doc.print", label: "Print", icon: Printer, size: "small", description: "Print the current 3D view" },
         ],
       },
       {
@@ -149,7 +149,6 @@ export const RIBBON_TABS: RibbonTab[] = [
           { id: "sketch.spline", label: "Spline", icon: Spline, size: "small", description: "Draw a B-spline through control points" },
           { id: "sketch.construction", label: "Construction Line", icon: Route, size: "small", description: "Draw reference geometry excluded from profiles" },
           { id: "sketch.point", label: "Point", icon: CircleDot, size: "small", description: "Place a sketch point" },
-          { id: "sketch.text", label: "Text", icon: Type, size: "small", description: "Place sketch text along a curve" },
         ],
       },
       {
@@ -201,7 +200,6 @@ export const RIBBON_TABS: RibbonTab[] = [
           { id: "feature.revolve", label: "Revolved Boss", icon: RotateCw, size: "large", description: "Revolve a profile about an axis" },
           { id: "feature.sweep", label: "Swept Boss", icon: Waves, size: "large", description: "Sweep a profile along a path" },
           { id: "feature.loft", label: "Lofted Boss", icon: Cone, size: "large", description: "Blend between two or more profiles" },
-          { id: "feature.boundary", label: "Boundary", icon: Frame, size: "small", description: "Boundary surface between guide curves" },
         ],
       },
       {
@@ -218,9 +216,9 @@ export const RIBBON_TABS: RibbonTab[] = [
         id: "features-dressup",
         label: "Dress-up",
         items: [
-          { id: "feature.fillet", label: "Fillet", icon: CircleDashed, size: "large", description: "Round edges with a constant or variable radius" },
-          { id: "feature.chamfer", label: "Chamfer", icon: Triangle, size: "large", description: "Bevel edges by distance and angle" },
-          { id: "feature.shell", label: "Shell", icon: Cuboid, size: "large", description: "Hollow a solid, removing selected faces" },
+          { id: "feature.fillet", label: "Fillet", icon: CircleDashed, size: "large", description: "Round edges with a constant radius" },
+          { id: "feature.chamfer", label: "Chamfer", icon: Triangle, size: "large", description: "Bevel edges by a fixed distance" },
+          { id: "feature.shell", label: "Shell", icon: Cuboid, size: "large", description: "Hollow a solid, removing faces along a chosen axis" },
           { id: "feature.draft", label: "Draft", icon: Percent, size: "small", description: "Apply a draft angle for moulded parts" },
           { id: "feature.rib", label: "Rib", icon: Columns3, size: "small", description: "Add a stiffening rib from an open profile" },
         ],
@@ -300,6 +298,7 @@ export const RIBBON_TABS: RibbonTab[] = [
         items: [
           { id: "drawing.new", label: "New Drawing", icon: FileText, size: "large", description: "Create a drawing from the active model" },
           { id: "drawing.sheet-format", label: "Sheet Format", icon: Frame, size: "small", description: "Choose sheet size and title block" },
+          { id: "drawing.update-views", label: "Update Views", icon: RotateCw, size: "small", description: "Re-project every view from the referenced part's current geometry" },
         ],
       },
       {
@@ -342,17 +341,16 @@ export const RIBBON_TABS: RibbonTab[] = [
         id: "inspect-measure",
         label: "Measure",
         items: [
-          { id: "inspect.measure", label: "Measure", icon: Ruler, size: "large", description: "Measure distance, angle, radius and arc length" },
-          { id: "inspect.mass", label: "Mass Properties", icon: Weight, size: "large", description: "Volume, mass, centre of gravity and inertia" },
-          { id: "inspect.section", label: "Section Properties", icon: Slice, size: "small", description: "Area properties of a planar face or sketch" },
+          { id: "inspect.measure", label: "Measure", icon: Ruler, size: "large", description: "Measure a picked face/edge, and the distance between two picks" },
+          { id: "inspect.mass", label: "Mass Properties", icon: Weight, size: "large", description: "Volume, surface area and centre of mass" },
+          { id: "inspect.section", label: "Section Properties", icon: Slice, size: "small", description: "Area and centroid of a picked face" },
         ],
       },
       {
         id: "inspect-check",
         label: "Check",
         items: [
-          { id: "inspect.geometry", label: "Check Geometry", icon: Wrench, size: "small", description: "Validate the B-Rep for invalid faces and edges" },
-          { id: "inspect.curvature", label: "Curvature", icon: Waves, size: "small", description: "Display curvature combs and colour maps" },
+          { id: "inspect.geometry", label: "Check Geometry", icon: Wrench, size: "small", description: "Flag any face or edge with zero area/length" },
           { id: "inspect.draft-analysis", label: "Draft Analysis", icon: Percent, size: "small", description: "Colour faces by draft angle" },
         ],
       },
@@ -361,7 +359,7 @@ export const RIBBON_TABS: RibbonTab[] = [
         label: "Relations",
         items: [
           { id: "inspect.parent-child", label: "Parent / Child", icon: Link2, size: "small", description: "Show dependencies of a feature" },
-          { id: "inspect.equations", label: "Equations", icon: Calculator, size: "small", description: "Drive dimensions with global variables" },
+          { id: "inspect.equations", label: "Equations", icon: Calculator, size: "small", description: "Drive sketch dimensions with global variables" },
           { id: "inspect.sensors", label: "Sensors", icon: Magnet, size: "small", description: "Monitor properties and alert on changes" },
         ],
       },
@@ -369,7 +367,7 @@ export const RIBBON_TABS: RibbonTab[] = [
         id: "inspect-display",
         label: "Display",
         items: [
-          { id: "inspect.appearance", label: "Appearance", icon: Group, size: "small", description: "Assign materials and appearances" },
+          { id: "inspect.appearance", label: "Appearance", icon: Group, size: "small", description: "Paint faces with a colour override" },
         ],
       },
     ],

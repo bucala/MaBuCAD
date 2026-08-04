@@ -1,5 +1,17 @@
 import { useEffect, useRef } from "react";
-import { Circle, FlipHorizontal2, Minus, MousePointer2, Route, Scan, Square, Trash2 } from "lucide-react";
+import {
+  Circle,
+  FlipHorizontal2,
+  MoveDiagonal,
+  MoveHorizontal,
+  MoveVertical,
+  Minus,
+  MousePointer2,
+  Route,
+  Scan,
+  Square,
+  Trash2,
+} from "lucide-react";
 
 import { selectActiveSketch, useSketchStore, type SketchTool } from "@/state/sketchStore";
 
@@ -45,6 +57,7 @@ export function SketchContextMenu() {
   const sketch = useSketchStore(selectActiveSketch);
   const toggleDimensionRadiusDiameter = useSketchStore((state) => state.toggleDimensionRadiusDiameter);
   const flipAngleDimension = useSketchStore((state) => state.flipAngleDimension);
+  const setLinearDimensionMode = useSketchStore((state) => state.setLinearDimensionMode);
 
   // Only meaningful with exactly one dimension selected — a right-click on a dimension
   // label selects it alone first (see `SketchDimensions.tsx`'s own `onContextMenu`), so
@@ -122,6 +135,37 @@ export function SketchContextMenu() {
           </button>
         </>
       )}
+
+      {selectedDimension &&
+        (selectedDimension.kind === "distance" ||
+          selectedDimension.kind === "horizontal-distance" ||
+          selectedDimension.kind === "vertical-distance") && (
+          <>
+            <div className={styles.divider} />
+            {(
+              [
+                { mode: "distance", label: "Aligned", icon: MoveDiagonal },
+                { mode: "horizontal-distance", label: "Horizontal", icon: MoveHorizontal },
+                { mode: "vertical-distance", label: "Vertical", icon: MoveVertical },
+              ] as const
+            ).map(({ mode, label, icon: Icon }) => (
+              <button
+                key={mode}
+                type="button"
+                role="menuitemradio"
+                aria-pressed={selectedDimension.kind === mode}
+                className={styles.item}
+                onClick={() => {
+                  setLinearDimensionMode(selectedDimension.id, mode);
+                  closeContextMenu();
+                }}
+              >
+                <Icon size={14} strokeWidth={1.75} />
+                {label}
+              </button>
+            ))}
+          </>
+        )}
 
       {selectedDimension && selectedDimension.kind === "angle" && (
         <>

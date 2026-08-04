@@ -1,0 +1,344 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--stroke-divider);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-subtitle);
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.closeButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-secondary);
+}
+
+.closeButton:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--text-primary);
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+  line-height: 1.4;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: var(--font-size-caption);
+}
+
+.stats dt {
+  color: var(--text-tertiary);
+}
+
+.stats dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.clearButton {
+  height: 28px;
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+}
+
+.clearButton:hover {
+  background: var(--fill-control-hover);
+}
+
+/* --------------------------------------------------------------- status */
+
+.statusOk {
+  margin: 0;
+  color: var(--status-under, #3ba55c);
+  font-size: var(--font-size-caption);
+}
+
+.statusAlert {
+  margin: 0;
+  color: var(--status-over);
+  font-size: var(--font-size-caption);
+}
+
+.issueList {
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.issueList li {
+  font-size: var(--font-size-caption);
+}
+
+/* ------------------------------------------------------------------ lists */
+
+.subTitle {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+
+.list {
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-caption);
+  color: var(--text-primary);
+}
+
+/* ---------------------------------------------------------------- buttons */
+
+.buttonRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.toolButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 28px;
+  min-width: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+}
+
+.toolButton:hover {
+  background: var(--fill-control-hover);
+}
+
+.toolButton[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+  color: var(--text-accent);
+}
+
+/* -------------------------------------------------------------------- form */
+
+.modifyGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.modifyRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.modifyLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.modifyInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.modifyInput:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.modifyApply {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+}
+
+.modifyApply:hover {
+  background: var(--fill-control-hover);
+}
+
+.modifyApplyFull {
+  height: 28px;
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+}
+
+.modifyApplyFull:hover {
+  background: var(--fill-control-hover);
+}
+
+.rowDeleteButton {
+  margin-left: var(--space-2);
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.rowDeleteButton:hover {
+  background: var(--fill-subtle-hover);
+  color: var(--status-over);
+}
+
+/* ------------------------------------------------------------------ legend */
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.legendSwatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.legendSwatchSafe {
+  background: #4cb96a;
+}
+
+.legendSwatchUnsafe {
+  background: #d94848;
+}
+
+/* ---------------------------------------------------------------- sensors */
+
+.sensorRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-caption);
+}
+
+.sensorLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+/* ------------------------------------------------------------- appearance */
+
+.colorSwatchGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.colorSwatch {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--stroke-control);
+}
+
+.colorSwatch[aria-pressed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.colorPicker {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: none;
+}

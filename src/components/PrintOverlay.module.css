@@ -1,0 +1,16 @@
+/* Invisible on screen — only meant to exist for the print stylesheet below to show. */
+.printOverlay {
+  display: none;
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+@media print {
+  .printOverlay {
+    display: block;
+  }
+}

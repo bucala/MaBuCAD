@@ -2,12 +2,16 @@ import { Html } from "@react-three/drei";
 import {
   AlignHorizontalJustifyCenter,
   Anchor,
+  CircleDot,
   Columns3,
   Diameter,
+  Divide,
+  GitCommitHorizontal,
   Grid2x2,
   Lock,
   MoveHorizontal,
   MoveVertical,
+  Spline,
   Tangent,
   type LucideIcon,
 } from "lucide-react";
@@ -32,6 +36,10 @@ const GLYPHS: Partial<Record<GeometricConstraintKind, { icon: LucideIcon; label:
   equal: { icon: AlignHorizontalJustifyCenter, label: "Equal" },
   fix: { icon: Lock, label: "Fixed" },
   "point-on-line": { icon: Anchor, label: "Point on line" },
+  "point-on-circle": { icon: CircleDot, label: "Point on circle" },
+  "point-on-spline": { icon: Spline, label: "Point on spline" },
+  midpoint: { icon: Divide, label: "Midpoint" },
+  colinear: { icon: GitCommitHorizontal, label: "Colinear" },
 };
 
 /** Where a constraint's glyph anchors: the average of its points, or the midpoint of its

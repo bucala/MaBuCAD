@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 
+import { evaluateExpression } from "@/state/equations";
+import { useDocumentStore } from "@/state/documentStore";
+
 import styles from "./DimensionValueField.module.css";
 
 /** Accepts either "." or "," as the decimal separator — a plain `Number()` call rejects
@@ -7,6 +10,16 @@ import styles from "./DimensionValueField.module.css";
  * layouts (Slovak included), which made this field impossible to type into at all. */
 export function parseLocaleNumber(text: string): number {
   return Number(text.trim().replace(",", "."));
+}
+
+/** A leading "=" switches the field to Inspect ▸ Equations' expression syntax instead of a
+ * plain number — same convention a spreadsheet cell uses, and the same one this field
+ * reports back invalid input for either way (`NaN`), so nothing downstream needs to know
+ * which mode produced a given value. */
+function resolveDimensionInput(text: string, variables: Record<string, number>): number {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("=")) return evaluateExpression(trimmed.slice(1), variables) ?? NaN;
+  return parseLocaleNumber(text);
 }
 
 /**
@@ -41,11 +54,13 @@ export function DimensionValueField({
   className?: string;
 }) {
   const [text, setText] = useState(() => String(value));
+  const variables = useDocumentStore((state) => state.document.variables ?? {});
 
   useEffect(() => {
-    if (parseLocaleNumber(text) !== value) setText(String(value));
-    // Only react to the store's value changing — re-running this because `text` itself
-    // changed would fight every keystroke instead of only resyncing external updates.
+    if (resolveDimensionInput(text, variables) !== value) setText(String(value));
+    // Only react to the store's value changing — re-running this because `text` (or
+    // `variables`, which only matters while actively typing an expression) changed would
+    // fight every keystroke instead of only resyncing external updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
@@ -62,7 +77,7 @@ export function DimensionValueField({
       onChange={(event) => {
         const raw = event.target.value;
         setText(raw);
-        const parsed = parseLocaleNumber(raw);
+        const parsed = resolveDimensionInput(raw, variables);
         if (Number.isFinite(parsed)) onCommit(dimensionId, parsed);
       }}
       onBlur={onBlur}

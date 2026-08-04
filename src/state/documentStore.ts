@@ -1,9 +1,20 @@
 import { create } from "zustand";
 
-import type { CadDocument, Feature, FeatureKind, FeatureParameters } from "@/types/document";
+import type {
+  CadDocument,
+  DocumentKind,
+  DrawingNoteData,
+  DrawingSheetData,
+  DrawingViewData,
+  Feature,
+  FeatureKind,
+  FeatureParameters,
+  Sensor,
+} from "@/types/document";
 import type { UnitSystemId } from "@/types/ui";
 
 import { FEATURE_CATALOG } from "./featureCatalog";
+import { DEFAULT_SHEET_FORMAT_ID, DEFAULT_TITLE_BLOCK_VALUES_SEED } from "./templateStore";
 
 /** Ids of the default planes, shared with the viewport so tree and 3D selection agree. */
 export const DEFAULT_PLANE_IDS = ["plane-front", "plane-top", "plane-right"] as const;
@@ -27,14 +38,43 @@ function createDefaultFeatures(): Feature[] {
   ];
 }
 
-function createDocument(): CadDocument {
+/**
+ * Builds a fresh document of the given kind, named by the caller.
+ *
+ * `workspaceStore.ts` is what actually picks `name` (scanning every open tab so two open
+ * Parts don't both land on "Part1") and calls this for every new tab — New Document, Open,
+ * and Restore Autosave alike. A Part gets the usual reference-geometry starter features; a
+ * Drawing has no feature history of its own (see `DrawingSheetData`'s own doc comment in
+ * `types/document.ts`) so it starts with none and an empty sheet instead.
+ */
+export function createDocument(kind: DocumentKind, name: string): CadDocument {
+  if (kind === "drawing") {
+    return {
+      id: nextId("doc"),
+      name,
+      kind,
+      features: [],
+      rollbackIndex: 0,
+      variables: {},
+      sensors: [],
+      drawing: {
+        sourcePart: null,
+        views: [],
+        sheetFormatId: DEFAULT_SHEET_FORMAT_ID,
+        titleBlockValues: { ...DEFAULT_TITLE_BLOCK_VALUES_SEED },
+      },
+    };
+  }
+
   const features = createDefaultFeatures();
   return {
     id: nextId("doc"),
-    name: "Part1",
-    kind: "part",
+    name,
+    kind,
     features,
     rollbackIndex: features.length,
+    variables: {},
+    sensors: [],
   };
 }
 
@@ -77,6 +117,24 @@ interface DocumentStore {
   toggleSuppressed: (id: string) => void;
   updateParameters: (id: string, parameters: FeatureParameters) => void;
 
+  /** Inspect ▸ Equations. Renaming (deleting the old key, setting the new one) is the
+   * caller's job — this only ever touches one name at a time. */
+  setVariable: (name: string, value: number) => void;
+  deleteVariable: (name: string) => void;
+
+  /** Inspect ▸ Sensors. `addSensor` returns the new id the way `addFeature` does, so the
+   * panel that just created a row can address it immediately (e.g. to focus its name field). */
+  addSensor: (sensor: Omit<Sensor, "id" | "lastStatus">) => string;
+  updateSensor: (id: string, changes: Partial<Omit<Sensor, "id">>) => void;
+  deleteSensor: (id: string) => void;
+  /**
+   * Records a sensor's latest evaluated pass/fail — called after every rebuild, not by the
+   * user, so (unlike `updateSensor`) it bypasses `commit()`: a recalculated status is not
+   * an edit worth an undo step, and at one call per rebuild it would otherwise crowd real
+   * edits out of the capped undo history within a few rebuilds.
+   */
+  setSensorStatus: (id: string, status: Sensor["lastStatus"]) => void;
+
   setRollbackIndex: (index: number) => void;
   rollbackToBefore: (id: string) => void;
   rollForwardOne: () => void;
@@ -111,6 +169,18 @@ interface DocumentStore {
 
   renameDocument: (name: string) => void;
   setUnitSystem: (unitSystem: UnitSystemId) => void;
+  /** Replaces a Drawing document's whole sheet — `commands/drawingCommands.ts`'s Insert
+   * Model View and Update Views, the only things that ever touch `CadDocument.drawing`. */
+  setDrawingSheet: (drawing: DrawingSheetData) => void;
+  /** Patches one placed view (drag repositioning, or any other single-view edit) without
+   * the caller needing the rest of `drawing` in hand — a no-op if the active document
+   * isn't a Drawing or has no view with that id. */
+  updateDrawingView: (id: string, patch: Partial<Omit<DrawingViewData, "id">>) => void;
+  deleteDrawingView: (id: string) => void;
+  addDrawingView: (view: DrawingViewData) => void;
+  addDrawingNote: (note: Omit<DrawingNoteData, "id">) => string;
+  updateDrawingNote: (id: string, patch: Partial<Omit<DrawingNoteData, "id">>) => void;
+  deleteDrawingNote: (id: string) => void;
 
   /**
    * Replaces the whole document — Open, loading a saved file. Bypasses `commit()`
@@ -119,8 +189,14 @@ interface DocumentStore {
    * would be meaningless applied to a different one anyway.
    */
   loadDocument: (document: CadDocument) => void;
-  /** New. Same reasoning as `loadDocument` — a blank document loaded the same way. */
-  newDocument: () => void;
+  /**
+   * Restores a previously snapshotted editing session verbatim — `workspaceStore.ts`'s own
+   * tab switch, restoring the tab being switched *to*. Unlike `loadDocument`, this keeps
+   * `past`/`future` rather than wiping them: the tab being switched to already had its own
+   * undo history before the user switched away from it, and losing that on every switch
+   * would make Undo useless the moment more than one document is open.
+   */
+  restoreSession: (document: CadDocument, past: CadDocument[], future: CadDocument[], unitSystem: UnitSystemId) => void;
 
   undo: () => void;
   redo: () => void;
@@ -146,7 +222,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
   };
 
   return {
-    document: createDocument(),
+    document: createDocument("part", "Part1"),
     selectedFeatureIds: [],
     unitSystem: "MMGS",
     past: [],
@@ -280,6 +356,50 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       }));
     },
 
+    setVariable: (name, value) => {
+      commit((document) => ({
+        ...document,
+        variables: { ...document.variables, [name]: value },
+      }));
+    },
+    deleteVariable: (name) => {
+      commit((document) => {
+        const variables = { ...document.variables };
+        delete variables[name];
+        return { ...document, variables };
+      });
+    },
+
+    addSensor: (sensor) => {
+      const id = nextId("sensor");
+      commit((document) => ({
+        ...document,
+        sensors: [...(document.sensors ?? []), { ...sensor, id, lastStatus: null }],
+      }));
+      return id;
+    },
+    updateSensor: (id, changes) => {
+      commit((document) => ({
+        ...document,
+        sensors: (document.sensors ?? []).map((sensor) =>
+          sensor.id === id ? { ...sensor, ...changes } : sensor,
+        ),
+      }));
+    },
+    deleteSensor: (id) => {
+      commit((document) => ({
+        ...document,
+        sensors: (document.sensors ?? []).filter((sensor) => sensor.id !== id),
+      }));
+    },
+    setSensorStatus: (id, status) => {
+      const { document } = get();
+      const sensors = (document.sensors ?? []).map((sensor) =>
+        sensor.id === id ? { ...sensor, lastStatus: status } : sensor,
+      );
+      set({ document: { ...document, sensors } });
+    },
+
     setRollbackIndex: (index) => {
       commit((document) => {
         // The bar can never move above the default reference geometry.
@@ -336,18 +456,73 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
 
     setUnitSystem: (unitSystem) => set({ unitSystem }),
 
+    setDrawingSheet: (drawing) => commit((document) => ({ ...document, drawing })),
+
+    updateDrawingView: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            views: document.drawing.views.map((view) => (view.id === id ? { ...view, ...patch } : view)),
+          },
+        };
+      }),
+
+    deleteDrawingView: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, views: document.drawing.views.filter((view) => view.id !== id) },
+        };
+      }),
+
+    addDrawingView: (view) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return { ...document, drawing: { ...document.drawing, views: [...document.drawing.views, view] } };
+      }),
+
+    addDrawingNote: (note) => {
+      const id = nextId("note");
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, notes: [...(document.drawing.notes ?? []), { ...note, id }] },
+        };
+      });
+      return id;
+    },
+
+    updateDrawingNote: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            notes: (document.drawing.notes ?? []).map((note) => (note.id === id ? { ...note, ...patch } : note)),
+          },
+        };
+      }),
+
+    deleteDrawingNote: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, notes: (document.drawing.notes ?? []).filter((note) => note.id !== id) },
+        };
+      }),
+
     loadDocument: (document) =>
       set({ document, past: [], future: [], selectedFeatureIds: [], contextMenu: null }),
 
-    newDocument: () =>
-      set({
-        document: createDocument(),
-        past: [],
-        future: [],
-        selectedFeatureIds: [],
-        contextMenu: null,
-        unitSystem: "MMGS",
-      }),
+    restoreSession: (document, past, future, unitSystem) =>
+      set({ document, past, future, unitSystem, selectedFeatureIds: [], contextMenu: null }),
 
     undo: () => {
       const { past, document, future } = get();

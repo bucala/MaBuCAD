@@ -5,10 +5,14 @@ import type { GeometricConstraintKind } from "@/sketch/types";
 import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
+import { useInspectStore } from "@/state/inspectStore";
+import { useDrawingToolStore } from "@/state/drawingToolStore";
 import { useSketchStore, type SketchTool } from "@/state/sketchStore";
+import { useTemplateStore } from "@/state/templateStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 import { runOpenDocument, runSaveDocument } from "./documentIO";
+import { runInsertModelView, runUpdateViews } from "./drawingCommands";
 import { runExport, runImport } from "./interchange";
 
 /** How close to parallel (dot product of unit normals) a clicked face's normal needs to
@@ -85,7 +89,7 @@ function beginSketch() {
   );
 
   const planeId = selectedPlane ?? DEFAULT_PLANE_IDS[0];
-  const featureId = documentState.addFeature("sketch");
+  const featureId = documentState.addFeature("sketch", undefined, [planeId]);
   sketchStore.beginSketch(featureId, planeId);
 }
 
@@ -185,7 +189,7 @@ export function placeHoleAtPick(worldPoint: Vector3, worldNormal: Vector3): bool
 
   const documentState = useDocumentStore.getState();
   const sketchStore = useSketchStore.getState();
-  const sketchFeatureId = documentState.addFeature("sketch");
+  const sketchFeatureId = documentState.addFeature("sketch", undefined, [planeId]);
   sketchStore.beginSketch(sketchFeatureId, planeId);
   sketchStore.drawPoint({ x, y });
   sketchStore.exitSketch();
@@ -292,11 +296,16 @@ function addPatternFeature(kind: "linear-pattern" | "circular-pattern" | "mirror
  * Creates a reference plane, offset from a selected default plane (or the Front plane, if
  * none is selected) along that plane's normal.
  *
- * A one-shot `window.prompt` for the offset matches `sketch.offset`/`sketch.pattern` below —
- * the smallest UI a single-number tool needs without a dedicated dialog. The base plane is
- * stored in `Feature.parents` rather than a new parameter, reusing the field that already
- * means "features this one consumes". Offsetting from another *user-created* reference plane
- * is not supported yet — that needs the same base-plane picking UI this stands in for.
+ * Lands with `FEATURE_CATALOG`'s own default distance (10mm) rather than prompting for
+ * one — exactly the same "create now, dial in the value afterward" flow every other
+ * feature (Extrude, Fillet, a pattern's count/spacing, ...) already uses: `addFeature`
+ * auto-selects the new feature, and `PropertyManager.tsx`'s generic field list already
+ * renders an editable "Distance" input for any feature whose parameters include one —
+ * no feature-specific UI needed here at all. The base plane is stored in `Feature.parents`
+ * rather than a new parameter, reusing the field that already means "features this one
+ * consumes". Offsetting from another *user-created* reference plane is not supported yet
+ * — that needs a base-plane picking UI, a separate gap from the one this used to stand in
+ * for with `window.prompt()`.
  */
 function addReferencePlane() {
   const documentState = useDocumentStore.getState();
@@ -304,33 +313,21 @@ function addReferencePlane() {
     documentState.selectedFeatureIds.find((id) => (DEFAULT_PLANE_IDS as readonly string[]).includes(id)) ??
     DEFAULT_PLANE_IDS[0];
 
-  const input = window.prompt("Offset distance from the selected plane (mm) — negative flips the side:", "10");
-  if (input === null) return;
-  const distance = Number(input);
-  if (!Number.isFinite(distance)) return;
-  documentState.addFeature("reference-plane", { distance }, [basePlaneId]);
+  documentState.addFeature("reference-plane", undefined, [basePlaneId]);
 }
 
-/** Creates a reference axis aligned to a world axis — the same stand-in `FeatureParameters.axis` already documents for patterns, until edge/face picking exists. */
+/** Creates a reference axis aligned to a world axis (`FEATURE_CATALOG`'s default, "z") —
+ * `PropertyManager.tsx`'s generic axis `<select>` (any feature whose parameters include
+ * `axis`) is what actually lets it be pointed anywhere else afterward. */
 function addReferenceAxis() {
-  const input = window.prompt('World axis to align to — "x", "y" or "z":', "z");
-  if (input === null) return;
-  const axis = input.trim().toLowerCase();
-  if (axis !== "x" && axis !== "y" && axis !== "z") return;
-  useDocumentStore.getState().addFeature("reference-axis", { axis });
+  useDocumentStore.getState().addFeature("reference-axis");
 }
 
-/** Creates a reference point offset from the origin along a world axis. */
+/** Creates a reference point offset from the origin along a world axis — same "create with
+ * `FEATURE_CATALOG` defaults, edit via the generic property fields" flow as
+ * `addReferenceAxis`/`addReferencePlane` above. */
 function addReferencePoint() {
-  const axisInput = window.prompt('Axis to offset along from the origin — "x", "y" or "z":', "z");
-  if (axisInput === null) return;
-  const axis = axisInput.trim().toLowerCase();
-  if (axis !== "x" && axis !== "y" && axis !== "z") return;
-  const distanceInput = window.prompt("Distance from the origin (mm):", "10");
-  if (distanceInput === null) return;
-  const distance = Number(distanceInput);
-  if (!Number.isFinite(distance)) return;
-  useDocumentStore.getState().addFeature("reference-point", { distance, axis });
+  useDocumentStore.getState().addFeature("reference-point");
 }
 
 /** Commands handled directly rather than by creating a feature. */
@@ -364,6 +361,18 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "doc.new": () => useDocumentStore.getState().openNewDocumentDialog(),
   "doc.open": () => void runOpenDocument(),
   "doc.save": () => void runSaveDocument(),
+
+  "drawing.model-view": () => void runInsertModelView(),
+  "drawing.update-views": () => void runUpdateViews(),
+  "drawing.sheet-format": () => useTemplateStore.getState().openManager(),
+  "drawing.section": () => useDrawingToolStore.getState().setTool("section"),
+  "drawing.detail": () => useDrawingToolStore.getState().setTool("detail"),
+  "annotation.note": () => useDrawingToolStore.getState().setTool("note"),
+  // There's no "drawing sheet" to print yet (Assembly and Drawing document types are
+  // still "Coming soon" in NewDocumentDialog.tsx) — this prints the 3D view as currently
+  // shown. `PrintCapture.tsx` (inside the Canvas) does the actual capture once it sees
+  // this request; `PrintOverlay.tsx` renders it and opens the browser's print dialog.
+  "doc.print": () => useViewportStore.getState().requestPrint(),
 
   // A sketch's own edits (drawing, dimensioning, dragging) never reach `documentStore` —
   // its history is a separate stack scoped to the current sketch session (see
@@ -408,50 +417,27 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "dimension.horizontal-ordinate": () => useSketchStore.getState().applyOrdinateDimension("x"),
   "dimension.vertical-ordinate": () => useSketchStore.getState().applyOrdinateDimension("y"),
 
-  "sketch.mirror": () => useSketchStore.getState().mirrorSelection(),
+  "sketch.mirror": () => {
+    if (!useSketchStore.getState().mirrorSelection()) {
+      useGeometryStore
+        .getState()
+        .showToast("Select the entities to mirror plus one construction line to use as the axis.", 3500);
+    }
+  },
+  // Offset and Pattern both need more than one number, which a ribbon click alone can't
+  // gather — the Sketch panel's own "Modify" section is the real UI for both (numeric
+  // fields plus an Apply button, no browser-native prompt() dialogs breaking the app's own
+  // look). This entry exists so the ribbon button does something other than nothing; it
+  // just points at where the actual controls live rather than duplicating them here.
   "sketch.offset": () => {
-    // No inline numeric-entry UI exists for a one-shot tool like this yet (unlike a
-    // dimension, which is added and then edited afterward) — a prompt is the smallest
-    // way to ask for the one number this needs. Negative flips which side a line offsets
-    // to and shrinks rather than grows a circle or arc; both are explained right there.
-    const input = window.prompt("Offset distance (mm) — negative flips the side/shrinks:", "5");
-    if (input === null) return;
-    const distance = Number(input);
-    if (!Number.isFinite(distance) || distance === 0) return;
-    useSketchStore.getState().offsetSelection(distance);
+    useGeometryStore
+      .getState()
+      .showToast("Set the offset distance in the Modify section of the Sketch panel, then click Apply.", 3500);
   },
   "sketch.pattern": () => {
-    // Same reasoning as sketch.offset: a chain of prompts is the smallest UI a one-shot
-    // array tool needs. A circular pattern has no picked centre yet — no reference-point
-    // picking UI exists — so it always rotates about the sketch origin, the same stand-in
-    // FeatureParameters.axis documents for the feature-level pattern.
-    const kindInput = window.prompt('Pattern type — type "linear" or "circular":', "linear");
-    if (kindInput === null) return;
-    const mode = kindInput.trim().toLowerCase();
-    if (mode !== "linear" && mode !== "circular") return;
-
-    const countInput = window.prompt("Instance count (including the original):", "3");
-    if (countInput === null) return;
-    const count = Number(countInput);
-    if (!Number.isFinite(count) || count < 2) return;
-
-    if (mode === "linear") {
-      const dxInput = window.prompt("X spacing per instance (mm):", "10");
-      if (dxInput === null) return;
-      const dyInput = window.prompt("Y spacing per instance (mm):", "0");
-      if (dyInput === null) return;
-      const dx = Number(dxInput);
-      const dy = Number(dyInput);
-      if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
-      useSketchStore.getState().patternSelection({ mode: "linear", count, dx, dy });
-      return;
-    }
-
-    const angleInput = window.prompt("Total sweep angle (degrees):", "360");
-    if (angleInput === null) return;
-    const angleDegrees = Number(angleInput);
-    if (!Number.isFinite(angleDegrees)) return;
-    useSketchStore.getState().patternSelection({ mode: "circular", count, angleDegrees });
+    useGeometryStore
+      .getState()
+      .showToast("Set the pattern options in the Modify section of the Sketch panel, then click Apply Pattern.", 3500);
   },
 
   "view.zoom-fit": () => useViewportStore.getState().requestZoomFit(),
@@ -465,6 +451,33 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
     selectedFeatureIds.forEach(toggleFeatureVisibility);
   },
   "view.constraints": () => useViewportStore.getState().toggleConstraintsVisible(),
+
+  // Every Inspect command opens its own tool in the property panel the same way — and
+  // first cancels any other modal viewport interaction (Hole Wizard placement, a Fillet/
+  // Chamfer's own edge picking) before arming itself, the same defensive reset every other
+  // mode-switching command in this file already applies to itself.
+  ...Object.fromEntries(
+    (
+      [
+        "measure",
+        "mass",
+        "section",
+        "geometry",
+        "draft-analysis",
+        "parent-child",
+        "equations",
+        "sensors",
+        "appearance",
+      ] as const
+    ).map((tool) => [
+      `inspect.${tool}`,
+      () => {
+        useViewportStore.getState().setHolePlacementActive(false);
+        useViewportStore.getState().setEdgePickMode(null);
+        useInspectStore.getState().openTool(tool);
+      },
+    ]),
+  ),
 
   ...Object.fromEntries(
     Object.entries(SKETCH_TOOL_COMMANDS).map(([id, tool]) => [
@@ -498,8 +511,14 @@ const SKETCH_ONLY_COMMANDS: ReadonlySet<string> = new Set([
 export function isCommandAvailable(commandId: string, inSketchMode: boolean): boolean {
   if (!IMPLEMENTED_COMMANDS.has(commandId)) return false;
   if (SKETCH_ONLY_COMMANDS.has(commandId)) return inSketchMode;
-  // Modelling and reference-geometry features cannot be created from inside a sketch.
-  if (commandId.startsWith("feature.") || commandId.startsWith("reference.") || commandId === "sketch.new") {
+  // Modelling, reference-geometry and Inspect commands all act on the 3D body, which a
+  // sketch's own tools and property panel replace while it's open.
+  if (
+    commandId.startsWith("feature.") ||
+    commandId.startsWith("reference.") ||
+    commandId.startsWith("inspect.") ||
+    commandId === "sketch.new"
+  ) {
     return !inSketchMode;
   }
   return true;

@@ -54,11 +54,15 @@ live in the Feature Manager tree.
 
 ### ✏️ Constraint-based sketcher
 
-Line/rectangle/circle/arc/spline/construction/point, trim, offset, mirror, linear/circular
-pattern, 9 geometric relations and smart/ordinate dimensioning, solved by a damped-Newton
-solver that reports live degrees of freedom. Smart Dimension follows an Inventor-style
-propose-then-commit flow, and dragging a point suggests coincident/tangent/midpoint
-relations live ("constrains smart") — both shown as a preview until you commit to them.
+Line/rectangle/circle/arc/spline/construction/point, trim, fillet, offset, mirror,
+linear/circular pattern, 10 geometric relations and smart/ordinate dimensioning, solved by a
+damped-Newton solver that reports live degrees of freedom. Smart Dimension follows an
+Inventor-style propose-then-commit flow, and dragging a point suggests
+coincident/tangent/midpoint relations live ("constrains smart") — both shown as a preview
+until you commit to them. Relations work select-then-apply or apply-then-select, either
+order; a length dimension can be switched between Horizontal/Vertical/Aligned from its
+right-click menu without re-adding it; and selected geometry gets a real halo highlight, not
+just a colour swap.
 
   </td>
   <td width="33%" valign="top">
@@ -77,15 +81,18 @@ shell and exact STEP export possible at all.
 ### 🛠️ A full PartDesign set
 
 Extrude/Cut, Revolve/Cut, Sweep/Cut (straight or spline path), Loft, a Hole Wizard driven by
-real Autodesk clearance/tap-drill tables, Fillet, Chamfer, Shell, Draft, Rib, Linear/Circular
-Pattern, Mirror and reference geometry.
+real Autodesk clearance/tap-drill tables — Simple, Clearance, Tapped or Taper Tapped (NPT),
+with a real Counterbore/Spotface/Countersink seat and an actual conical drill point on a
+blind hole — Fillet, Chamfer, Shell, Draft, Rib, Linear/Circular Pattern, Mirror and
+reference geometry.
 
   </td>
   <td width="33%" valign="top">
 
 ### 🎯 Edge-selective dress-up
 
-Fillet and Chamfer default to every edge, or pick specific ones in the viewport — picks are
+Fillet and Chamfer default to every edge, or pick specific ones in the viewport — the picked
+edge highlights as its own contour, not a marker dropped where you clicked — and picks are
 re-resolved geometrically on every rebuild, an honest stand-in for persistent edge naming in
 a kernel with none.
 
@@ -420,24 +427,25 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Project shell | Tauri + React + Vite scaffolding, Fluent 2 UI chrome | ✅ |
 | Viewport | CAD navigation, reference planes, origin, viewcube, axis-cross legend | ✅ |
 | Document model | Feature tree, rollback, suppress, undo/redo, rename, drag-reorder | ✅ |
-| Sketcher | Full entity set, 9 relations, dimensioning, damped-Newton solver | ✅ |
+| Sketcher | Full entity set, 10 relations, dimensioning, damped-Newton solver | ✅ |
 | Core solids | Extrude/Cut-Extrude, Revolve/Cut-Revolve | ✅ |
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
-| Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Offset, Mirror, Linear/Circular Pattern | ✅ |
+| Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Fillet, Offset, Mirror, Linear/Circular Pattern | ✅ |
 | Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence | ✅ |
-| Hole Wizard | Real ISO clearance and tapped-hole data from Autodesk reference tables | ✅ |
+| Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point | ✅ |
 | Dress-up | Fillet, Chamfer, Shell, Draft, Rib — with edge-selective Fillet/Chamfer | ✅ |
 | Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft | ✅ |
 | Pattern/Mirror (feature-level) | Linear Pattern, Circular Pattern, Mirror | ✅ |
 | Theming | Light/Gray/Dark skins, 5 live accent colours, Model/Edge colour overrides | ✅ |
 | 3D Navigation | Zoom-to-cursor, ViewCube toggle + navigation arrows, origin indicator + axis labels | ✅ |
 | Autosave | Opt-in periodic recovery snapshot, restorable from the File menu | ✅ |
-| New Document picker | Visual Part/Assembly/Drawing chooser (Part wired, rest "coming soon") | ✅ |
+| New Document picker | Visual Part/Assembly/Drawing chooser (Part and Drawing wired, Assembly "coming soon") | ✅ |
 | Localisation | 9-language switcher; English and Slovak fully translated | 🟡 |
 | Boundary surface | Guide-curve boundary blending | ⬜ |
+| Multi-document workspace | Tabbed Part/Drawing documents, each with its own history, undo and sketches | ✅ |
 | Assembly | Components, mates, exploded views | ⬜ |
-| Drawing | 2D sheets, projected/section/detail views, annotations, BOM | ⬜ |
-| Inspect | Measure, mass properties, curvature and draft analysis | ⬜ |
+| Drawing | Model View (Front/Top/Right/Iso, real projected B-Rep edges via replicad), Section (real kernel cut, ISO 128-50 hatched) and Detail (2D crop) views, draggable views/notes, Sheet Formats/Borders/Title Blocks (A4–A0, import/export as templates); ordinate/GD&T annotations, BOM | 🟡 |
+| Inspect | Measure, Mass Properties, Section Properties, Check Geometry, Draft Analysis, Parent/Child, Equations, Sensors, Appearance; Curvature dropped (no kernel support) | ✅ |
 
 <sub>✅ done &nbsp;•&nbsp; 🟡 partial &nbsp;•&nbsp; ⬜ planned — see
 [`CHANGELOG.md`](./CHANGELOG.md) for the full dated history, including bugs found and fixed

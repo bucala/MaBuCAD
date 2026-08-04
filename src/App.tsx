@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { PrintOverlay } from "@/components/PrintOverlay";
 import { useAutosave } from "@/hooks/useAutosave";
 import { useDebugLogging } from "@/hooks/useDebugLogging";
 import { useDisableNativeContextMenu } from "@/hooks/useDisableNativeContextMenu";
@@ -44,5 +45,10 @@ export default function App() {
     document.documentElement.style.setProperty("--accent-hex", accentColor);
   }, [accentColor]);
 
-  return <AppShell />;
+  return (
+    <>
+      <AppShell />
+      <PrintOverlay />
+    </>
+  );
 }

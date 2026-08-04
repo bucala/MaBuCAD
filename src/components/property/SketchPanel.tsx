@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   AlignHorizontalJustifyCenter,
   Anchor,
@@ -6,14 +7,19 @@ import {
   CircleDashed,
   CircleDot,
   Columns3,
+  CopyPlus,
   Diameter,
+  FlipHorizontal2,
+  GitCommitHorizontal,
   Grid2x2,
   Grid3x3,
+  LayoutGrid,
   Lock,
   Minus,
   MousePointer2,
   MoveHorizontal,
   MoveVertical,
+  Radius,
   Route,
   Ruler,
   Scissors,
@@ -23,8 +29,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { DimensionValueField } from "@/components/shared/DimensionValueField";
+import { DimensionValueField, parseLocaleNumber } from "@/components/shared/DimensionValueField";
 import type { GeometricConstraintKind } from "@/sketch/types";
+import type { PatternOptions } from "@/sketch/sketchModel";
+import { useGeometryStore } from "@/state/geometryStore";
 import {
   selectActiveSketch,
   selectProfileClosed,
@@ -43,6 +51,7 @@ const TOOLS: { id: SketchTool; label: string; icon: LucideIcon }[] = [
   { id: "construction-line", label: "Construction", icon: Route },
   { id: "point", label: "Point", icon: CircleDot },
   { id: "trim", label: "Trim", icon: Scissors },
+  { id: "fillet", label: "Fillet", icon: Radius },
 ];
 
 /**
@@ -63,9 +72,15 @@ const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideI
   { kind: "vertical", label: "Vertical", icon: MoveVertical, hint: "Select one or more lines" },
   { kind: "parallel", label: "Parallel", icon: Columns3, hint: "Select two lines" },
   { kind: "perpendicular", label: "Perpendicular", icon: Grid2x2, hint: "Select two lines" },
-  { kind: "tangent", label: "Tangent", icon: Tangent, hint: "Select a line and a circle" },
+  { kind: "colinear", label: "Colinear", icon: GitCommitHorizontal, hint: "Select two lines" },
+  { kind: "tangent", label: "Tangent", icon: Tangent, hint: "Select a line and a circle or arc" },
   { kind: "concentric", label: "Concentric", icon: Diameter, hint: "Select two circles" },
-  { kind: "coincident", label: "Coincident", icon: Anchor, hint: "Select two points" },
+  {
+    kind: "coincident",
+    label: "Coincident",
+    icon: Anchor,
+    hint: "Select two points, or a point and a line/circle/spline",
+  },
   { kind: "equal", label: "Equal", icon: AlignHorizontalJustifyCenter, hint: "Select two lines, or two circles/arcs" },
   { kind: "fix", label: "Fix", icon: Lock, hint: "Select a point to pin" },
 ];
@@ -92,12 +107,55 @@ export function SketchPanel() {
   const diagnostics = useSketchStore((state) => state.diagnostics);
   const isClosed = useSketchStore(selectProfileClosed);
 
-  const applyConstraint = useSketchStore((state) => state.applyConstraint);
+  const filletRadius = useSketchStore((state) => state.filletRadius);
+  const setFilletRadius = useSketchStore((state) => state.setFilletRadius);
+  const pendingFilletLineId = useSketchStore((state) => state.pendingFilletLineId);
+  const [filletRadiusText, setFilletRadiusText] = useState(() => String(filletRadius));
+
+  const armConstraint = useSketchStore((state) => state.armConstraint);
+  const pendingConstraintKind = useSketchStore((state) => state.pendingConstraintKind);
   const applyOrdinateDimension = useSketchStore((state) => state.applyOrdinateDimension);
   const setDimensionValue = useSketchStore((state) => state.setDimensionValue);
   const deleteDimension = useSketchStore((state) => state.deleteDimension);
   const exitSketch = useSketchStore((state) => state.exitSketch);
   const deleteSelection = useSketchStore((state) => state.deleteSelection);
+
+  const mirrorSelection = useSketchStore((state) => state.mirrorSelection);
+  const offsetSelection = useSketchStore((state) => state.offsetSelection);
+  const patternSelection = useSketchStore((state) => state.patternSelection);
+
+  const [offsetText, setOffsetText] = useState("5");
+  const [patternMode, setPatternMode] = useState<PatternOptions["mode"]>("linear");
+  const [patternCountText, setPatternCountText] = useState("3");
+  const [patternDxText, setPatternDxText] = useState("10");
+  const [patternDyText, setPatternDyText] = useState("0");
+  const [patternAngleText, setPatternAngleText] = useState("90");
+
+  const handleMirror = () => {
+    if (!mirrorSelection()) {
+      useGeometryStore
+        .getState()
+        .showToast("Select the entities to mirror plus one construction line to use as the axis.", 3500);
+    }
+  };
+
+  const handleOffset = () => {
+    const distance = parseLocaleNumber(offsetText);
+    if (!Number.isFinite(distance) || distance === 0 || !offsetSelection(distance)) {
+      useGeometryStore.getState().showToast("Select one or more lines, circles or arcs to offset first.", 3500);
+    }
+  };
+
+  const handlePattern = () => {
+    const count = parseLocaleNumber(patternCountText);
+    const options: PatternOptions =
+      patternMode === "linear"
+        ? { mode: "linear", count, dx: parseLocaleNumber(patternDxText), dy: parseLocaleNumber(patternDyText) }
+        : { mode: "circular", count, angleDegrees: parseLocaleNumber(patternAngleText) };
+    if (!patternSelection(options)) {
+      useGeometryStore.getState().showToast("Select one or more entities to pattern first.", 3500);
+    }
+  };
 
   if (!sketch) return null;
 
@@ -138,6 +196,34 @@ export function SketchPanel() {
               </button>
             ))}
           </div>
+          {tool === "fillet" && (
+            <>
+              <div className={styles.modifyRow}>
+                <span className={styles.modifyLabel}>
+                  <Radius size={14} strokeWidth={1.75} />
+                  Radius
+                </span>
+                <input
+                  className={styles.modifyInput}
+                  type="text"
+                  inputMode="decimal"
+                  aria-label="Fillet radius"
+                  value={filletRadiusText}
+                  onChange={(event) => {
+                    const text = event.target.value;
+                    setFilletRadiusText(text);
+                    const parsed = parseLocaleNumber(text);
+                    if (Number.isFinite(parsed) && parsed > 0) setFilletRadius(parsed);
+                  }}
+                />
+              </div>
+              <p className={styles.hint}>
+                {pendingFilletLineId
+                  ? "Click the second line to complete the corner."
+                  : "Click two lines that share a corner to round it."}
+              </p>
+            </>
+          )}
         </section>
 
         <section className={styles.section}>
@@ -149,8 +235,8 @@ export function SketchPanel() {
                 type="button"
                 className={styles.toolButton}
                 title={hint}
-                disabled={selection.length === 0}
-                onClick={() => applyConstraint(kind)}
+                aria-pressed={pendingConstraintKind === kind}
+                onClick={() => armConstraint(kind)}
               >
                 <Icon size={14} strokeWidth={1.75} />
                 {label}
@@ -158,9 +244,127 @@ export function SketchPanel() {
             ))}
           </div>
           <p className={styles.hint}>
-            {selection.length === 0
-              ? "Select geometry in the graphics area to add a relation."
-              : `${selection.length} selected`}
+            {pendingConstraintKind
+              ? "Click the elements it applies to in the graphics area."
+              : selection.length === 0
+                ? "Select geometry first, or click a relation above, then pick its elements."
+                : `${selection.length} selected`}
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>Modify</h3>
+          <div className={styles.toolGrid}>
+            <button
+              type="button"
+              className={styles.toolButton}
+              title="Select the entities to mirror plus one construction line as the axis, then click Mirror"
+              onClick={handleMirror}
+            >
+              <FlipHorizontal2 size={14} strokeWidth={1.75} />
+              Mirror
+            </button>
+          </div>
+
+          <div className={styles.modifyRow}>
+            <span className={styles.modifyLabel}>
+              <CopyPlus size={14} strokeWidth={1.75} />
+              Offset
+            </span>
+            <input
+              className={styles.modifyInput}
+              type="text"
+              inputMode="decimal"
+              aria-label="Offset distance"
+              value={offsetText}
+              onChange={(event) => setOffsetText(event.target.value)}
+            />
+            <button type="button" className={styles.modifyApply} onClick={handleOffset}>
+              Apply
+            </button>
+          </div>
+
+          <div className={styles.modifyGroup}>
+            <span className={styles.modifyLabel}>
+              <LayoutGrid size={14} strokeWidth={1.75} />
+              Pattern
+            </span>
+            <div className={styles.toolGrid}>
+              <button
+                type="button"
+                className={styles.toolButton}
+                aria-pressed={patternMode === "linear"}
+                onClick={() => setPatternMode("linear")}
+              >
+                Linear
+              </button>
+              <button
+                type="button"
+                className={styles.toolButton}
+                aria-pressed={patternMode === "circular"}
+                onClick={() => setPatternMode("circular")}
+              >
+                Circular
+              </button>
+            </div>
+            <div className={styles.modifyRow}>
+              <span className={styles.modifyLabel}>Count</span>
+              <input
+                className={styles.modifyInput}
+                type="text"
+                inputMode="numeric"
+                aria-label="Pattern instance count"
+                value={patternCountText}
+                onChange={(event) => setPatternCountText(event.target.value)}
+              />
+            </div>
+            {patternMode === "linear" ? (
+              <>
+                <div className={styles.modifyRow}>
+                  <span className={styles.modifyLabel}>X spacing</span>
+                  <input
+                    className={styles.modifyInput}
+                    type="text"
+                    inputMode="decimal"
+                    aria-label="Pattern X spacing"
+                    value={patternDxText}
+                    onChange={(event) => setPatternDxText(event.target.value)}
+                  />
+                </div>
+                <div className={styles.modifyRow}>
+                  <span className={styles.modifyLabel}>Y spacing</span>
+                  <input
+                    className={styles.modifyInput}
+                    type="text"
+                    inputMode="decimal"
+                    aria-label="Pattern Y spacing"
+                    value={patternDyText}
+                    onChange={(event) => setPatternDyText(event.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className={styles.modifyRow}>
+                <span className={styles.modifyLabel}>Angle</span>
+                <input
+                  className={styles.modifyInput}
+                  type="text"
+                  inputMode="decimal"
+                  aria-label="Pattern angle"
+                  value={patternAngleText}
+                  onChange={(event) => setPatternAngleText(event.target.value)}
+                />
+              </div>
+            )}
+            <button type="button" className={styles.modifyApplyFull} onClick={handlePattern}>
+              Apply Pattern
+            </button>
+          </div>
+
+          <p className={styles.hint}>
+            Mirror needs a construction line selected as the axis, alongside the entities to mirror. Offset and
+            Pattern act on whatever's currently selected — a circular pattern always rotates about the sketch
+            origin.
           </p>
         </section>
 

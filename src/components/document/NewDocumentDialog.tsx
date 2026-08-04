@@ -42,9 +42,9 @@ const CARDS: DocumentTypeCard[] = [
     labelKey: "newdoc.drawing",
     label: "Drawing",
     descriptionKey: "newdoc.drawing.description",
-    description: "2D views and dimensions of a part or assembly. Coming soon.",
+    description: "2D views of a part, generated from its saved file.",
     icon: PenTool,
-    available: false,
+    available: true,
   },
 ];
 
@@ -74,8 +74,8 @@ export function NewDocumentDialog() {
 
   if (!open) return null;
 
-  const createPart = () => {
-    runNewDocument();
+  const create = (kind: DocumentTypeCard["id"]) => {
+    runNewDocument(kind);
     close();
   };
 
@@ -103,8 +103,8 @@ export function NewDocumentDialog() {
                 type="button"
                 className={styles.card}
                 disabled={!card.available}
-                onClick={card.available ? createPart : undefined}
-                onDoubleClick={card.available ? createPart : undefined}
+                onClick={card.available ? () => create(card.id) : undefined}
+                onDoubleClick={card.available ? () => create(card.id) : undefined}
               >
                 <span className={styles.cardIcon} aria-hidden="true">
                   <Icon size={32} strokeWidth={1.5} />
@@ -124,7 +124,7 @@ export function NewDocumentDialog() {
             {t("newdoc.cancel", "Cancel")}
           </button>
           <div className={styles.footerSpacer} />
-          <button type="button" className={styles.primaryButton} onClick={createPart}>
+          <button type="button" className={styles.primaryButton} onClick={() => create("part")}>
             {t("newdoc.create-part", "Create Part")}
           </button>
         </div>
