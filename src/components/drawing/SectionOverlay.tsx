@@ -31,6 +31,7 @@ export function SectionOverlay() {
   const resetPicking = useDrawingToolStore((state) => state.resetPicking);
 
   const view = useDocumentStore((state) => state.document.drawing?.views.find((v) => v.id === sourceViewId));
+  const zoom = useDrawingToolStore((state) => state.zoom);
   const dragOrigin = useRef<{ pointer: number; position: number } | null>(null);
 
   // Re-centres the cut line whenever orientation changes (its old value, measured along
@@ -75,7 +76,7 @@ export function SectionOverlay() {
         onPointerMove={(event) => {
           if (!dragOrigin.current) return;
           const client = orientation === "vertical" ? event.clientX : event.clientY;
-          const delta = (client - dragOrigin.current.pointer) / SHEET_SCALE;
+          const delta = (client - dragOrigin.current.pointer) / (SHEET_SCALE * zoom);
           const max = orientation === "vertical" ? width : height;
           setPosition(Math.min(Math.max(dragOrigin.current.position + delta, 0), max));
         }}

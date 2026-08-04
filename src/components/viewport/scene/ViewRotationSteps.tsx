@@ -93,14 +93,23 @@ export function ViewRotationSteps() {
     let nextElevation = MathUtils.clamp(snapToStep(elevation, STEP_RADIANS), -Math.PI / 2, Math.PI / 2);
 
     if (request.direction === "left" || request.direction === "right") {
-      nextAzimuth += request.direction === "right" ? STEP_RADIANS : -STEP_RADIANS;
+      // Azimuth increases counter-clockwise as seen from above (standard right-handed
+      // math convention), but "rotate view right" means the *view* turns rightward — the
+      // face that was on the right edge of the screen comes toward the camera — which is
+      // a clockwise step from above, i.e. a *decreasing* azimuth. Left is the reverse.
+      nextAzimuth += request.direction === "right" ? -STEP_RADIANS : STEP_RADIANS;
     } else {
       const stepped = nextElevation + (request.direction === "up" ? STEP_RADIANS : -STEP_RADIANS);
-      // Already at the Top or Bottom landmark and asked to go further the same way —
-      // there is no next landmark that direction, so this is a no-op, the same as the
-      // ViewCube's own up/down arrows being unavailable from a Top/Bottom face view.
-      if (stepped > Math.PI / 2 + 1e-6 || stepped < -Math.PI / 2 - 1e-6) return;
-      nextElevation = MathUtils.clamp(stepped, -Math.PI / 2, Math.PI / 2);
+      // Past the Top or Bottom landmark: rather than stopping dead (there's no "further"
+      // along this ring), tip on over the pole and keep going down the opposite side —
+      // the same continuous tumble a real cube does when you keep rotating it one way,
+      // rather than treating the pole as a wall.
+      if (stepped > Math.PI / 2 + 1e-6 || stepped < -Math.PI / 2 - 1e-6) {
+        nextElevation = Math.sign(stepped) * Math.PI - stepped;
+        nextAzimuth += Math.PI;
+      } else {
+        nextElevation = MathUtils.clamp(stepped, -Math.PI / 2, Math.PI / 2);
+      }
     }
 
     // Nudge an exact pole landmark very slightly off it — see `POLE_EPSILON_RADIANS`'s own

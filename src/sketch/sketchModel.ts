@@ -351,6 +351,17 @@ export function measure(sketch: Sketch, kind: DimensionKind, points: string[], e
   switch (kind) {
     case "distance":
       return first && second ? Math.hypot(second.x - first.x, second.y - first.y) : 0;
+    case "point-line-distance": {
+      const line = entities[0] ? entityById(sketch, entities[0]) : undefined;
+      if (line?.kind !== "line" || !first) return 0;
+      const start = pointById(sketch, line.start);
+      const end = pointById(sketch, line.end);
+      if (!start || !end) return 0;
+      const ux = end.x - start.x;
+      const uy = end.y - start.y;
+      const scale = Math.hypot(ux, uy) || 1;
+      return Math.abs(ux * (first.y - start.y) - uy * (first.x - start.x)) / scale;
+    }
     case "horizontal-distance":
     case "ordinate-x":
       return first && second ? second.x - first.x : 0;
@@ -412,6 +423,25 @@ export function defaultDimensionAnchor(
       x: centre.x + entity.radius * Math.SQRT1_2,
       y: centre.y + entity.radius * Math.SQRT1_2,
     };
+  }
+
+  if (kind === "point-line-distance") {
+    const line = entities[0] ? entityById(sketch, entities[0]) : undefined;
+    const point = points[0] ? pointById(sketch, points[0]) : undefined;
+    if (line?.kind !== "line" || !point) return null;
+    const start = pointById(sketch, line.start);
+    const end = pointById(sketch, line.end);
+    if (!start || !end) return null;
+    // The point's own perpendicular foot on the line — the natural anchor for a
+    // point-to-line dimension, the same way a plain point-to-point distance anchors at
+    // its own midpoint.
+    const ux = end.x - start.x;
+    const uy = end.y - start.y;
+    const lengthSquared = ux * ux + uy * uy || 1e-12;
+    const t = ((point.x - start.x) * ux + (point.y - start.y) * uy) / lengthSquared;
+    const footX = start.x + t * ux;
+    const footY = start.y + t * uy;
+    return { x: (point.x + footX) / 2, y: (point.y + footY) / 2 };
   }
 
   if (kind === "angle") {
@@ -525,9 +555,28 @@ export function inferSmartDimension(
   sketch: Sketch,
   selectedEntities: string[],
   selectedPoints: string[],
-): { kind: DimensionKind; points: string[]; entities: string[] } | null {
+): {
+  kind: DimensionKind;
+  points: string[];
+  entities: string[];
+  /** Set only for the parallel-lines case below: the pair a "parallel" constraint should
+   * also be added between when this proposal commits, so the two stay a rigid parallel
+   * pair under dragging rather than just the one pinned point holding its distance. */
+  alsoConstrainParallel?: [string, string];
+} | null {
   if (selectedPoints.length === 2) {
     return { kind: "distance", points: selectedPoints, entities: [] };
+  }
+
+  if (selectedEntities.length === 1 && selectedPoints.length === 1) {
+    const entity = entityById(sketch, selectedEntities[0]);
+    // Excludes the line's own endpoints — picking a line plus one of its own ends means
+    // "dimension this line's length" (the plain single-line-selected case below already
+    // covers that), not a point-to-line span, which only makes sense for a point that
+    // isn't already on the line by construction.
+    if (entity?.kind === "line" && !entityPoints(entity).includes(selectedPoints[0])) {
+      return { kind: "point-line-distance", points: selectedPoints, entities: selectedEntities };
+    }
   }
 
   if (selectedEntities.length === 1) {
@@ -563,6 +612,37 @@ export function inferSmartDimension(
     const first = entityById(sketch, selectedEntities[0]);
     const second = entityById(sketch, selectedEntities[1]);
     if (first?.kind === "line" && second?.kind === "line") {
+      const firstStart = pointById(sketch, first.start);
+      const firstEnd = pointById(sketch, first.end);
+      const secondStart = pointById(sketch, second.start);
+      const secondEnd = pointById(sketch, second.end);
+      if (firstStart && firstEnd && secondStart && secondEnd) {
+        const ux = firstEnd.x - firstStart.x;
+        const uy = firstEnd.y - firstStart.y;
+        const vx = secondEnd.x - secondStart.x;
+        const vy = secondEnd.y - secondStart.y;
+        const scale = Math.max(Math.hypot(ux, uy) * Math.hypot(vx, vy), 1e-9);
+        // Same "cross product of the two directions, normalised" the `parallel` geometric
+        // constraint's own residual already uses to mean "these are parallel" — reusing
+        // it here means "already parallel enough that an angle dimension would just be a
+        // degenerate 0°/180°" is judged by exactly the same yardstick a real Parallel
+        // relation would be, not a separately-tuned threshold.
+        const sinAngle = Math.abs(ux * vy - uy * vx) / scale;
+        if (sinAngle < 0.02) {
+          // An angle dimension between two already-parallel lines has nothing real to
+          // measure (it can only ever read 0° or 180°) and sits right at the solver's own
+          // singular point for that residual — what's actually useful here is the gap
+          // between them, so this reads as a point-line-distance instead: one line's own
+          // start point, measured against the other line. `alsoConstrainParallel` is what
+          // keeps them a rigid pair afterward rather than only pinning that one point.
+          return {
+            kind: "point-line-distance",
+            points: [first.start],
+            entities: [second.id],
+            alsoConstrainParallel: [first.id, second.id],
+          };
+        }
+      }
       return { kind: "angle", points: [], entities: selectedEntities };
     }
   }
@@ -607,6 +687,37 @@ export function arcMidpoint(
 
   const midAngle = (startAngle + endAngle) / 2;
   return { x: centre.x + radius * Math.cos(midAngle), y: centre.y + radius * Math.sin(midAngle) };
+}
+
+/**
+ * Clamps `angle` (radians) to an arc's own swept range, snapping to whichever endpoint is
+ * nearer when it falls outside — used to keep a radius/diameter dimension's leader
+ * anchored on the arc's actual visible curve. A full circle has no sweep to clamp to
+ * (every direction is on it), so this is only meaningful for a genuine partial arc: the
+ * "point toward wherever the label currently is" direction the dimension leader otherwise
+ * uses is unconstrained and can easily land in the wedge the arc doesn't cover, which
+ * reads as the arrow pointing at nothing — the same bug a full circle's radius dimension
+ * doesn't have, since every direction there really is on the rim.
+ */
+export function clampAngleToArcSweep(
+  centre: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  angle: number,
+): number {
+  const startAngle = Math.atan2(start.y - centre.y, start.x - centre.x);
+  let endAngle = Math.atan2(end.y - centre.y, end.x - centre.x);
+  if (endAngle <= startAngle) endAngle += Math.PI * 2;
+
+  let normalized = angle;
+  while (normalized < startAngle) normalized += Math.PI * 2;
+  while (normalized > startAngle + Math.PI * 2) normalized -= Math.PI * 2;
+  if (normalized >= startAngle && normalized <= endAngle) return normalized;
+
+  // Outside the sweep: snap to whichever end is angularly closer.
+  const distanceToStart = Math.min(Math.abs(normalized - startAngle), Math.abs(normalized - startAngle - Math.PI * 2));
+  const distanceToEnd = Math.min(Math.abs(normalized - endAngle), Math.abs(normalized - endAngle - Math.PI * 2));
+  return distanceToStart <= distanceToEnd ? startAngle : endAngle;
 }
 
 /**
@@ -1255,6 +1366,20 @@ function lineIntersectionParams(
 }
 
 /**
+ * How close two *independently computed* split-point coordinates have to be to count as
+ * the same corner — trimming line A back to its crossing with line B computes that
+ * crossing point once; trimming line B back to the same visual corner (a separate call,
+ * possibly much later) recomputes it again from B's own intersection maths. The two
+ * results agree to within floating-point noise, not bit-for-bit, so `ensurePoint`'s own
+ * spatial search needs a tolerance — tight enough that it only ever merges truly-the-same
+ * corner (never a user's own two separate, deliberately close points), but well above
+ * double-precision noise. This is what makes two lines trimmed back to a shared corner,
+ * in either order, end up sharing one literal point (and therefore staying pinned
+ * together automatically) instead of leaving two coincident-looking but unconnected ones.
+ */
+const TRIM_SPLIT_POINT_TOLERANCE = 1e-4;
+
+/**
  * Trims a line back to its nearest intersections: `(x, y)` (the click position, in sketch
  * space) picks which stretch of the line to remove, and every other entity that actually
  * crosses this line contributes a cut point. A line with no crossings has nowhere to trim
@@ -1310,7 +1435,7 @@ export function trimLineAt(sketch: Sketch, entityId: string, x: number, y: numbe
   const pointAt = (t: number): string => {
     if (t <= 1e-9) return entity.start;
     if (t >= 1 - 1e-9) return entity.end;
-    const result = ensurePoint(working, start.x + t * dx, start.y + t * dy, 0);
+    const result = ensurePoint(working, start.x + t * dx, start.y + t * dy, TRIM_SPLIT_POINT_TOLERANCE);
     working = result.sketch;
     const source = cutSource.get(t);
     if (source) splitPins.push({ pointId: result.pointId, source });
@@ -1368,6 +1493,14 @@ export function trimLineAt(sketch: Sketch, entityId: string, x: number, y: numbe
   }
   for (const pin of splitPins) {
     if (!survivingPoints.has(pin.pointId)) continue;
+    // `TRIM_SPLIT_POINT_TOLERANCE` can land this pin's own point exactly on the source
+    // entity's *own* endpoint (both lines trimmed back to one shared corner now share one
+    // literal point) — pinning a point-on-line/-circle onto an entity it's already a
+    // defining point of is a trivially-satisfied, redundant equation that only pads the
+    // solver's row count without removing a real degree of freedom, which is what was
+    // showing up as a spurious "Over Defined" after trimming two lines to a shared corner.
+    const currentSource = entityById(result, pin.source.id);
+    if (currentSource && entityPoints(currentSource).includes(pin.pointId)) continue;
     const kind = curveConstraintKind(pin.source);
     if (kind) result = addConstraint(result, kind, [pin.source.id], [pin.pointId]);
   }
@@ -1525,7 +1658,7 @@ export function trimCircleAt(sketch: Sketch, entityId: string, x: number, y: num
       working,
       centre.x + Math.cos(angle) * entity.radius,
       centre.y + Math.sin(angle) * entity.radius,
-      0,
+      TRIM_SPLIT_POINT_TOLERANCE,
     );
     working = result.sketch;
     const source = angleSource.get(angle);
@@ -1623,7 +1756,7 @@ export function trimSplineAt(sketch: Sketch, entityId: string, x: number, y: num
       working,
       points[i].x + t * (points[i + 1].x - points[i].x),
       points[i].y + t * (points[i + 1].y - points[i].y),
-      0,
+      TRIM_SPLIT_POINT_TOLERANCE,
     );
     working = result.sketch;
     const source = cutSource.get(param);
@@ -1662,6 +1795,11 @@ function withSplitPins(sketch: Sketch, splitPins: { pointId: string; source: Ske
   let result = sketch;
   for (const pin of splitPins) {
     if (!survivingPointIds.has(pin.pointId)) continue;
+    // See the matching comment in `trimLineAt` — skips a redundant, trivially-satisfied
+    // constraint when `TRIM_SPLIT_POINT_TOLERANCE` merged this pin's point onto the exact
+    // entity it would otherwise be pinned to.
+    const currentSource = entityById(result, pin.source.id);
+    if (currentSource && entityPoints(currentSource).includes(pin.pointId)) continue;
     const kind = curveConstraintKind(pin.source);
     if (kind) result = addConstraint(result, kind, [pin.source.id], [pin.pointId]);
   }
@@ -1719,13 +1857,60 @@ function entityWithinWindow(
 }
 
 /**
- * Trims every entity fully enclosed by a dragged selection window in one go — item 6's
- * "hold and drag a window to trim several entities at once", alongside (not instead of)
- * the existing single-click trim above: a window only ever *removes* an entity outright
- * (there's nothing else inside the window to trim any of them back to), while a single
- * click can still trim one back to a partial stretch the way it always has. An entity the
- * window merely crosses, without fully containing, is left untouched — cropping it exactly
- * at the window's edge is a further refinement, not this pass.
+ * Where a line crosses an axis-aligned window's boundary, as parameters along the line
+ * (0 = start, 1 = end) — Liang-Barsky segment-vs-box clipping, testing the line's
+ * direction against each of the box's four half-plane edges in turn and narrowing
+ * `[tEnter, tExit]` to whatever's left inside all four. Returns the portion of the line's
+ * own `[0, 1]` range that lies *inside* the window (what a crossing trim removes); `null`
+ * means the line never enters the window at all, so a crossing trim leaves it untouched.
+ */
+function lineWindowOverlap(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+): [number, number] | null {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  let tEnter = 0;
+  let tExit = 1;
+
+  const edges: [number, number][] = [
+    [-dx, start.x - minX],
+    [dx, maxX - start.x],
+    [-dy, start.y - minY],
+    [dy, maxY - start.y],
+  ];
+
+  for (const [p, q] of edges) {
+    if (Math.abs(p) < 1e-12) {
+      if (q < 0) return null;
+      continue;
+    }
+    const r = q / p;
+    if (p < 0) {
+      if (r > tExit) return null;
+      if (r > tEnter) tEnter = r;
+    } else {
+      if (r < tEnter) return null;
+      if (r < tExit) tExit = r;
+    }
+  }
+
+  return tEnter <= tExit ? [tEnter, tExit] : null;
+}
+
+/**
+ * Trims every entity a dragged selection window touches in one go — item 6's "hold and
+ * drag a window to trim several entities at once". An entity fully enclosed by the window
+ * is removed outright, same as always; a *line* the window only crosses now has the
+ * portion actually inside the window cropped away, leaving whatever stretch(es) poked out
+ * the other side (0, 1 or 2 of them) as new surviving segments — the "crop it exactly at
+ * the window's edge" refinement the single-entity-window case used to defer. Circles, arcs
+ * and splines the window merely crosses are still left untouched; clipping a curve against
+ * a rectangle is a further refinement beyond what this covers.
  */
 export function trimEntitiesInWindow(
   sketch: Sketch,
@@ -1734,11 +1919,61 @@ export function trimEntitiesInWindow(
   maxX: number,
   maxY: number,
 ): Sketch {
-  const removed = new Set(
-    sketch.entities
-      .filter((entity) => entityWithinWindow(sketch, entity, minX, minY, maxX, maxY))
-      .map((entity) => entity.id),
-  );
-  if (removed.size === 0) return sketch;
-  return dropEntities(sketch, removed);
+  let working = sketch;
+  const removed = new Set<string>();
+  const extraEntities: SketchEntity[] = [];
+  const carriedKindsBySurvivor = new Map<string, GeometricConstraintKind[]>();
+
+  for (const entity of sketch.entities) {
+    if (entityWithinWindow(sketch, entity, minX, minY, maxX, maxY)) {
+      removed.add(entity.id);
+      continue;
+    }
+    if (entity.kind !== "line") continue;
+
+    const start = pointById(working, entity.start);
+    const end = pointById(working, entity.end);
+    if (!start || !end) continue;
+    const overlap = lineWindowOverlap(start, end, minX, minY, maxX, maxY);
+    if (!overlap) continue;
+    const [tEnter, tExit] = overlap;
+
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const pointAt = (t: number): string => {
+      if (t <= 1e-9) return entity.start;
+      if (t >= 1 - 1e-9) return entity.end;
+      const result = ensurePoint(working, start.x + t * dx, start.y + t * dy, TRIM_SPLIT_POINT_TOLERANCE);
+      working = result.sketch;
+      return result.pointId;
+    };
+
+    const carriedKinds = working.constraints
+      .filter(
+        (constraint) =>
+          (constraint.kind === "horizontal" || constraint.kind === "vertical") &&
+          constraint.entities.length === 1 &&
+          constraint.entities[0] === entity.id,
+      )
+      .map((constraint) => constraint.kind);
+
+    const segments: [number, number][] = [];
+    if (tEnter > 1e-6) segments.push([0, tEnter]);
+    if (tExit < 1 - 1e-6) segments.push([tExit, 1]);
+
+    removed.add(entity.id);
+    for (const [a, b] of segments) {
+      const survivorId = uid("line");
+      extraEntities.push({ id: survivorId, kind: "line", start: pointAt(a), end: pointAt(b), construction: entity.construction });
+      carriedKindsBySurvivor.set(survivorId, carriedKinds);
+    }
+  }
+
+  if (removed.size === 0 && extraEntities.length === 0) return sketch;
+
+  let result = dropEntities(working, removed, extraEntities);
+  for (const [survivorId, kinds] of carriedKindsBySurvivor) {
+    for (const kind of kinds) result = addConstraint(result, kind, [survivorId], []);
+  }
+  return result;
 }

@@ -20,6 +20,13 @@ const STATIC_COLORS = {
   origin: "#d9463d",
 };
 
+/** Same red/pink `SketchConstraintGlyphs.module.css`'s own `.conflicting` and
+ * `SketchDimensions.tsx`'s own `CONFLICT_COLOR` use — every entity/point a conflicting
+ * constraint or dimension actually touches gets the identical error colour, so the
+ * conflict reads as one connected thing (the offending relation's own glyph/label *and*
+ * the geometry it's fighting over) rather than just an isolated icon. */
+const CONFLICT_COLOR = "#ff2d55";
+
 interface SketchGeometryProps {
   sketch: Sketch;
   isDark: boolean;
@@ -48,6 +55,28 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   // of extending whatever is being drawn.
   const isPickMode = tool === "select" || tool === "smart-dimension" || tool === "fillet";
   const isTrimMode = tool === "trim";
+  const conflictingIds = useSketchStore((state) => state.conflictingIds);
+
+  // Every entity/point id a conflicting constraint or dimension directly references —
+  // computed once per conflict/geometry change rather than per entity, since several
+  // entities can share the same offending relation (e.g. two lines a redundant Parallel
+  // constraint spans both need the highlight).
+  const conflictingGeometryIds = useMemo(() => {
+    if (conflictingIds.length === 0) return new Set<string>();
+    const conflictSet = new Set(conflictingIds);
+    const ids = new Set<string>();
+    for (const constraint of sketch.constraints) {
+      if (!conflictSet.has(constraint.id)) continue;
+      constraint.entities.forEach((id) => ids.add(id));
+      constraint.points.forEach((id) => ids.add(id));
+    }
+    for (const dimension of sketch.dimensions) {
+      if (!conflictSet.has(dimension.id)) continue;
+      dimension.entities.forEach((id) => ids.add(id));
+      dimension.points.forEach((id) => ids.add(id));
+    }
+    return ids;
+  }, [conflictingIds, sketch.constraints, sketch.dimensions]);
 
   // Smart Dimension stays armed after use (see commandRegistry.ts's own note). Unlike
   // Select, a pick here always accumulates (see `pickForSmartDimension`'s own doc
@@ -85,12 +114,14 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
         // — Fillet just tracks its one pick separately (`pendingFilletLineId`) since it
         // isn't a relation and doesn't want to disturb the ordinary selection.
         const isEntitySelected = selection.includes(entity.id) || entity.id === pendingFilletLineId;
+        const isEntityConflicting =
+          conflictingGeometryIds.has(entity.id) || entityPoints(entity).some((id) => conflictingGeometryIds.has(id));
         return (
           <EntityView
             key={entity.id}
             entity={entity}
             sketch={sketch}
-            color={isEntitySelected ? accent : baseColor}
+            color={isEntityConflicting ? CONFLICT_COLOR : isEntitySelected ? accent : baseColor}
             isSelected={isEntitySelected}
             isSelectMode={isPickMode}
             onSelect={(additive) => pick(entity.id, additive)}
@@ -110,6 +141,7 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
           point={point}
           isOrigin={point.id === `${sketch.id}-origin`}
           isSelected={selection.includes(point.id)}
+          isConflicting={conflictingGeometryIds.has(point.id)}
           isPickMode={isPickMode}
           accent={accent}
           onPick={(additive) => pick(point.id, additive)}
@@ -137,6 +169,7 @@ function SketchPointDot({
   point,
   isOrigin,
   isSelected,
+  isConflicting,
   isPickMode,
   accent,
   onPick,
@@ -144,6 +177,7 @@ function SketchPointDot({
   point: { id: string; x: number; y: number };
   isOrigin: boolean;
   isSelected: boolean;
+  isConflicting: boolean;
   isPickMode: boolean;
   accent: string;
   onPick: (additive: boolean) => void;
@@ -202,7 +236,7 @@ function SketchPointDot({
       <mesh ref={dotRef} raycast={() => null}>
         <circleGeometry args={[1, 12]} />
         <meshBasicMaterial
-          color={isSelected ? accent : isOrigin ? STATIC_COLORS.origin : STATIC_COLORS.point}
+          color={isConflicting ? CONFLICT_COLOR : isSelected ? accent : isOrigin ? STATIC_COLORS.origin : STATIC_COLORS.point}
           depthTest={false}
         />
       </mesh>

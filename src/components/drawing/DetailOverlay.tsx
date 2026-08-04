@@ -26,6 +26,7 @@ export function DetailOverlay() {
   const resetPicking = useDrawingToolStore((state) => state.resetPicking);
 
   const view = useDocumentStore((state) => state.document.drawing?.views.find((v) => v.id === sourceViewId));
+  const zoom = useDrawingToolStore((state) => state.zoom);
   const moveOrigin = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
   const resizeOrigin = useRef<{ x: number; radius: number } | null>(null);
 
@@ -56,8 +57,8 @@ export function DetailOverlay() {
         }}
         onPointerMove={(event) => {
           if (!moveOrigin.current) return;
-          const dx = (event.clientX - moveOrigin.current.x) / (SHEET_SCALE * view.scale);
-          const dy = (event.clientY - moveOrigin.current.y) / (SHEET_SCALE * view.scale);
+          const dx = (event.clientX - moveOrigin.current.x) / (SHEET_SCALE * zoom * view.scale);
+          const dy = (event.clientY - moveOrigin.current.y) / (SHEET_SCALE * zoom * view.scale);
           setCircle(moveOrigin.current.cx + dx, moveOrigin.current.cy + dy, radius);
         }}
         onPointerUp={() => {
@@ -77,7 +78,7 @@ export function DetailOverlay() {
         onPointerMove={(event) => {
           if (!resizeOrigin.current) return;
           event.stopPropagation();
-          const dx = (event.clientX - resizeOrigin.current.x) / (SHEET_SCALE * view.scale);
+          const dx = (event.clientX - resizeOrigin.current.x) / (SHEET_SCALE * zoom * view.scale);
           setCircle(cx, cy, Math.max(resizeOrigin.current.radius + dx, 3));
         }}
         onPointerUp={(event) => {

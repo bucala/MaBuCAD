@@ -365,6 +365,7 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "drawing.model-view": () => void runInsertModelView(),
   "drawing.update-views": () => void runUpdateViews(),
   "drawing.sheet-format": () => useTemplateStore.getState().openManager(),
+  "drawing.edit-background": () => useTemplateStore.getState().openManager("borders"),
   "drawing.section": () => useDrawingToolStore.getState().setTool("section"),
   "drawing.detail": () => useDrawingToolStore.getState().setTool("detail"),
   "annotation.note": () => useDrawingToolStore.getState().setTool("note"),

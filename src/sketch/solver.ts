@@ -221,3 +221,37 @@ export function sketchStatusFromDiagnostics(
   if (!diagnostics.converged || diagnostics.redundant) return "over-defined";
   return diagnostics.dof === 0 ? "fully-defined" : "under-defined";
 }
+
+/**
+ * Which constraints/dimensions are actually responsible for an over-defined sketch —
+ * "over-defined" alone (`redundant`/`!converged`) only says *that* something conflicts,
+ * not *which* relation to delete to fix it, which is what a user actually needs to see
+ * highlighted. Found by brute force: re-solve the sketch with each constraint/dimension
+ * removed in turn, one at a time, and flag whichever removals actually clear the
+ * over-defined state. Cheap enough to call only when the sketch is already flagged
+ * over-defined (a rare, transient error state to begin with, not every solve), and
+ * correct by construction — no need to reason about which Jacobian rows are linearly
+ * dependent, just to check the same converged/redundant flags the status bar already uses.
+ *
+ * A minimal conflicting *pair* (each fixes it when removed alone) reports both — matching
+ * what a user actually wants highlighted, since either one might be the one they meant to
+ * keep and there's no way to guess which.
+ */
+export function findConflictingConstraints(sketch: Sketch): Set<string> {
+  const baseline = solveSketch(sketch);
+  if (baseline.diagnostics.converged && !baseline.diagnostics.redundant) return new Set();
+
+  const isFixed = (diagnostics: SketchDiagnostics) => diagnostics.converged && !diagnostics.redundant;
+  const offenders = new Set<string>();
+
+  for (const constraint of sketch.constraints) {
+    const without = { ...sketch, constraints: sketch.constraints.filter((c) => c.id !== constraint.id) };
+    if (isFixed(solveSketch(without).diagnostics)) offenders.add(constraint.id);
+  }
+  for (const dimension of sketch.dimensions) {
+    const without = { ...sketch, dimensions: sketch.dimensions.filter((d) => d.id !== dimension.id) };
+    if (isFixed(solveSketch(without).diagnostics)) offenders.add(dimension.id);
+  }
+
+  return offenders;
+}

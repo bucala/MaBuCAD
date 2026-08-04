@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import {
   Circle,
+  Crosshair,
   FlipHorizontal2,
   MoveDiagonal,
   MoveHorizontal,
@@ -56,6 +57,7 @@ export function SketchContextMenu() {
   const exitSketch = useSketchStore((state) => state.exitSketch);
   const sketch = useSketchStore(selectActiveSketch);
   const toggleDimensionRadiusDiameter = useSketchStore((state) => state.toggleDimensionRadiusDiameter);
+  const toggleRadiusExtendToCenter = useSketchStore((state) => state.toggleRadiusExtendToCenter);
   const flipAngleDimension = useSketchStore((state) => state.flipAngleDimension);
   const setLinearDimensionMode = useSketchStore((state) => state.setLinearDimensionMode);
 
@@ -132,6 +134,19 @@ export function SketchContextMenu() {
           >
             <FlipHorizontal2 size={14} strokeWidth={1.75} />
             {selectedDimension.kind === "radius" ? "Show as Diameter" : "Show as Radius"}
+          </button>
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={Boolean(selectedDimension.extendToCenter)}
+            className={styles.item}
+            onClick={() => {
+              toggleRadiusExtendToCenter(selectedDimension.id);
+              closeContextMenu();
+            }}
+          >
+            <Crosshair size={14} strokeWidth={1.75} />
+            {selectedDimension.extendToCenter ? "Shorten to Rim" : "Extend to Centre"}
           </button>
         </>
       )}

@@ -41,9 +41,14 @@ import { groupTappedBySize, resolveClearanceDiameter, resolveTapDrill } from "@/
 import { FEATURE_CATALOG } from "@/state/featureCatalog";
 import { useDocumentStore } from "@/state/documentStore";
 import { useViewportStore } from "@/state/viewportStore";
-import type { EndCondition, FeatureParameters } from "@/types/document";
+import type { EndCondition, FeatureKind, FeatureParameters } from "@/types/document";
 
 import styles from "./PropertyManager.module.css";
+
+/** Feature kinds whose `parents[0]` is a single profile sketch, editable via the
+ * "Profile Sketch" section below — a Loft/Boundary's multiple sketches, or a non-sketch
+ * parent like Fillet's solid, are out of scope. */
+const SINGLE_SKETCH_KINDS: FeatureKind[] = ["extrude", "cut-extrude", "revolve", "cut-revolve", "rib"];
 
 const HOLE_TYPES: { id: NonNullable<FeatureParameters["holeType"]>; label: string; icon: LucideIcon }[] = [
   { id: "simple", label: "Simple — a plain cylindrical hole, no fastener standard", icon: Circle },
@@ -113,6 +118,7 @@ export function PropertyManager() {
   const selectedFeatureIds = useDocumentStore((state) => state.selectedFeatureIds);
   const renameFeature = useDocumentStore((state) => state.renameFeature);
   const updateParameters = useDocumentStore((state) => state.updateParameters);
+  const setFeatureParent = useDocumentStore((state) => state.setFeatureParent);
   const toggleSuppressed = useDocumentStore((state) => state.toggleSuppressed);
   const deleteFeature = useDocumentStore((state) => state.deleteFeature);
   const edgePickModeFeatureId = useViewportStore((state) => state.edgePickModeFeatureId);
@@ -153,6 +159,11 @@ export function PropertyManager() {
   }
 
   const definition = FEATURE_CATALOG[feature.kind];
+  // Exists specifically so a feature created via `resolveTargetSketchId`'s own best guess
+  // (or with none at all, if nothing was selected/resolvable when the ribbon command ran)
+  // can have its profile sketch fixed up afterward, without deleting and recreating it.
+  const takesSingleSketch = SINGLE_SKETCH_KINDS.includes(feature.kind);
+  const sketchFeatures = document.features.filter((candidate) => candidate.kind === "sketch");
   const isHole = feature.kind === "hole";
   const isEdgeSelectable = feature.kind === "fillet" || feature.kind === "chamfer";
   const isPickingEdges = edgePickModeFeatureId === feature.id;
@@ -246,6 +257,26 @@ export function PropertyManager() {
             onChange={(event) => renameFeature(feature.id, event.target.value)}
           />
         </label>
+
+        {takesSingleSketch && (
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>Profile Sketch</span>
+            <select
+              className={styles.input}
+              value={feature.parents[0] ?? ""}
+              onChange={(event) => setFeatureParent(feature.id, 0, event.target.value)}
+            >
+              <option value="" disabled>
+                Select a sketch…
+              </option>
+              {sketchFeatures.map((sketch) => (
+                <option key={sketch.id} value={sketch.id}>
+                  {sketch.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         {isEdgeSelectable && (
           <div className={styles.section}>

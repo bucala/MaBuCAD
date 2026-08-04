@@ -425,9 +425,9 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Area | Scope | Status |
 | --- | --- | :---: |
 | Project shell | Tauri + React + Vite scaffolding, Fluent 2 UI chrome | ✅ |
-| Viewport | CAD navigation, reference planes, origin, viewcube, axis-cross legend | ✅ |
+| Viewport | CAD navigation, reference planes, origin, viewcube (full-cycle up/down/left/right rotation), axis-cross legend | ✅ |
 | Document model | Feature tree, rollback, suppress, undo/redo, rename, drag-reorder | ✅ |
-| Sketcher | Full entity set, 10 relations, dimensioning, damped-Newton solver | ✅ |
+| Sketcher | Full entity set, 10 relations (Fix extends to lines/circles/arcs), dimensioning (incl. point-to-line, auto-detected parallel-distance), conflicting-constraint highlighting, damped-Newton solver | ✅ |
 | Core solids | Extrude/Cut-Extrude, Revolve/Cut-Revolve | ✅ |
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
 | Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Fillet, Offset, Mirror, Linear/Circular Pattern | ✅ |
@@ -437,14 +437,14 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft | ✅ |
 | Pattern/Mirror (feature-level) | Linear Pattern, Circular Pattern, Mirror | ✅ |
 | Theming | Light/Gray/Dark skins, 5 live accent colours, Model/Edge colour overrides | ✅ |
-| 3D Navigation | Zoom-to-cursor, ViewCube toggle + navigation arrows, origin indicator + axis labels | ✅ |
+| 3D Navigation | Zoom-to-cursor, ViewCube toggle + navigation arrows (full-cycle rotation, correct left/right direction), origin indicator + axis labels | ✅ |
 | Autosave | Opt-in periodic recovery snapshot, restorable from the File menu | ✅ |
 | New Document picker | Visual Part/Assembly/Drawing chooser (Part and Drawing wired, Assembly "coming soon") | ✅ |
 | Localisation | 9-language switcher; English and Slovak fully translated | 🟡 |
 | Boundary surface | Guide-curve boundary blending | ⬜ |
 | Multi-document workspace | Tabbed Part/Drawing documents, each with its own history, undo and sketches | ✅ |
 | Assembly | Components, mates, exploded views | ⬜ |
-| Drawing | Model View (Front/Top/Right/Iso, real projected B-Rep edges via replicad), Section (real kernel cut, ISO 128-50 hatched) and Detail (2D crop) views, draggable views/notes, Sheet Formats/Borders/Title Blocks (A4–A0, import/export as templates); ordinate/GD&T annotations, BOM | 🟡 |
+| Drawing | Model View (Front/Top/Right/Iso, real projected B-Rep edges via replicad), Section (real kernel cut, ISO 128-50 hatched) and Detail (2D crop) views, draggable views/notes, sheet zoom-to-cursor + middle-mouse pan, Edit Background shortcut, ISO 5457 zone-label sizing, Sheet Formats/Borders/Title Blocks (A4–A0, import/export as templates); ordinate/GD&T annotations, BOM | 🟡 |
 | Inspect | Measure, Mass Properties, Section Properties, Check Geometry, Draft Analysis, Parent/Child, Equations, Sensors, Appearance; Curvature dropped (no kernel support) | ✅ |
 
 <sub>✅ done &nbsp;•&nbsp; 🟡 partial &nbsp;•&nbsp; ⬜ planned — see

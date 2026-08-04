@@ -6,7 +6,7 @@ import { Plane, Raycaster, Vector2, Vector3 } from "three";
 import { DimensionValueField } from "@/components/shared/DimensionValueField";
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
-import { defaultDimensionAnchor, pointById } from "@/sketch/sketchModel";
+import { clampAngleToArcSweep, defaultDimensionAnchor, pointById } from "@/sketch/sketchModel";
 import type { Dimension, Sketch } from "@/sketch/types";
 import { useSketchStore } from "@/state/sketchStore";
 
@@ -14,6 +14,11 @@ import styles from "./SketchDimensions.module.css";
 
 const DIMENSION_COLOR = "#0f7b0f";
 const ORDINATE_COLOR = "#8a5cf6";
+/** Same red/pink `SketchConstraintGlyphs.module.css`'s own `.conflicting` uses — a
+ * dimension `findConflictingConstraints` found responsible for an over-defined sketch
+ * gets the identical error colour, so a conflict reads the same regardless of whether the
+ * offending relation happens to be a plain constraint or a driving dimension. */
+const CONFLICT_COLOR = "#ff2d55";
 
 /** Arrowhead size for a dimension line's ends, in sketch units. */
 const ARROW_LENGTH = 2.2;
@@ -133,6 +138,7 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
   const setDimensionValue = useSketchStore((state) => state.setDimensionValue);
   const setDimensionLabelOffset = useSketchStore((state) => state.setDimensionLabelOffset);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
+  const conflictingIds = useSketchStore((state) => state.conflictingIds);
   // Dimension labels are real DOM buttons layered over the canvas via drei's Html, so
   // they intercept a click before it ever reaches the WebGL raycaster underneath — if one
   // happens to sit where the user is trying to draw, `pointer-events: none` lets that
@@ -210,7 +216,8 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
   // than the free-angle leader "Aligned" (`distance`) uses. Kept out of `isOrdinate` itself
   // since that also drives the ordinate-only purple colour, which these two don't get.
   const isAxisLockedDistance = dimension.kind === "horizontal-distance" || dimension.kind === "vertical-distance";
-  const color = isSelected ? accent : isOrdinate ? ORDINATE_COLOR : DIMENSION_COLOR;
+  const isConflicting = conflictingIds.includes(dimension.id);
+  const color = isConflicting ? CONFLICT_COLOR : isSelected ? accent : isOrdinate ? ORDINATE_COLOR : DIMENSION_COLOR;
 
   const first = dimension.points[0] ? pointById(sketch, dimension.points[0]) : undefined;
   const second = dimension.points[1] ? pointById(sketch, dimension.points[1]) : undefined;
@@ -309,6 +316,54 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     ];
     labelPosition = [midX + shiftX, midY + shiftY, 0.05];
     text = `${dimension.value.toFixed(2)}`;
+  } else if (dimension.kind === "point-line-distance" && first && entity?.kind === "line") {
+    const lineStart = pointById(sketch, entity.start);
+    const lineEnd = pointById(sketch, entity.end);
+    if (!lineStart || !lineEnd) return null;
+
+    // The point's own perpendicular foot on the line — same construction as
+    // `defaultDimensionAnchor`'s own point-line-distance case, but needed again here
+    // rather than reused from it since the label has since been nudged off that default.
+    const ux = lineEnd.x - lineStart.x;
+    const uy = lineEnd.y - lineStart.y;
+    const lengthSquared = ux * ux + uy * uy || 1e-12;
+    const t = ((first.x - lineStart.x) * ux + (first.y - lineStart.y) * uy) / lengthSquared;
+    const footX = lineStart.x + t * ux;
+    const footY = lineStart.y + t * uy;
+
+    // From here down, identical to the point-to-point `distance` branch above — a
+    // perpendicular-offset dimension line between two points — just with the line's own
+    // foot point standing in for a second selected point.
+    const normalX = -(footY - first.y);
+    const normalY = footX - first.x;
+    const normalLength = Math.hypot(normalX, normalY) || 1;
+    const nx = normalX / normalLength;
+    const ny = normalY / normalLength;
+    const dirX = (footX - first.x) / (Math.hypot(footX - first.x, footY - first.y) || 1);
+    const dirY = (footY - first.y) / (Math.hypot(footX - first.x, footY - first.y) || 1);
+
+    const nudgeNormal = nudge.x * nx + nudge.y * ny;
+    const nudgeAlong = nudge.x * dirX + nudge.y * dirY;
+    const baseOffset = 5;
+    const offset = baseOffset + nudgeNormal;
+    const shiftX = nx * offset;
+    const shiftY = ny * offset;
+
+    const midX = (first.x + footX) / 2 + dirX * nudgeAlong;
+    const midY = (first.y + footY) / 2 + dirY * nudgeAlong;
+
+    leader = [
+      [first.x, first.y, 0],
+      [first.x + shiftX, first.y + shiftY, 0],
+      [footX + shiftX, footY + shiftY, 0],
+      [footX, footY, 0],
+    ];
+    arrows = [
+      ...arrowheadPoints(first.x + shiftX, first.y + shiftY, dirX, dirY),
+      ...arrowheadPoints(footX + shiftX, footY + shiftY, -dirX, -dirY),
+    ];
+    labelPosition = [midX + shiftX, midY + shiftY, 0.05];
+    text = `${dimension.value.toFixed(2)}`;
   } else if (entity?.kind === "circle" || entity?.kind === "arc") {
     const centre = pointById(sketch, entity.center);
     if (!centre) return null;
@@ -329,8 +384,25 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     const toLabelX = labelX - centre.x;
     const toLabelY = labelY - centre.y;
     const toLabelLength = Math.hypot(toLabelX, toLabelY) || 1;
-    const dirX = toLabelX / toLabelLength;
-    const dirY = toLabelY / toLabelLength;
+    let dirX = toLabelX / toLabelLength;
+    let dirY = toLabelY / toLabelLength;
+
+    // An arc only covers part of the circle — pointing straight at wherever the label
+    // happens to be dragged can aim past either end of it, landing the arrowhead in the
+    // wedge the arc doesn't actually draw. Clamping to the swept range is what makes
+    // dragging the label double as "pick which segment of the arc the leader anchors to"
+    // (`possibility to change the segment`): drag past one end and the leader snaps to
+    // anchor at that end instead of following into empty space.
+    if (entity.kind === "arc") {
+      const start = pointById(sketch, entity.start);
+      const end = pointById(sketch, entity.end);
+      if (start && end) {
+        const clamped = clampAngleToArcSweep(centre, start, end, Math.atan2(dirY, dirX));
+        dirX = Math.cos(clamped);
+        dirY = Math.sin(clamped);
+      }
+    }
+
     const nearRimX = centre.x + dirX * entity.radius;
     const nearRimY = centre.y + dirY * entity.radius;
 
@@ -347,10 +419,16 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
         ...arrowheadPoints(farRimX, farRimY, dirX, dirY),
       ];
     } else {
-      leader = [
-        [nearRimX, nearRimY, 0],
-        [labelX, labelY, 0],
-      ];
+      // "Extend to Centre": the same rim -> label leader, just continued inward past the
+      // rim to the centre point too — a plain visual extension (the arrowhead still
+      // anchors at the rim, same as always) rather than a different measurement, useful
+      // on a small circle where the bare rim-to-label leader alone reads ambiguously.
+      leader = dimension.extendToCenter
+        ? [[centre.x, centre.y, 0], [nearRimX, nearRimY, 0], [labelX, labelY, 0]]
+        : [
+            [nearRimX, nearRimY, 0],
+            [labelX, labelY, 0],
+          ];
       arrows = arrowheadPoints(nearRimX, nearRimY, -dirX, -dirY);
     }
     labelPosition = [labelX, labelY, 0.05];
@@ -401,13 +479,13 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
           <button
             type="button"
             className={`${styles.label} ${isOrdinate ? styles.ordinate : ""} ${
-              isSelected ? styles.selected : ""
+              isConflicting ? styles.conflicting : isSelected ? styles.selected : ""
             }`}
             style={isSelectMode ? undefined : { pointerEvents: "none" }}
             data-dimension-id={dimension.id}
             title={
               dimension.kind === "radius" || dimension.kind === "diameter"
-                ? "Drag to move, double-click to edit the value, right-click for Radius/Diameter"
+                ? "Drag to move, double-click to edit the value, right-click for Radius/Diameter or to extend to centre"
                 : dimension.kind === "angle"
                   ? "Drag to move, double-click to edit the value, right-click to flip the angle"
                   : "Drag to move, double-click to edit the value"

@@ -28,6 +28,17 @@
   background: var(--accent);
 }
 
+/* A dimension `findConflictingConstraints` found responsible for an over-defined sketch —
+   same red/pink as `SketchConstraintGlyphs.module.css`'s own `.conflicting` and
+   `SketchGeometry.tsx`'s `CONFLICT_COLOR`, so the label itself, not just its leader line
+   (already coloured via the `color` prop passed to the three.js `<Line>`s), reads as the
+   error it is. */
+.conflicting {
+  border-color: #ff2d55;
+  color: #fff;
+  background: #ff2d55;
+}
+
 /* drei's `Html` `pointerEvents` prop only takes effect in `transform` mode, which this
    isn't using — its outer wrapper div otherwise defaults to `pointer-events: auto`
    regardless of that prop, silently swallowing the next pick this preview follows the

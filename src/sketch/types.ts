@@ -95,7 +95,16 @@ export type GeometricConstraintKind =
   /** A point lies on a spline's own curve — same idea as `point-on-line`/`point-on-circle`
    * for the one entity kind that isn't a single straight line or a single circle. */
   | "point-on-spline"
+  /** A point's own position is pinned — used directly for a standalone point, and as the
+   * dispatch target when "Fix" is applied to a circle/arc (its centre point), so the
+   * shape's location is pinned but its radius stays free to resize. */
   | "fix"
+  /** "Fix" applied to a line: pins the infinite line it lies on (direction + offset) at
+   * its position when the constraint was added, but — unlike pinning both endpoints —
+   * leaves each endpoint free to slide along that fixed line, so the line can still be
+   * lengthened/shortened from either end as long as its own two endpoint points carry no
+   * other constraint pinning them in place. */
+  | "fix-line"
   /** A point sits at the midpoint of a line — persisted so it stays there as the line's
    * endpoints move, rather than the one-time positional snap this used to be. */
   | "midpoint"
@@ -121,6 +130,11 @@ export type DimensionKind =
   | "distance"
   | "horizontal-distance"
   | "vertical-distance"
+  /** Perpendicular distance from a point (`points[0]`) to a line's own infinite extension
+   * (`entities[0]`) — distinct from `distance` (which is always point-to-point) because a
+   * point-to-line span isn't anchored to either of the line's own endpoints; it has to be
+   * measured against the line's direction instead. */
+  | "point-line-distance"
   | "radius"
   | "diameter"
   | "angle"
@@ -138,6 +152,11 @@ export interface Dimension {
   entities: string[];
   /** Where the label sits relative to what it measures, in sketch coordinates. */
   labelOffset: { x: number; y: number };
+  /** Radius/diameter only: extends the leader line inward past the near-rim point all the
+   * way to the circle/arc's own centre, the ISO/Inventor convention for a small circle
+   * where the plain rim-to-label leader alone doesn't make clear which circle it's
+   * measuring. Toggled from the dimension's own right-click menu. */
+  extendToCenter?: boolean;
 }
 
 export interface Sketch {

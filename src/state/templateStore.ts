@@ -210,7 +210,11 @@ interface TemplateStore {
    * from persistence via `partialize` below — a reload should never resume with the
    * dialog already open just because it happened to be open when the tab last closed. */
   managerOpen: boolean;
-  openManager: () => void;
+  /** Which tab `TemplateManagerDialog.tsx` should land on when it next opens — set by
+   * `openManager`'s own optional argument, read once and cleared so a later plain
+   * `openManager()` (no tab requested) doesn't keep reopening onto a stale one. */
+  managerInitialTab: "formats" | "borders" | "titleblocks" | null;
+  openManager: (tab?: "formats" | "borders" | "titleblocks") => void;
   closeManager: () => void;
 }
 
@@ -335,7 +339,8 @@ export const useTemplateStore = create<TemplateStore>()(
       },
 
       managerOpen: false,
-      openManager: () => set({ managerOpen: true }),
+      managerInitialTab: null,
+      openManager: (tab) => set({ managerOpen: true, managerInitialTab: tab ?? null }),
       closeManager: () => set({ managerOpen: false }),
     }),
     {

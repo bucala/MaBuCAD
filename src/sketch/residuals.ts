@@ -124,6 +124,23 @@ function geometricResiduals(
       return [p.x - anchor.x, p.y - anchor.y];
     }
 
+    case "fix-line": {
+      // Locks the line's own infinite extension (direction + perpendicular offset) to
+      // where it was when the constraint was added — its two *own* degrees of freedom —
+      // without pinning either endpoint's position along that line, so the line can still
+      // be lengthened/shortened from either end.
+      const line = entities.get(constraint.entities[0]);
+      if (!line || line.kind !== "line") return [];
+      const currentA = readPoint(values, layout, line.start);
+      const currentB = readPoint(values, layout, line.end);
+      const anchorA = original.get(line.start) ?? currentA;
+      const anchorB = original.get(line.end) ?? currentB;
+      const anchorDir = direction(anchorA, anchorB);
+      const scale = Math.max(length(anchorDir), 1e-9);
+      const currentDir = direction(currentA, currentB);
+      return [cross(anchorDir, currentDir) / scale, cross(anchorDir, direction(anchorA, currentA)) / scale];
+    }
+
     case "horizontal": {
       const ends = lineEnds(entities, values, layout, constraint.entities[0]);
       return ends ? [ends.a.y - ends.b.y] : [];
@@ -307,6 +324,19 @@ function dimensionResiduals(
       const p = readPoint(values, layout, dimension.points[0]);
       const q = readPoint(values, layout, dimension.points[1]);
       return [length(direction(p, q)) - dimension.value];
+    }
+
+    case "point-line-distance": {
+      const ends = lineEnds(entities, values, layout, dimension.entities[0]);
+      if (!ends) return [];
+      const p = readPoint(values, layout, dimension.points[0]);
+      const u = direction(ends.a, ends.b);
+      const scale = Math.max(length(u), 1e-9);
+      // Unsigned perpendicular distance from the point to the line's own infinite
+      // extension — `Math.abs` because a driving dimension's target is always a positive
+      // span, same as `distance`'s own `length()` never goes negative; which side of the
+      // line the point sits on isn't something this dimension records.
+      return [Math.abs(cross(u, direction(ends.a, p))) / scale - dimension.value];
     }
 
     // Ordinate dimensions are signed axis distances from a datum, which is exactly what
