@@ -5,8 +5,10 @@ import { BufferAttribute, BufferGeometry, Euler, LineSegments, Quaternion } from
 
 import { placeHoleAtPick } from "@/commands/commandRegistry";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
+import type { MeshData } from "@/kernel/rebuild";
 import { selectBuiltFeatures, useDocumentStore } from "@/state/documentStore";
 import { GEOMETRY_FEATURE_KINDS, useGeometryStore } from "@/state/geometryStore";
+import { useInspectStore } from "@/state/inspectStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
@@ -23,6 +25,34 @@ const FACE_HIGHLIGHT_COLOR = "#3fd0ff";
  * amber "still pickable" edge colour, the cyan face highlight, and the hole-placement
  * marker, so all four read as different things at a glance. */
 const PICKED_EDGE_HIGHLIGHT_COLOR = "#ff2f92";
+/** Highlight colour for Inspect > Measure's picked face(s)/edge(s) — distinct from every
+ * other highlight colour above so a measure pick never reads as one of those unrelated
+ * modes. */
+const MEASURE_HIGHLIGHT_COLOR = "#a970ff";
+
+/** Nearest `EdgeGroup.id` to a point already in the mesh's own un-rotated local space —
+ * shared by the Fillet/Chamfer picked-edge highlight (`pickedEdgeHighlightGeometry`) and
+ * Inspect > Measure's edge pick, both of which only have a raycaster hit point to start
+ * from, not a kernel edge id. */
+function nearestEdgeGroupId(mesh: MeshData, point: readonly [number, number, number]): number | null {
+  let bestId: number | null = null;
+  let bestDistanceSq = Infinity;
+  for (const group of mesh.edgeGroups) {
+    const startFloat = group.start * 3;
+    const endFloat = startFloat + group.count * 3;
+    for (let i = startFloat; i < endFloat; i += 3) {
+      const dx = mesh.edges[i] - point[0];
+      const dy = mesh.edges[i + 1] - point[1];
+      const dz = mesh.edges[i + 2] - point[2];
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+      if (distanceSq < bestDistanceSq) {
+        bestDistanceSq = distanceSq;
+        bestId = group.id;
+      }
+    }
+  }
+  return bestId;
+}
 
 /**
  * Renders the rebuilt solid: a shaded surface plus the B-Rep edges on top.
@@ -58,14 +88,20 @@ export function SolidModel() {
   const selectionFilterMode = useViewportStore((state) => state.selectionFilterMode);
   const selectedFaceId = useViewportStore((state) => state.selectedFaceId);
   const setSelectedFaceId = useViewportStore((state) => state.setSelectedFaceId);
+  const inspectTool = useInspectStore((state) => state.activeTool);
+  const measurePicks = useInspectStore((state) => state.measurePicks);
+  const pickForMeasure = useInspectStore((state) => state.pickForMeasure);
+  const clearMeasurePicks = useInspectStore((state) => state.clearMeasurePicks);
   const isPick = useClickGuard();
 
-  // A face id is only meaningful for the mesh it came from — `kernel/rebuild.ts` renumbers
-  // faces 0, 1, 2... fresh on every rebuild, so a highlight left over from a stale mesh
-  // could easily land on the wrong face (or none) once the geometry actually changes.
+  // A face/edge id is only meaningful for the mesh it came from — `kernel/rebuild.ts`
+  // renumbers both fresh on every rebuild, so a highlight (or Inspect > Measure pick) left
+  // over from a stale mesh could easily land on the wrong entity, or none, once the
+  // geometry actually changes.
   useEffect(() => {
     setSelectedFaceId(null);
-  }, [committedMesh, setSelectedFaceId]);
+    clearMeasurePicks();
+  }, [committedMesh, setSelectedFaceId, clearMeasurePicks]);
 
   // Escape backs out of Hole Wizard placement the same way it backs out of any other
   // modal viewport interaction, since there is (yet) no feature selected to drive this
@@ -202,6 +238,39 @@ export function SolidModel() {
     setSelectedFaceId(group?.id ?? null);
   };
 
+  /**
+   * Inspect > Measure's face pick — the same `event.faceIndex` -> `FaceGroup` resolution
+   * as `handleFaceSelectClick` above, but feeding `inspectStore`'s accumulating two-entity
+   * pick list instead of the "face" selection filter's single highlight.
+   */
+  const handleMeasureFaceClick = (event: ThreeEvent<MouseEvent>) => {
+    if (inspectTool !== "measure" || !mesh || event.faceIndex == null || !isPick(event)) return;
+    event.stopPropagation();
+
+    const triangleStart = event.faceIndex * 3;
+    const group = mesh.faceGroups.find(
+      (candidate) => triangleStart >= candidate.start && triangleStart < candidate.start + candidate.count,
+    );
+    if (group) pickForMeasure({ kind: "face", id: group.id });
+  };
+
+  /**
+   * Inspect > Measure's edge pick. There is no kernel edge id in a `ThreeEvent` the way
+   * `handleMeasureFaceClick` gets a triangle index — only the raycaster's hit point — so
+   * this resolves it the same way `handleEdgeClick`'s Fillet/Chamfer picking already does:
+   * rotate the world-space hit back into the mesh's own un-rotated space, then find the
+   * nearest `EdgeGroup`.
+   */
+  const handleMeasureEdgeClick = (event: ThreeEvent<MouseEvent>) => {
+    if (inspectTool !== "measure" || !mesh || !isPick(event)) return;
+    event.stopPropagation();
+
+    const inverseRotation = new Quaternion().setFromEuler(new Euler(...mesh.rotation)).invert();
+    const local = event.point.clone().applyQuaternion(inverseRotation);
+    const groupId = nearestEdgeGroupId(mesh, [local.x, local.y, local.z]);
+    if (groupId !== null) pickForMeasure({ kind: "edge", id: groupId });
+  };
+
   const geometry = useMemo(() => {
     if (!mesh) return null;
 
@@ -258,23 +327,8 @@ export function SolidModel() {
     if (!mesh || !edgePoints?.length || mesh.edgeGroups.length === 0) return null;
 
     const matchedGroupIds = new Set<number>();
-    for (const [px, py, pz] of edgePoints) {
-      let bestGroupId: number | null = null;
-      let bestDistanceSq = Infinity;
-      for (const group of mesh.edgeGroups) {
-        const startFloat = group.start * 3;
-        const endFloat = startFloat + group.count * 3;
-        for (let i = startFloat; i < endFloat; i += 3) {
-          const dx = mesh.edges[i] - px;
-          const dy = mesh.edges[i + 1] - py;
-          const dz = mesh.edges[i + 2] - pz;
-          const distanceSq = dx * dx + dy * dy + dz * dz;
-          if (distanceSq < bestDistanceSq) {
-            bestDistanceSq = distanceSq;
-            bestGroupId = group.id;
-          }
-        }
-      }
+    for (const point of edgePoints) {
+      const bestGroupId = nearestEdgeGroupId(mesh, point);
       if (bestGroupId !== null) matchedGroupIds.add(bestGroupId);
     }
     if (matchedGroupIds.size === 0) return null;
@@ -293,6 +347,56 @@ export function SolidModel() {
     return buffer;
   }, [mesh, pickingFeature]);
 
+  /**
+   * Inspect > Measure's picked-face overlay — same "sliced index buffer over the same
+   * position/normal buffers" technique as `faceHighlightGeometry`, but built from however
+   * many face picks `measurePicks` currently holds (0-2) rather than a single selection.
+   */
+  const measureFaceHighlightGeometry = useMemo(() => {
+    if (!mesh || inspectTool !== "measure") return null;
+    const faceIds = new Set(measurePicks.filter((pick) => pick.kind === "face").map((pick) => pick.id));
+    if (faceIds.size === 0) return null;
+
+    const parts = mesh.faceGroups
+      .filter((group) => faceIds.has(group.id))
+      .map((group) => mesh.indices.subarray(group.start, group.start + group.count));
+    const combined = new Uint32Array(parts.reduce((sum, part) => sum + part.length, 0));
+    let offset = 0;
+    for (const part of parts) {
+      combined.set(part, offset);
+      offset += part.length;
+    }
+
+    const buffer = new BufferGeometry();
+    buffer.setAttribute("position", new BufferAttribute(mesh.positions, 3));
+    buffer.setAttribute("normal", new BufferAttribute(mesh.normals, 3));
+    buffer.setIndex(new BufferAttribute(combined, 1));
+    buffer.computeBoundingSphere();
+    return buffer;
+  }, [mesh, inspectTool, measurePicks]);
+
+  /** Inspect > Measure's picked-edge overlay — same shape as `pickedEdgeHighlightGeometry`,
+   * but keyed directly off `measurePicks`' own edge ids rather than resolving raw points. */
+  const measureEdgeHighlightGeometry = useMemo(() => {
+    if (!mesh || inspectTool !== "measure" || mesh.edgeGroups.length === 0) return null;
+    const edgeIds = new Set(measurePicks.filter((pick) => pick.kind === "edge").map((pick) => pick.id));
+    if (edgeIds.size === 0) return null;
+
+    const segments: number[] = [];
+    for (const group of mesh.edgeGroups) {
+      if (!edgeIds.has(group.id)) continue;
+      const startFloat = group.start * 3;
+      const endFloat = startFloat + group.count * 3;
+      for (let i = startFloat; i < endFloat; i += 1) segments.push(mesh.edges[i]);
+    }
+    if (segments.length === 0) return null;
+
+    const buffer = new BufferGeometry();
+    buffer.setAttribute("position", new BufferAttribute(Float32Array.from(segments), 3));
+    buffer.computeBoundingSphere();
+    return buffer;
+  }, [mesh, inspectTool, measurePicks]);
+
   // The canvas only renders on demand, so a freshly built mesh — or a display mode that
   // swaps which materials/overlays are in the tree without touching the geometry itself —
   // has to ask for a frame explicitly.
@@ -303,6 +407,8 @@ export function SolidModel() {
     edgeGeometry,
     faceHighlightGeometry,
     pickedEdgeHighlightGeometry,
+    measureFaceHighlightGeometry,
+    measureEdgeHighlightGeometry,
     displayMode,
     isBodyHidden,
     pickingFeature,
@@ -318,8 +424,17 @@ export function SolidModel() {
       edgeGeometry?.dispose();
       faceHighlightGeometry?.dispose();
       pickedEdgeHighlightGeometry?.dispose();
+      measureFaceHighlightGeometry?.dispose();
+      measureEdgeHighlightGeometry?.dispose();
     };
-  }, [geometry, edgeGeometry, faceHighlightGeometry, pickedEdgeHighlightGeometry]);
+  }, [
+    geometry,
+    edgeGeometry,
+    faceHighlightGeometry,
+    pickedEdgeHighlightGeometry,
+    measureFaceHighlightGeometry,
+    measureEdgeHighlightGeometry,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -347,9 +462,11 @@ export function SolidModel() {
         onClick={
           holePlacementActive
             ? handleHolePlacementClick
-            : selectionFilterMode === "face"
-              ? handleFaceSelectClick
-              : undefined
+            : inspectTool === "measure"
+              ? handleMeasureFaceClick
+              : selectionFilterMode === "face"
+                ? handleFaceSelectClick
+                : undefined
         }
       >
         {showShadedMaterial ? (
@@ -384,8 +501,8 @@ export function SolidModel() {
           // undefined` as an own property, which shadows `LineSegments.prototype.raycast` (the
           // real hit-testing implementation) on the prototype chain, silently breaking clicks.
           // Passing the prototype method explicitly keeps raycasting real while picking.
-          raycast={pickingFeature ? LineSegments.prototype.raycast : () => null}
-          onClick={pickingFeature ? handleEdgeClick : undefined}
+          raycast={pickingFeature || inspectTool === "measure" ? LineSegments.prototype.raycast : () => null}
+          onClick={pickingFeature ? handleEdgeClick : inspectTool === "measure" ? handleMeasureEdgeClick : undefined}
         >
           <lineBasicMaterial
             color={pickingFeature ? "#f5c542" : (modelEdgeColorOverride ?? (isDark ? "#1b1f24" : "#2b3138"))}
@@ -396,6 +513,25 @@ export function SolidModel() {
       {pickedEdgeHighlightGeometry && (
         <lineSegments geometry={pickedEdgeHighlightGeometry} raycast={() => null}>
           <lineBasicMaterial color={PICKED_EDGE_HIGHLIGHT_COLOR} depthTest={false} linewidth={2} />
+        </lineSegments>
+      )}
+
+      {measureFaceHighlightGeometry && (
+        <mesh geometry={measureFaceHighlightGeometry} raycast={() => null}>
+          <meshBasicMaterial
+            color={MEASURE_HIGHLIGHT_COLOR}
+            transparent
+            opacity={0.45}
+            depthTest={true}
+            polygonOffset
+            polygonOffsetFactor={-1}
+          />
+        </mesh>
+      )}
+
+      {measureEdgeHighlightGeometry && (
+        <lineSegments geometry={measureEdgeHighlightGeometry} raycast={() => null}>
+          <lineBasicMaterial color={MEASURE_HIGHLIGHT_COLOR} depthTest={false} linewidth={2} />
         </lineSegments>
       )}
     </group>

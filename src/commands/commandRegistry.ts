@@ -5,6 +5,7 @@ import type { GeometricConstraintKind } from "@/sketch/types";
 import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
+import { useInspectStore } from "@/state/inspectStore";
 import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
@@ -441,6 +442,20 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   },
   "view.constraints": () => useViewportStore.getState().toggleConstraintsVisible(),
 
+  // Both cancel any other modal viewport interaction (Hole Wizard placement, a Fillet/
+  // Chamfer's own edge picking) before arming their own, the same defensive reset every
+  // other mode-switching command in this file already applies to itself.
+  "inspect.measure": () => {
+    useViewportStore.getState().setHolePlacementActive(false);
+    useViewportStore.getState().setEdgePickMode(null);
+    useInspectStore.getState().openMeasure();
+  },
+  "inspect.mass": () => {
+    useViewportStore.getState().setHolePlacementActive(false);
+    useViewportStore.getState().setEdgePickMode(null);
+    useInspectStore.getState().openMassProperties();
+  },
+
   ...Object.fromEntries(
     Object.entries(SKETCH_TOOL_COMMANDS).map(([id, tool]) => [
       id,
@@ -473,8 +488,14 @@ const SKETCH_ONLY_COMMANDS: ReadonlySet<string> = new Set([
 export function isCommandAvailable(commandId: string, inSketchMode: boolean): boolean {
   if (!IMPLEMENTED_COMMANDS.has(commandId)) return false;
   if (SKETCH_ONLY_COMMANDS.has(commandId)) return inSketchMode;
-  // Modelling and reference-geometry features cannot be created from inside a sketch.
-  if (commandId.startsWith("feature.") || commandId.startsWith("reference.") || commandId === "sketch.new") {
+  // Modelling, reference-geometry and Inspect commands all act on the 3D body, which a
+  // sketch's own tools and property panel replace while it's open.
+  if (
+    commandId.startsWith("feature.") ||
+    commandId.startsWith("reference.") ||
+    commandId.startsWith("inspect.") ||
+    commandId === "sketch.new"
+  ) {
     return !inSketchMode;
   }
   return true;

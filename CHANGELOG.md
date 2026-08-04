@@ -7,6 +7,19 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-04 — Inspect tab: Measure and Mass Properties (v0.7.0)
+
+An eleventh round, starting on the Inspect tab — one of the three entirely-unbuilt major tabs the previous round's audit identified (Assembly, Drawing, Inspect all had zero implemented commands). Chosen as the first of the three to build because two of its ten commands, Measure and Mass Properties, turned out to be squarely within reach: replicad already exposes exact kernel-level measurement functions (`measureArea`, `measureLength`, `measureDistanceBetween`, `measureShapeVolumeProperties`), and the kernel already keeps the last-built solid around for STEP/STL export (`kernel/rebuild.ts`'s `getCurrentShape()`) — reusing that reference is all real Inspect measurement needed. The other eight Inspect commands (Section Properties, Check Geometry, Curvature, Draft Analysis, Parent/Child, Equations, Sensors, Appearance) remain unbuilt; none has anywhere near the same "the kernel already does this" head start.
+
+### Added — Measure
+- **Inspect ▸ Measure** picks up to two faces and/or edges in the 3D viewport and reports each one's own Area/Length plus the straight-line distance between them — resolved against the kernel's own B-Rep (`getCurrentShape().faces`/`.edges`, indexed the same way `SolidModel.tsx`'s existing face/edge-pick machinery already does), so the numbers are exact, not derived from the triangulated display mesh. Clicking an already-picked entity again deselects it; a third pick replaces the oldest. New `kernel/measure.ts` (`computeMeasureSummary`) and `state/inspectStore.ts` hold the logic and pick state; `SolidModel.tsx` gained a violet highlight for whatever is currently picked, distinct from every other viewport highlight colour already in use (face-select cyan, Fillet/Chamfer edge-pick amber/pink, Hole Wizard red).
+
+### Added — Mass Properties
+- **Inspect ▸ Mass Properties** reports the whole current body's Volume, Surface area and Centre of Mass (X/Y/Z), straight from `measureShapeVolumeProperties`/`measureArea` — recomputed live on every rebuild, not a one-shot snapshot.
+
+### Changed
+- `SolidModel.tsx`'s Fillet/Chamfer picked-edge-highlight logic (`pickedEdgeHighlightGeometry`) had its "nearest `EdgeGroup` to a raycaster hit point" search pulled out into a shared `nearestEdgeGroupId` helper, now reused by Measure's own edge pick — same lookup, one definition instead of two.
+
 ## 2026-08-03 — A working Print, honest ribbon descriptions, and Reference Geometry off window.prompt() (v0.6.0)
 
 A tenth round, following a full audit of every ribbon tab (Home/Sketch/Features/Assembly/Drawing/Inspect) for the same "dead button" and "misleading description" defects earlier rounds found and fixed in the Sketch tab specifically. Confirmed **Assembly, Drawing and Inspect are entirely unbuilt scaffolding** — no command on any of the three tabs is implemented, and `NewDocumentDialog.tsx` already marks the Assembly/Drawing document types "Coming soon" — real future work, not something this round's smaller scope touches. Home and Features had smaller, fixable gaps:
