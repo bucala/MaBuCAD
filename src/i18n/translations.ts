@@ -158,7 +158,6 @@ export const sk: Record<string, string> = {
   "inspect.mass": "Hmotnostné vlastnosti",
   "inspect.section": "Prierezové vlastnosti",
   "inspect.geometry": "Kontrola geometrie",
-  "inspect.curvature": "Krivosť",
   "inspect.draft-analysis": "Analýza úkosu",
   "inspect.parent-child": "Nadradený / Podradený",
   "inspect.equations": "Rovnice",

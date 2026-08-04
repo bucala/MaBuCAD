@@ -444,7 +444,7 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Boundary surface | Guide-curve boundary blending | ⬜ |
 | Assembly | Components, mates, exploded views | ⬜ |
 | Drawing | 2D sheets, projected/section/detail views, annotations, BOM | ⬜ |
-| Inspect | Measure and Mass Properties done; Section Properties, Check Geometry, Curvature, Draft Analysis, Parent/Child, Equations, Sensors, Appearance still open | 🟡 |
+| Inspect | Measure, Mass Properties, Section Properties, Check Geometry, Draft Analysis, Parent/Child, Equations, Sensors, Appearance; Curvature dropped (no kernel support) | ✅ |
 
 <sub>✅ done &nbsp;•&nbsp; 🟡 partial &nbsp;•&nbsp; ⬜ planned — see
 [`CHANGELOG.md`](./CHANGELOG.md) for the full dated history, including bugs found and fixed

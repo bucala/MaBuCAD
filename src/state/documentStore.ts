@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { CadDocument, Feature, FeatureKind, FeatureParameters } from "@/types/document";
+import type { CadDocument, Feature, FeatureKind, FeatureParameters, Sensor } from "@/types/document";
 import type { UnitSystemId } from "@/types/ui";
 
 import { FEATURE_CATALOG } from "./featureCatalog";
@@ -35,6 +35,8 @@ function createDocument(): CadDocument {
     kind: "part",
     features,
     rollbackIndex: features.length,
+    variables: {},
+    sensors: [],
   };
 }
 
@@ -76,6 +78,24 @@ interface DocumentStore {
   deleteFeature: (id: string) => void;
   toggleSuppressed: (id: string) => void;
   updateParameters: (id: string, parameters: FeatureParameters) => void;
+
+  /** Inspect ▸ Equations. Renaming (deleting the old key, setting the new one) is the
+   * caller's job — this only ever touches one name at a time. */
+  setVariable: (name: string, value: number) => void;
+  deleteVariable: (name: string) => void;
+
+  /** Inspect ▸ Sensors. `addSensor` returns the new id the way `addFeature` does, so the
+   * panel that just created a row can address it immediately (e.g. to focus its name field). */
+  addSensor: (sensor: Omit<Sensor, "id" | "lastStatus">) => string;
+  updateSensor: (id: string, changes: Partial<Omit<Sensor, "id">>) => void;
+  deleteSensor: (id: string) => void;
+  /**
+   * Records a sensor's latest evaluated pass/fail — called after every rebuild, not by the
+   * user, so (unlike `updateSensor`) it bypasses `commit()`: a recalculated status is not
+   * an edit worth an undo step, and at one call per rebuild it would otherwise crowd real
+   * edits out of the capped undo history within a few rebuilds.
+   */
+  setSensorStatus: (id: string, status: Sensor["lastStatus"]) => void;
 
   setRollbackIndex: (index: number) => void;
   rollbackToBefore: (id: string) => void;
@@ -278,6 +298,50 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
             : feature,
         ),
       }));
+    },
+
+    setVariable: (name, value) => {
+      commit((document) => ({
+        ...document,
+        variables: { ...document.variables, [name]: value },
+      }));
+    },
+    deleteVariable: (name) => {
+      commit((document) => {
+        const variables = { ...document.variables };
+        delete variables[name];
+        return { ...document, variables };
+      });
+    },
+
+    addSensor: (sensor) => {
+      const id = nextId("sensor");
+      commit((document) => ({
+        ...document,
+        sensors: [...(document.sensors ?? []), { ...sensor, id, lastStatus: null }],
+      }));
+      return id;
+    },
+    updateSensor: (id, changes) => {
+      commit((document) => ({
+        ...document,
+        sensors: (document.sensors ?? []).map((sensor) =>
+          sensor.id === id ? { ...sensor, ...changes } : sensor,
+        ),
+      }));
+    },
+    deleteSensor: (id) => {
+      commit((document) => ({
+        ...document,
+        sensors: (document.sensors ?? []).filter((sensor) => sensor.id !== id),
+      }));
+    },
+    setSensorStatus: (id, status) => {
+      const { document } = get();
+      const sensors = (document.sensors ?? []).map((sensor) =>
+        sensor.id === id ? { ...sensor, lastStatus: status } : sensor,
+      );
+      set({ document: { ...document, sensors } });
     },
 
     setRollbackIndex: (index) => {

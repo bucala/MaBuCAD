@@ -1,5 +1,11 @@
-import { measureArea, measureDistanceBetween, measureLength, measureShapeVolumeProperties } from "replicad";
-import type { AnyShape, Edge, Face, Shape3D } from "replicad";
+import {
+  measureArea,
+  measureDistanceBetween,
+  measureLength,
+  measureShapeSurfaceProperties,
+  measureShapeVolumeProperties,
+} from "replicad";
+import type { AnyShape, Edge, Face, Shape3D, SurfaceType } from "replicad";
 
 import { getCurrentShape, type Solid } from "./rebuild";
 
@@ -70,6 +76,32 @@ export function computeMeasureSummary(picks: MeasurePick[]): MeasureSummary | nu
       : null;
 
   return { picks: picksResult, distance };
+}
+
+export interface SectionProperties {
+  area: number;
+  centroid: [number, number, number];
+  surfaceType: SurfaceType;
+}
+
+/**
+ * Inspect > Section Properties for a single picked face: area and centroid, straight from
+ * `measureShapeSurfaceProperties`, plus the face's own surface type (e.g. `"PLANE"`) so a
+ * non-planar pick reads honestly rather than silently reporting numbers for a face the
+ * ribbon description promises are only meaningful for a planar one. `null` when there is
+ * no current body or the id no longer resolves to a face on it.
+ */
+export function computeSectionProperties(faceId: number): SectionProperties | null {
+  const shape = getCurrentShape();
+  const face = shape?.faces[faceId];
+  if (!face) return null;
+
+  const surfaceProperties = measureShapeSurfaceProperties(face);
+  return {
+    area: surfaceProperties.area,
+    centroid: surfaceProperties.centerOfMass,
+    surfaceType: face.geomType,
+  };
 }
 
 export interface MassProperties {

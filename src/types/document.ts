@@ -164,6 +164,28 @@ export interface Feature {
 
 export type DocumentKind = "part" | "assembly" | "drawing";
 
+/** A named number, referenced from a sketch dimension's value field as `=name` (see
+ * `state/equations.ts`) — Inspect ▸ Equations' own data. Optional so a document saved
+ * before this existed still loads: every reader treats a missing map as empty rather than
+ * requiring a migration. */
+export type Variables = Record<string, number>;
+
+export type SensorProperty = "volume" | "area";
+export type SensorOperator = "lt" | "gt" | "eq";
+
+/** A watched property + threshold, evaluated on every rebuild by Inspect ▸ Sensors —
+ * `lastStatus` is only ever set by that evaluation, never edited directly, and drives the
+ * "flipped since last time" check that fires a toast on a fresh alert rather than on every
+ * rebuild the sensor happens to already be failing. */
+export interface Sensor {
+  id: string;
+  name: string;
+  property: SensorProperty;
+  operator: SensorOperator;
+  threshold: number;
+  lastStatus: "ok" | "alert" | null;
+}
+
 export interface CadDocument {
   id: string;
   name: string;
@@ -175,4 +197,9 @@ export interface CadDocument {
    * the rollback bar and are excluded from the rebuild.
    */
   rollbackIndex: number;
+  /** See `Variables`'s own doc comment. Optional — absent on documents saved before
+   * Inspect ▸ Equations existed. */
+  variables?: Variables;
+  /** Inspect ▸ Sensors' watch list. Optional for the same reason as `variables`. */
+  sensors?: Sensor[];
 }

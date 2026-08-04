@@ -1,14 +1,17 @@
 import { useEffect, useMemo } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
 import { useThree } from "@react-three/fiber";
-import { BufferAttribute, BufferGeometry, Euler, LineSegments, Quaternion } from "three";
+import { BufferAttribute, BufferGeometry, Color, Euler, LineSegments, Quaternion } from "three";
 
 import { placeHoleAtPick } from "@/commands/commandRegistry";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
+import { buildFaceColorAttribute, faceAngleToAxis } from "@/kernel/faceColoring";
+import { computeMassProperties } from "@/kernel/measure";
 import type { MeshData } from "@/kernel/rebuild";
 import { selectBuiltFeatures, useDocumentStore } from "@/state/documentStore";
 import { GEOMETRY_FEATURE_KINDS, useGeometryStore } from "@/state/geometryStore";
 import { useInspectStore } from "@/state/inspectStore";
+import { sensorTriggered } from "@/state/sensors";
 import { useSettingsStore } from "@/state/settingsStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
@@ -27,8 +30,25 @@ const FACE_HIGHLIGHT_COLOR = "#3fd0ff";
 const PICKED_EDGE_HIGHLIGHT_COLOR = "#ff2f92";
 /** Highlight colour for Inspect > Measure's picked face(s)/edge(s) — distinct from every
  * other highlight colour above so a measure pick never reads as one of those unrelated
- * modes. */
+ * modes. Reused as-is for Inspect > Section Properties' single-face pick, since the two
+ * tools are never open at the same time. */
 const MEASURE_HIGHLIGHT_COLOR = "#a970ff";
+/** Draft Analysis' pass/fail colours — green for a face whose angle to the pull axis
+ * clears the limit, red for one that doesn't (a near-vertical wall the mould can't release
+ * cleanly). The grey is the body's own base colour while the overlay is active, standing
+ * in for whichever faces neither colour applies to (there are none — every face gets a
+ * verdict — but `buildFaceColorAttribute` still needs a fallback to fill with). */
+const DRAFT_SAFE_COLOR: [number, number, number] = [0.3, 0.72, 0.35];
+const DRAFT_UNSAFE_COLOR: [number, number, number] = [0.85, 0.28, 0.28];
+const DRAFT_FALLBACK_COLOR: [number, number, number] = [0.55, 0.55, 0.6];
+/** Appearance's fallback for any face without its own colour override — the same grey the
+ * plain (non-overlay) material already uses, so an unpainted body looks identical to normal. */
+const APPEARANCE_FALLBACK_COLOR: [number, number, number] = [0.72, 0.77, 0.82];
+
+function hexToRgb(hex: string): [number, number, number] {
+  const color = new Color(hex);
+  return [color.r, color.g, color.b];
+}
 
 /** Nearest `EdgeGroup.id` to a point already in the mesh's own un-rotated local space —
  * shared by the Fillet/Chamfer picked-edge highlight (`pickedEdgeHighlightGeometry`) and
@@ -91,17 +111,55 @@ export function SolidModel() {
   const inspectTool = useInspectStore((state) => state.activeTool);
   const measurePicks = useInspectStore((state) => state.measurePicks);
   const pickForMeasure = useInspectStore((state) => state.pickForMeasure);
-  const clearMeasurePicks = useInspectStore((state) => state.clearMeasurePicks);
+  const sectionFacePick = useInspectStore((state) => state.sectionFacePick);
+  const pickForSection = useInspectStore((state) => state.pickForSection);
+  const draftAxis = useInspectStore((state) => state.draftAxis);
+  const draftLimitDegrees = useInspectStore((state) => state.draftLimitDegrees);
+  const faceColors = useInspectStore((state) => state.faceColors);
+  const paintFace = useInspectStore((state) => state.paintFace);
+  const resetMeshDerivedState = useInspectStore((state) => state.resetMeshDerivedState);
   const isPick = useClickGuard();
 
   // A face/edge id is only meaningful for the mesh it came from — `kernel/rebuild.ts`
-  // renumbers both fresh on every rebuild, so a highlight (or Inspect > Measure pick) left
+  // renumbers both fresh on every rebuild, so a highlight (or Inspect pick/paint) left
   // over from a stale mesh could easily land on the wrong entity, or none, once the
   // geometry actually changes.
   useEffect(() => {
     setSelectedFaceId(null);
-    clearMeasurePicks();
-  }, [committedMesh, setSelectedFaceId, clearMeasurePicks]);
+    resetMeshDerivedState();
+  }, [committedMesh, setSelectedFaceId, resetMeshDerivedState]);
+
+  /**
+   * Inspect > Sensors' actual "monitor and alert" behaviour — evaluated here, not in
+   * `InspectPanel.tsx`, specifically so it keeps running (and can still pop a toast) while
+   * the Sensors tool isn't the one open: `SolidModel.tsx` is mounted for the whole time
+   * there's a body to show, `InspectPanel.tsx` only while its own tab is active. Runs once
+   * per rebuild (`committedMesh` changing is what that means), and only calls into
+   * `setSensorStatus` — which bypasses `documentStore`'s undo history — on an actual status
+   * change, both to avoid a toast firing again for a sensor that's already alerting and to
+   * avoid writing to the store every single rebuild for no reason.
+   */
+  useEffect(() => {
+    const documentState = useDocumentStore.getState();
+    const sensors = documentState.document.sensors ?? [];
+    if (sensors.length === 0) return;
+
+    const properties = computeMassProperties();
+    for (const sensor of sensors) {
+      const value = properties ? (sensor.property === "volume" ? properties.volume : properties.area) : undefined;
+      const status = value === undefined ? null : sensorTriggered(sensor.operator, value, sensor.threshold) ? "alert" : "ok";
+      if (status === sensor.lastStatus) continue;
+
+      documentState.setSensorStatus(sensor.id, status);
+      if (status === "alert") {
+        useGeometryStore.getState().showToast(`Sensor "${sensor.name}" tripped`, 4000);
+      }
+    }
+    // Deliberately keyed on the mesh, not the sensor list — adding/editing a sensor is
+    // its own action and shows its own current value in the panel immediately; this only
+    // needs to re-run when the numbers a sensor watches could actually have changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committedMesh]);
 
   // Escape backs out of Hole Wizard placement the same way it backs out of any other
   // modal viewport interaction, since there is (yet) no feature selected to drive this
@@ -271,6 +329,33 @@ export function SolidModel() {
     if (groupId !== null) pickForMeasure({ kind: "edge", id: groupId });
   };
 
+  /** Inspect > Section Properties' face pick — single-entity version of
+   * `handleMeasureFaceClick`, replacing whatever was picked before rather than accumulating. */
+  const handleSectionFaceClick = (event: ThreeEvent<MouseEvent>) => {
+    if (inspectTool !== "section" || !mesh || event.faceIndex == null || !isPick(event)) return;
+    event.stopPropagation();
+
+    const triangleStart = event.faceIndex * 3;
+    const group = mesh.faceGroups.find(
+      (candidate) => triangleStart >= candidate.start && triangleStart < candidate.start + candidate.count,
+    );
+    if (group) pickForSection(group.id);
+  };
+
+  /** Inspect > Appearance's face pick — applies the panel's currently selected paint
+   * colour to whatever face was clicked (`inspectStore.paintFace`), same resolution as
+   * every other face pick above. */
+  const handleAppearanceFaceClick = (event: ThreeEvent<MouseEvent>) => {
+    if (inspectTool !== "appearance" || !mesh || event.faceIndex == null || !isPick(event)) return;
+    event.stopPropagation();
+
+    const triangleStart = event.faceIndex * 3;
+    const group = mesh.faceGroups.find(
+      (candidate) => triangleStart >= candidate.start && triangleStart < candidate.start + candidate.count,
+    );
+    if (group) paintFace(group.id);
+  };
+
   const geometry = useMemo(() => {
     if (!mesh) return null;
 
@@ -397,6 +482,74 @@ export function SolidModel() {
     return buffer;
   }, [mesh, inspectTool, measurePicks]);
 
+  /** Inspect > Section Properties' picked-face overlay — same technique as
+   * `measureFaceHighlightGeometry`, for the tool's single pick instead of up to two. */
+  const sectionFaceHighlightGeometry = useMemo(() => {
+    if (!mesh || inspectTool !== "section" || sectionFacePick === null) return null;
+    const group = mesh.faceGroups.find((candidate) => candidate.id === sectionFacePick);
+    if (!group) return null;
+
+    const buffer = new BufferGeometry();
+    buffer.setAttribute("position", new BufferAttribute(mesh.positions, 3));
+    buffer.setAttribute("normal", new BufferAttribute(mesh.normals, 3));
+    buffer.setIndex(new BufferAttribute(mesh.indices.subarray(group.start, group.start + group.count), 1));
+    buffer.computeBoundingSphere();
+    return buffer;
+  }, [mesh, inspectTool, sectionFacePick]);
+
+  /**
+   * A per-vertex colour buffer for Draft Analysis (colour every face green/red by its
+   * angle to the pull axis) or Appearance (colour every painted face its assigned colour)
+   * — `null` the rest of the time, which is what tells the material below to fall back to
+   * its ordinary flat body colour instead of vertex colours.
+   */
+  const colorAttribute = useMemo(() => {
+    if (!mesh) return null;
+
+    if (inspectTool === "draft-analysis") {
+      return buildFaceColorAttribute(
+        mesh,
+        (faceId) => {
+          const angleToAxis = faceAngleToAxis(mesh, faceId, draftAxis);
+          if (angleToAxis === null) return null;
+          // Conventional "draft angle" is measured from the plane perpendicular to the
+          // pull axis, i.e. 90° minus the angle to the axis itself: a vertical wall
+          // running parallel to the pull direction (angle-to-axis 90°) has 0° draft — the
+          // worst case for release — while a horizontal cap (angle-to-axis 0°/180°) has
+          // the maximum 90°, and is never undercut regardless of the limit.
+          const draftAngle = Math.abs(90 - angleToAxis);
+          return draftAngle >= draftLimitDegrees ? DRAFT_SAFE_COLOR : DRAFT_UNSAFE_COLOR;
+        },
+        DRAFT_FALLBACK_COLOR,
+      );
+    }
+
+    if (inspectTool === "appearance" && Object.keys(faceColors).length > 0) {
+      return buildFaceColorAttribute(
+        mesh,
+        (faceId) => {
+          const hex = faceColors[faceId];
+          return hex ? hexToRgb(hex) : null;
+        },
+        APPEARANCE_FALLBACK_COLOR,
+      );
+    }
+
+    return null;
+  }, [mesh, inspectTool, draftAxis, draftLimitDegrees, faceColors]);
+
+  // Vertex colours live on the shared `geometry` object (so the overlay meshes above don't
+  // need their own copy) but aren't part of the `useMemo` that builds it, since they change
+  // on a different cadence (an axis/threshold tweak, a paint stroke) than the geometry
+  // itself does (a rebuild) — attaching/detaching the attribute imperatively here is what
+  // keeps `geometry` from having to be rebuilt from scratch for either kind of change.
+  useEffect(() => {
+    if (!geometry) return;
+    if (colorAttribute) geometry.setAttribute("color", new BufferAttribute(colorAttribute, 3));
+    else if (geometry.hasAttribute("color")) geometry.deleteAttribute("color");
+    invalidate();
+  }, [geometry, colorAttribute, invalidate]);
+
   // The canvas only renders on demand, so a freshly built mesh — or a display mode that
   // swaps which materials/overlays are in the tree without touching the geometry itself —
   // has to ask for a frame explicitly.
@@ -409,6 +562,8 @@ export function SolidModel() {
     pickedEdgeHighlightGeometry,
     measureFaceHighlightGeometry,
     measureEdgeHighlightGeometry,
+    sectionFaceHighlightGeometry,
+    colorAttribute,
     displayMode,
     isBodyHidden,
     pickingFeature,
@@ -426,6 +581,7 @@ export function SolidModel() {
       pickedEdgeHighlightGeometry?.dispose();
       measureFaceHighlightGeometry?.dispose();
       measureEdgeHighlightGeometry?.dispose();
+      sectionFaceHighlightGeometry?.dispose();
     };
   }, [
     geometry,
@@ -434,6 +590,7 @@ export function SolidModel() {
     pickedEdgeHighlightGeometry,
     measureFaceHighlightGeometry,
     measureEdgeHighlightGeometry,
+    sectionFaceHighlightGeometry,
   ]);
 
   useEffect(() => {
@@ -464,14 +621,22 @@ export function SolidModel() {
             ? handleHolePlacementClick
             : inspectTool === "measure"
               ? handleMeasureFaceClick
-              : selectionFilterMode === "face"
-                ? handleFaceSelectClick
-                : undefined
+              : inspectTool === "section"
+                ? handleSectionFaceClick
+                : inspectTool === "appearance"
+                  ? handleAppearanceFaceClick
+                  : selectionFilterMode === "face"
+                    ? handleFaceSelectClick
+                    : undefined
         }
       >
         {showShadedMaterial ? (
           <meshStandardMaterial
-            color={modelColorOverride ?? (isDark ? "#b8c4d0" : "#c9d4e0")}
+            // Vertex colours (Draft Analysis/Appearance) replace the flat body colour by
+            // multiplying it in, so the base colour needs to be white while they're
+            // active — anything else would tint every painted/analysed face.
+            color={colorAttribute ? "#ffffff" : (modelColorOverride ?? (isDark ? "#b8c4d0" : "#c9d4e0"))}
+            vertexColors={!!colorAttribute}
             metalness={0.12}
             roughness={0.55}
             flatShading={false}
@@ -480,6 +645,19 @@ export function SolidModel() {
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         )}
       </mesh>
+
+      {sectionFaceHighlightGeometry && (
+        <mesh geometry={sectionFaceHighlightGeometry} raycast={() => null}>
+          <meshBasicMaterial
+            color={MEASURE_HIGHLIGHT_COLOR}
+            transparent
+            opacity={0.45}
+            depthTest={true}
+            polygonOffset
+            polygonOffsetFactor={-1}
+          />
+        </mesh>
+      )}
 
       {faceHighlightGeometry && (
         <mesh geometry={faceHighlightGeometry} raycast={() => null}>

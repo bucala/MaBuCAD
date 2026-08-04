@@ -340,17 +340,16 @@ export const RIBBON_TABS: RibbonTab[] = [
         id: "inspect-measure",
         label: "Measure",
         items: [
-          { id: "inspect.measure", label: "Measure", icon: Ruler, size: "large", description: "Measure distance, angle, radius and arc length" },
-          { id: "inspect.mass", label: "Mass Properties", icon: Weight, size: "large", description: "Volume, mass, centre of gravity and inertia" },
-          { id: "inspect.section", label: "Section Properties", icon: Slice, size: "small", description: "Area properties of a planar face or sketch" },
+          { id: "inspect.measure", label: "Measure", icon: Ruler, size: "large", description: "Measure a picked face/edge, and the distance between two picks" },
+          { id: "inspect.mass", label: "Mass Properties", icon: Weight, size: "large", description: "Volume, surface area and centre of mass" },
+          { id: "inspect.section", label: "Section Properties", icon: Slice, size: "small", description: "Area and centroid of a picked face" },
         ],
       },
       {
         id: "inspect-check",
         label: "Check",
         items: [
-          { id: "inspect.geometry", label: "Check Geometry", icon: Wrench, size: "small", description: "Validate the B-Rep for invalid faces and edges" },
-          { id: "inspect.curvature", label: "Curvature", icon: Waves, size: "small", description: "Display curvature combs and colour maps" },
+          { id: "inspect.geometry", label: "Check Geometry", icon: Wrench, size: "small", description: "Flag any face or edge with zero area/length" },
           { id: "inspect.draft-analysis", label: "Draft Analysis", icon: Percent, size: "small", description: "Colour faces by draft angle" },
         ],
       },
@@ -359,7 +358,7 @@ export const RIBBON_TABS: RibbonTab[] = [
         label: "Relations",
         items: [
           { id: "inspect.parent-child", label: "Parent / Child", icon: Link2, size: "small", description: "Show dependencies of a feature" },
-          { id: "inspect.equations", label: "Equations", icon: Calculator, size: "small", description: "Drive dimensions with global variables" },
+          { id: "inspect.equations", label: "Equations", icon: Calculator, size: "small", description: "Drive sketch dimensions with global variables" },
           { id: "inspect.sensors", label: "Sensors", icon: Magnet, size: "small", description: "Monitor properties and alert on changes" },
         ],
       },
@@ -367,7 +366,7 @@ export const RIBBON_TABS: RibbonTab[] = [
         id: "inspect-display",
         label: "Display",
         items: [
-          { id: "inspect.appearance", label: "Appearance", icon: Group, size: "small", description: "Assign materials and appearances" },
+          { id: "inspect.appearance", label: "Appearance", icon: Group, size: "small", description: "Paint faces with a colour override" },
         ],
       },
     ],

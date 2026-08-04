@@ -7,6 +7,94 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-04 — The rest of the Inspect tab (v0.8.0)
+
+A twelfth round, finishing what the previous one started: every remaining Inspect command
+except Curvature now does something real. Measure and Mass Properties (v0.7.0) proved the
+kernel already had enough exposed through replicad to make Inspect worth building; this
+round works through the other eight commands one at a time, building real functionality
+for seven of them and being honest about the eighth.
+
+### Added — Section Properties
+- **Inspect ▸ Section Properties** picks a single face and reports its Area, Centroid
+  (X/Y/Z) and surface type, via `measureShapeSurfaceProperties` — the same exact,
+  kernel-level measurement Measure already uses, just for one face instead of up to two.
+  A non-planar pick still gets exact numbers but a visible caveat, since a "centroid" only
+  fully means what it sounds like for a flat face. New `computeSectionProperties` in
+  `kernel/measure.ts`.
+
+### Added — Check Geometry
+- **Inspect ▸ Check Geometry** flags any face with zero area or edge with zero length —
+  the one class of degenerate B-Rep this kernel can actually detect. The compiled
+  OpenCascade build this app ships exposes no `BRepCheck_Analyzer` (or equivalent) through
+  replicad at all, confirmed by an exhaustive check of its type definitions, so this is
+  deliberately not a full topology validator (no self-intersection or non-manifold-edge
+  detection) — the panel says so. New `kernel/checkGeometry.ts`.
+
+### Added — Draft Analysis
+- **Inspect ▸ Draft Analysis** colours every face of the body green or red by its angle to
+  a chosen pull axis (X/Y/Z) against an adjustable limit, live as either changes, plus a
+  running "N of M faces need more draft" count. Colours come from the triangulated mesh's
+  own per-vertex normals (`kernel/faceColoring.ts`'s `faceAngleToAxis`) rather than an
+  exact kernel surface normal — a deliberate, documented approximation good enough for a
+  visual pass/fail, the same way a mesh-based tool always trades exactness for coverage
+  across every face kind (planar or not) at once.
+
+### Added — Parent / Child
+- **Inspect ▸ Parent / Child** shows the selected feature's parents and children, reading
+  `Feature.parents` (already recorded by every feature-creating command) and reverse-
+  scanning the tree for anything pointing back at it. Along the way, fixed a real gap this
+  surfaced: creating a sketch never recorded which plane it was placed on as a parent, so
+  Plane → Sketch never showed up as a dependency — both sketch-creation paths in
+  `commandRegistry.ts` now pass the plane id through. Dress-up features (Fillet/Chamfer/
+  Shell/Draft) still record no explicit parent, since they act on the whole body rather
+  than one upstream feature; the panel says so instead of showing a bare, misleading "None".
+
+### Added — Equations
+- **Inspect ▸ Equations** defines named numbers, evaluated through a small hand-written
+  expression parser (`state/equations.ts` — arithmetic and parentheses only, deliberately
+  not `eval()`/`Function()`, since a document is a file opened from disk and an expression
+  in it is just as much untrusted input as anything else in that file). A sketch dimension's
+  value field now accepts `=name` (or `=width*2`, referencing one) instead of a literal
+  number — `DimensionValueField.tsx`'s existing "keep showing what's actually typed, only
+  resync on an external change" logic already covers a live formula the same way it always
+  covered a partially-typed number. Variables are plain numbers, resolved once at the
+  moment you set them — editing one doesn't retroactively recompute a dimension that
+  referenced it, only the next explicit `=` re-entry does.
+
+### Added — Sensors
+- **Inspect ▸ Sensors** watches Volume or Surface Area against a threshold and alerts (a
+  toast, plus a status badge in the panel) when it's crossed. Evaluated once per rebuild
+  from `SolidModel.tsx` — not from the Sensors panel itself — specifically so an alert can
+  still fire while a different Inspect tool (or none) is open; the panel only shows the
+  latest result.
+
+### Added — Appearance
+- **Inspect ▸ Appearance** paints individual faces with a colour override — pick a swatch
+  (or a custom colour), click faces to paint them, click a face already in that colour to
+  clear it. Rendered via a per-vertex colour buffer built from the same `FaceGroup` data
+  every other face-pick tool already uses (`kernel/faceColoring.ts`'s
+  `buildFaceColorAttribute`, shared with Draft Analysis). Described honestly as a colour
+  override, not "materials and appearances" — there is no material/texture system behind it.
+
+### Removed — Curvature
+- **Inspect ▸ Curvature** ("Display curvature combs and colour maps") is gone. replicad
+  exposes no curvature-evaluation API at all (`GeomLProp`/`BRepLProp` and friends aren't
+  present anywhere in its type definitions) — computing real curvature would mean
+  extending the compiled OpenCascade WASM build itself, not writing more TypeScript, the
+  same reason IGES export stays unavailable. Left as a permanently-disabled button, it
+  would have been exactly the kind of dead promise earlier rounds already removed
+  (Boundary, Text); removed for the same reason.
+
+### Fixed — misleading Inspect descriptions
+- Corrected four ribbon descriptions written before their commands existed, now that their
+  real scope is known: **Measure** ("distance, angle, radius and arc length" → a picked
+  face/edge plus the distance between two picks — angle and radius aren't measured
+  directly), **Mass Properties** ("mass... and inertia" → volume, surface area and centre
+  of mass — there's no assigned material/density, so no real mass or inertia tensor to
+  report), **Section Properties** ("...or sketch" → a picked face only), **Appearance**
+  ("materials and appearances" → a colour override).
+
 ## 2026-08-04 — Inspect tab: Measure and Mass Properties (v0.7.0)
 
 An eleventh round, starting on the Inspect tab — one of the three entirely-unbuilt major tabs the previous round's audit identified (Assembly, Drawing, Inspect all had zero implemented commands). Chosen as the first of the three to build because two of its ten commands, Measure and Mass Properties, turned out to be squarely within reach: replicad already exposes exact kernel-level measurement functions (`measureArea`, `measureLength`, `measureDistanceBetween`, `measureShapeVolumeProperties`), and the kernel already keeps the last-built solid around for STEP/STL export (`kernel/rebuild.ts`'s `getCurrentShape()`) — reusing that reference is all real Inspect measurement needed. The other eight Inspect commands (Section Properties, Check Geometry, Curvature, Draft Analysis, Parent/Child, Equations, Sensors, Appearance) remain unbuilt; none has anywhere near the same "the kernel already does this" head start.

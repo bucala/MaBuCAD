@@ -86,7 +86,7 @@ function beginSketch() {
   );
 
   const planeId = selectedPlane ?? DEFAULT_PLANE_IDS[0];
-  const featureId = documentState.addFeature("sketch");
+  const featureId = documentState.addFeature("sketch", undefined, [planeId]);
   sketchStore.beginSketch(featureId, planeId);
 }
 
@@ -186,7 +186,7 @@ export function placeHoleAtPick(worldPoint: Vector3, worldNormal: Vector3): bool
 
   const documentState = useDocumentStore.getState();
   const sketchStore = useSketchStore.getState();
-  const sketchFeatureId = documentState.addFeature("sketch");
+  const sketchFeatureId = documentState.addFeature("sketch", undefined, [planeId]);
   sketchStore.beginSketch(sketchFeatureId, planeId);
   sketchStore.drawPoint({ x, y });
   sketchStore.exitSketch();
@@ -442,19 +442,32 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   },
   "view.constraints": () => useViewportStore.getState().toggleConstraintsVisible(),
 
-  // Both cancel any other modal viewport interaction (Hole Wizard placement, a Fillet/
-  // Chamfer's own edge picking) before arming their own, the same defensive reset every
-  // other mode-switching command in this file already applies to itself.
-  "inspect.measure": () => {
-    useViewportStore.getState().setHolePlacementActive(false);
-    useViewportStore.getState().setEdgePickMode(null);
-    useInspectStore.getState().openMeasure();
-  },
-  "inspect.mass": () => {
-    useViewportStore.getState().setHolePlacementActive(false);
-    useViewportStore.getState().setEdgePickMode(null);
-    useInspectStore.getState().openMassProperties();
-  },
+  // Every Inspect command opens its own tool in the property panel the same way — and
+  // first cancels any other modal viewport interaction (Hole Wizard placement, a Fillet/
+  // Chamfer's own edge picking) before arming itself, the same defensive reset every other
+  // mode-switching command in this file already applies to itself.
+  ...Object.fromEntries(
+    (
+      [
+        "measure",
+        "mass",
+        "section",
+        "geometry",
+        "draft-analysis",
+        "parent-child",
+        "equations",
+        "sensors",
+        "appearance",
+      ] as const
+    ).map((tool) => [
+      `inspect.${tool}`,
+      () => {
+        useViewportStore.getState().setHolePlacementActive(false);
+        useViewportStore.getState().setEdgePickMode(null);
+        useInspectStore.getState().openTool(tool);
+      },
+    ]),
+  ),
 
   ...Object.fromEntries(
     Object.entries(SKETCH_TOOL_COMMANDS).map(([id, tool]) => [
