@@ -29,7 +29,7 @@ import {
   trimEntityAt,
 } from "@/sketch/sketchModel";
 import type { DragSnapSuggestion, PatternOptions } from "@/sketch/sketchModel";
-import { sketchStatusFromDiagnostics, solveSketch } from "@/sketch/solver";
+import { findConflictingConstraints, sketchStatusFromDiagnostics, solveSketch } from "@/sketch/solver";
 import type {
   DimensionKind,
   GeometricConstraintKind,
@@ -81,6 +81,10 @@ interface PendingDimension {
   points: string[];
   entities: string[];
   value: number;
+  /** See `inferSmartDimension`'s own doc comment on the same field — carried through so
+   * `commitPendingDimension` can add the pair's Parallel constraint alongside the
+   * dimension itself once the user clicks to place it. */
+  alsoConstrainParallel?: [string, string];
 }
 
 interface SketchStore {
@@ -88,6 +92,11 @@ interface SketchStore {
   activeSketchId: string | null;
   sketches: Record<string, Sketch>;
   diagnostics: SketchDiagnostics;
+  /** Constraint/dimension ids `findConflictingConstraints` found responsible for the
+   * current over-defined state — empty whenever the sketch isn't over-defined. Drives the
+   * error-red highlighting on their own glyphs (`SketchConstraintGlyphs.tsx`) and on the
+   * sketch contours they touch (`SketchGeometry.tsx`). */
+  conflictingIds: string[];
   tool: SketchTool;
   /** Entity and point ids selected inside the sketch. */
   selection: string[];
@@ -209,6 +218,9 @@ interface SketchStore {
   /** Radius <-> diameter on a circle/arc dimension, converting the driving value (2x or
    * /2) so the circle it drives doesn't jump size. A no-op for any other dimension kind. */
   toggleDimensionRadiusDiameter: (dimensionId: string) => void;
+  /** Extends a radius/diameter dimension's leader line inward past its near-rim point to
+   * the circle/arc's own centre — a no-op for any other dimension kind. */
+  toggleRadiusExtendToCenter: (dimensionId: string) => void;
   /** Switches a linear (two-point) dimension between Aligned (`distance`, true point-to-point
    * length), Horizontal (`horizontal-distance`) and Vertical (`vertical-distance`) — a no-op
    * for any other dimension kind. Re-measures the value from the current geometry rather
@@ -255,6 +267,11 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     }));
   };
 
+  /** `findConflictingConstraints` is only worth its own (relatively expensive, O(n) solves)
+   * cost when the sketch is actually over-defined — every other call site just wants `[]`. */
+  const conflictsFor = (sketch: Sketch, diagnostics: SketchDiagnostics): string[] =>
+    sketchStatusFromDiagnostics(diagnostics) === "over-defined" ? [...findConflictingConstraints(sketch)] : [];
+
   /** Applies an edit, re-solves, and stores both the geometry and the diagnostics. */
   const edit = (mutate: (sketch: Sketch) => Sketch) => {
     const { activeSketchId, sketches } = get();
@@ -268,7 +285,19 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     if (sketch === current) return;
 
     pushHistory(current);
-    set({ sketches: { ...sketches, [activeSketchId]: sketch }, diagnostics });
+    // `conflictsFor` re-solves with each constraint/dimension removed in turn to see which
+    // one clears the conflict — and `solveSketch`'s own "fix" residual anchors to wherever
+    // its point *currently* sits at the start of whichever solve is testing it. Feeding it
+    // the already-solved (possibly wildly diverged, chasing an unsatisfiable residual)
+    // `sketch` would silently re-anchor every Fix to that broken position and often mask
+    // the very conflict being diagnosed. `mutated` — the edit applied but not yet
+    // re-solved — still has the points at their last good position, which is what every
+    // one of `conflictsFor`'s internal solves needs to agree on.
+    set({
+      sketches: { ...sketches, [activeSketchId]: sketch },
+      diagnostics,
+      conflictingIds: conflictsFor(mutated, diagnostics),
+    });
   };
 
   /** Splits the current selection into entity ids and point ids. */
@@ -283,6 +312,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     activeSketchId: null,
     sketches: {},
     diagnostics: IDLE_DIAGNOSTICS,
+    conflictingIds: [],
     tool: "select",
     selection: [],
     contextMenu: null,
@@ -306,6 +336,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         activeSketchId: featureId,
         sketches: { ...state.sketches, [featureId]: solved.sketch },
         diagnostics: solved.diagnostics,
+        conflictingIds: [],
         tool: "line",
         selection: [],
         contextMenu: null,
@@ -322,9 +353,11 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     resumeSketch: (featureId) => {
       const sketch = get().sketches[featureId];
       if (!sketch) return;
+      const diagnostics = solveSketch(sketch).diagnostics;
       set({
         activeSketchId: featureId,
-        diagnostics: solveSketch(sketch).diagnostics,
+        diagnostics,
+        conflictingIds: conflictsFor(sketch, diagnostics),
         tool: "select",
         selection: [],
         contextMenu: null,
@@ -344,6 +377,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         tool: "select",
         selection: [],
         diagnostics: IDLE_DIAGNOSTICS,
+        conflictingIds: [],
         contextMenu: null,
         pendingDimension: null,
         pendingConstraintKind: null,
@@ -361,6 +395,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         tool: "select",
         selection: [],
         diagnostics: IDLE_DIAGNOSTICS,
+        conflictingIds: [],
         contextMenu: null,
         pendingDimension: null,
         pendingConstraintKind: null,
@@ -448,6 +483,32 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         return false;
       }
 
+      // Fix reads from either a point (pins it directly) or a single line/circle/arc
+      // entity — a line dispatches to `fix-line` (pins its infinite extension, not its
+      // endpoints, so it stays extendable/shortenable), a circle or arc to a plain `fix`
+      // on its own centre point (pins its location, leaves its radius free to resize).
+      if (kind === "fix") {
+        if (points.length === 1 && entities.length === 0) {
+          edit((current) => addConstraint(current, "fix", [], points));
+          set({ selection: [] });
+          return true;
+        }
+        if (points.length === 0 && entities.length === 1) {
+          const target = entityById(sketch, entities[0]);
+          if (target?.kind === "line") {
+            edit((current) => addConstraint(current, "fix-line", entities, []));
+            set({ selection: [] });
+            return true;
+          }
+          if (target?.kind === "circle" || target?.kind === "arc") {
+            edit((current) => addConstraint(current, "fix", [], [target.center]));
+            set({ selection: [] });
+            return true;
+          }
+        }
+        return false;
+      }
+
       // Each constraint kind needs a specific selection shape; refusing an ill-formed
       // selection is better than silently adding a constraint that does nothing.
       const needsTwoEntities = [
@@ -459,11 +520,9 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         "colinear",
       ].includes(kind);
       const needsOneEntity = ["horizontal", "vertical"].includes(kind);
-      const needsOnePoint = kind === "fix";
 
       if (needsTwoEntities && entities.length !== 2) return false;
       if (needsOneEntity && entities.length === 0) return false;
-      if (needsOnePoint && points.length !== 1) return false;
       if (kind === "point-on-line" && (entities.length !== 1 || points.length !== 1)) return false;
 
       edit((current) => {
@@ -615,7 +674,13 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const value = roundDimensionValue(measure(sketch, inferred.kind, inferred.points, inferred.entities));
       set({
         selection: nextSelection,
-        pendingDimension: { kind: inferred.kind, points: inferred.points, entities: inferred.entities, value },
+        pendingDimension: {
+          kind: inferred.kind,
+          points: inferred.points,
+          entities: inferred.entities,
+          value,
+          alsoConstrainParallel: inferred.alsoConstrainParallel,
+        },
       });
     },
 
@@ -634,7 +699,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           ? { x: position.x - anchor.x, y: position.y - anchor.y }
           : { x: 0, y: 0 };
 
-        return addDimension(
+        const withDimension = addDimension(
           sketch,
           pendingDimension.kind,
           pendingDimension.value,
@@ -642,6 +707,10 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           pendingDimension.entities,
           labelOffset,
         ).sketch;
+
+        return pendingDimension.alsoConstrainParallel
+          ? addConstraint(withDimension, "parallel", pendingDimension.alsoConstrainParallel, [])
+          : withDimension;
       });
 
       set({ selection: [], pendingDimension: null });
@@ -736,6 +805,16 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           }
           return dimension;
         }),
+      })),
+
+    toggleRadiusExtendToCenter: (dimensionId) =>
+      edit((sketch) => ({
+        ...sketch,
+        dimensions: sketch.dimensions.map((dimension) =>
+          dimension.id === dimensionId && (dimension.kind === "radius" || dimension.kind === "diameter")
+            ? { ...dimension, extendToCenter: !dimension.extendToCenter }
+            : dimension,
+        ),
       })),
 
     flipAngleDimension: (dimensionId) =>
@@ -847,6 +926,11 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       set({
         sketches: { ...sketches, [activeSketchId]: final.sketch },
         diagnostics: final.diagnostics,
+        // `settled`, not `final.sketch` — see `edit`'s own doc comment on `conflictsFor`'s
+        // anchor-reuse pitfall; `settled` is where the drag itself actually left the
+        // points, `final.sketch` is a second solve pass that can already have wandered off
+        // chasing whatever's unsatisfiable.
+        conflictingIds: conflictsFor(settled, final.diagnostics),
         dragSnapSuggestion: suggestion,
       });
     },
@@ -950,9 +1034,11 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const previous = past[past.length - 1];
       if (!current || !previous) return;
 
+      const diagnostics = solveSketch(previous).diagnostics;
       set({
         sketches: { ...sketches, [activeSketchId]: previous },
-        diagnostics: solveSketch(previous).diagnostics,
+        diagnostics,
+        conflictingIds: conflictsFor(previous, diagnostics),
         past: past.slice(0, -1),
         future: [current, ...future].slice(0, SKETCH_HISTORY_LIMIT),
         selection: [],
@@ -966,9 +1052,11 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const [next, ...rest] = future;
       if (!current || !next) return;
 
+      const diagnostics = solveSketch(next).diagnostics;
       set({
         sketches: { ...sketches, [activeSketchId]: next },
-        diagnostics: solveSketch(next).diagnostics,
+        diagnostics,
+        conflictingIds: conflictsFor(next, diagnostics),
         past: [...past, current].slice(-SKETCH_HISTORY_LIMIT),
         future: rest,
         selection: [],

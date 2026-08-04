@@ -123,6 +123,7 @@ function SheetFormatEditor({ formatId }: { formatId: string }) {
  */
 export function TemplateManagerDialog() {
   const open = useTemplateStore((state) => state.managerOpen);
+  const initialTab = useTemplateStore((state) => state.managerInitialTab);
   const close = useTemplateStore((state) => state.closeManager);
   const sheetFormats = useTemplateStore((state) => state.sheetFormats);
   const borders = useTemplateStore((state) => state.borders);
@@ -149,6 +150,14 @@ export function TemplateManagerDialog() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, close]);
+
+  // Lands on whichever tab `openManager(tab)` was asked for (e.g. the sheet's own "Edit
+  // Background" button jumping straight to Borders) — read once per open, so navigating
+  // tabs inside the dialog afterwards isn't fought by this effect re-running.
+  useEffect(() => {
+    if (open && initialTab) setActiveTab(initialTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 

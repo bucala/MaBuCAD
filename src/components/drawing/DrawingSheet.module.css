@@ -48,20 +48,31 @@
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  /* Panning/zooming is a CSS transform on `.sheet` itself (`DrawingSheet.tsx`'s own
+     `panX`/`panY`/`zoom` state), not native scrolling — `hidden` here just keeps a
+     zoomed-in sheet from pushing the rest of the layout around. */
+  overflow: hidden;
   border: 1px solid var(--stroke-control);
   border-radius: var(--radius-md);
   background: var(--bg-viewport-top, #d9d9d9);
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
   padding: var(--space-4);
+  touch-action: none;
 }
 
 .sheet {
-  flex: 0 0 auto;
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  transform-origin: 0 0;
   background: #fff;
   box-shadow: var(--shadow-card);
+}
+
+.zoomReadout {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+  min-width: 3.5em;
+  text-align: right;
 }
 
 .paperEdge {
@@ -78,7 +89,6 @@
 
 .zoneLabel {
   fill: #444;
-  font-size: 3px;
   font-weight: 500;
 }
 

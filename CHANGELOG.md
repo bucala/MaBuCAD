@@ -7,6 +7,59 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-04 — Sketch solver fixes, dimension gaps, ViewCube, Drawing pan/zoom (v0.13.0)
+
+A seventeenth round: a batch of sketch-solver correctness fixes, several dimensioning gaps
+closed, two ViewCube rotation bugs, and Drawing sheet navigation.
+
+### Added — sketch constraints and trim
+- **Fix** now accepts a line, circle or arc too, not only a point: on a line it pins the
+  line's own infinite extension (direction + offset) rather than both endpoints, so it
+  stays extendable/shortenable from either end (`fix-line`, a new constraint kind); on a
+  circle/arc it pins the centre, leaving the radius free to resize.
+- **Trim** now shares one literal point between lines trimmed back to the same corner in
+  separate clicks, rather than leaving two coincident-looking but unconnected points
+  behind — the corner moves as one rigid unit under dragging. Fixed a related bug where
+  this could self-reference a redundant, trivially-satisfied constraint and read as
+  spuriously "Over Defined".
+- **Trim by window** now crops a line at the window's edge when the window only crosses
+  it, instead of requiring full containment to do anything — the "further refinement" the
+  original window-trim explicitly deferred.
+- **Conflicting-constraint highlighting**: when a sketch is Over Defined, the constraint
+  (or dimension) actually responsible is found by re-solving with each one removed in
+  turn, and highlighted — its own glyph/label and every entity/point it touches — in a
+  loud red/pink, distinct from the ordinary accent-coloured selection.
+
+### Added — dimensions
+- **Point-to-line distance**: selecting one point and one line for Smart Dimension now
+  works (`point-line-distance`, a new dimension kind measuring perpendicular distance to
+  the line's own infinite extension) — previously silently did nothing.
+- **Parallel-line auto-detect**: dimensioning two lines that are already parallel no
+  longer creates a degenerate 0°/180° angle dimension; it creates a distance dimension
+  between them instead (plus an explicit Parallel constraint, so they stay a rigid pair).
+- **Radius/diameter**: right-click now offers "Extend to Centre", continuing the leader
+  line inward past the rim to the centre point (ISO/Inventor convention for small
+  circles). An arc's leader is now clamped to the arc's own swept range, so it can no
+  longer point into the wedge the arc doesn't cover — dragging the label past either end
+  now reads as picking which segment of the arc the dimension anchors to.
+
+### Fixed
+- **Extrude/Cut-Extrude/Revolve/Cut-Revolve/Rib** now show a "Profile Sketch" picker in
+  the property panel, so a feature created without picking up the intended sketch (or
+  created with none at all) can have it reassigned afterward instead of needing to be
+  recreated.
+- **ViewCube "Rotate view up/down"** now tips over the pole and keeps going down the
+  opposite side instead of stopping dead at Top/Bottom.
+- **ViewCube "Rotate view left/right"** was rotating the wrong direction; fixed.
+
+### Added — Drawing sheet
+- Mouse-wheel zoom (to-cursor) and middle-mouse-drag pan, plus a zoom readout/reset
+  button in the toolbar — the sheet previously had no way to zoom or pan at all.
+- A dedicated "Edit Background" toolbar/ribbon button opens the Border/Title Block editor
+  directly on the Borders tab, alongside the existing Sheet Format entry point.
+- The border's zone-reference numbers/letters now size themselves from the border's own
+  margin (capped at ISO 5457's 3.5mm) instead of a flat, unscaled 3px.
+
 ## 2026-08-04 — ISO 128-50 section hatching (v0.12.0)
 
 A sixteenth round, closing the one gap the previous round's own Section entry called

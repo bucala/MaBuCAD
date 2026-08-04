@@ -82,7 +82,12 @@ const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideI
     hint: "Select two points, or a point and a line/circle/spline",
   },
   { kind: "equal", label: "Equal", icon: AlignHorizontalJustifyCenter, hint: "Select two lines, or two circles/arcs" },
-  { kind: "fix", label: "Fix", icon: Lock, hint: "Select a point to pin" },
+  {
+    kind: "fix",
+    label: "Fix",
+    icon: Lock,
+    hint: "Select a point to pin it, or a line/circle/arc to pin its position (still extendable/resizable)",
+  },
 ];
 
 /**
@@ -464,6 +469,7 @@ export function SketchPanel() {
 
 const DIMENSION_LABEL: Record<string, string> = {
   distance: "Length",
+  "point-line-distance": "Point-Line",
   "horizontal-distance": "Horizontal",
   "vertical-distance": "Vertical",
   radius: "Radius",

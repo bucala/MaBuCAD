@@ -22,3 +22,13 @@
   color: var(--text-on-accent);
   background: var(--accent);
 }
+
+/* A strong red/pink, distinct from the accent-coloured `.selected` above, for a
+   constraint `findConflictingConstraints` found responsible for an over-defined sketch —
+   deliberately loud (unlike the rest of this app's fairly muted palette) since a conflict
+   is an error state the user needs to notice and resolve, not a status to blend in. */
+.conflicting {
+  border-color: #ff2d55;
+  color: #fff;
+  background: #ff2d55;
+}

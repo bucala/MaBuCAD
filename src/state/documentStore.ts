@@ -116,6 +116,11 @@ interface DocumentStore {
   deleteFeature: (id: string) => void;
   toggleSuppressed: (id: string) => void;
   updateParameters: (id: string, parameters: FeatureParameters) => void;
+  /** Reassigns which sketch (or other parent feature) a feature consumes at a given
+   * `parents` index — e.g. picking a different profile sketch for an Extrude after it was
+   * created with the wrong one, or none at all. `PropertyManager.tsx`'s own "Profile
+   * Sketch" picker is the only caller. */
+  setFeatureParent: (id: string, index: number, parentId: string) => void;
 
   /** Inspect ▸ Equations. Renaming (deleting the old key, setting the new one) is the
    * caller's job — this only ever touches one name at a time. */
@@ -353,6 +358,18 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
             ? { ...feature, parameters: { ...feature.parameters, ...parameters } }
             : feature,
         ),
+      }));
+    },
+
+    setFeatureParent: (id, index, parentId) => {
+      commit((document) => ({
+        ...document,
+        features: document.features.map((feature) => {
+          if (feature.id !== id) return feature;
+          const parents = [...feature.parents];
+          parents[index] = parentId;
+          return { ...feature, parents };
+        }),
       }));
     },
 

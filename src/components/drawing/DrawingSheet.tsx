@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FileUp, RotateCw, Settings2, Trash2 } from "lucide-react";
+import { FileUp, Frame, Maximize, RotateCw, Settings2, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 
 import { runCommand } from "@/commands/commandRegistry";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -109,6 +109,7 @@ function PlacedView({
   const x = view.x - width / 2;
   const y = view.y - height / 2;
   const dragOrigin = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
+  const zoom = useDrawingToolStore((state) => state.zoom);
 
   return (
     <g>
@@ -142,8 +143,8 @@ function PlacedView({
           }}
           onPointerMove={(event) => {
             if (!dragOrigin.current) return;
-            const dx = (event.clientX - dragOrigin.current.x) / SHEET_SCALE;
-            const dy = (event.clientY - dragOrigin.current.y) / SHEET_SCALE;
+            const dx = (event.clientX - dragOrigin.current.x) / (SHEET_SCALE * zoom);
+            const dy = (event.clientY - dragOrigin.current.y) / (SHEET_SCALE * zoom);
             onMove(dragOrigin.current.vx + dx, dragOrigin.current.vy + dy);
           }}
           onPointerUp={() => {
@@ -177,6 +178,7 @@ function NoteView({
   onDelete: () => void;
 }) {
   const dragOrigin = useRef<{ x: number; y: number; nx: number; ny: number } | null>(null);
+  const zoom = useDrawingToolStore((state) => state.zoom);
   const width = Math.max(note.text.length * note.fontSize * 0.6, 30);
   const height = note.fontSize + 4;
 
@@ -204,8 +206,8 @@ function NoteView({
         }}
         onPointerMove={(event) => {
           if (!dragOrigin.current) return;
-          const dx = (event.clientX - dragOrigin.current.x) / SHEET_SCALE;
-          const dy = (event.clientY - dragOrigin.current.y) / SHEET_SCALE;
+          const dx = (event.clientX - dragOrigin.current.x) / (SHEET_SCALE * zoom);
+          const dy = (event.clientY - dragOrigin.current.y) / (SHEET_SCALE * zoom);
           onMove(dragOrigin.current.nx + dx, dragOrigin.current.ny + dy);
         }}
         onPointerUp={() => {
@@ -274,6 +276,12 @@ export function SheetBorder({ width, height, border }: { width: number; height: 
   const innerH = height - margin * 2;
   const colWidth = innerW / zoneColumns;
   const rowHeight = innerH / zoneRows;
+  // ISO 5457's grid reference numbers/letters read as one consistent size across every
+  // edge — this is the one formula both the horizontal (column) and vertical (row) labels
+  // below compute their `fontSize` from, rather than each hand-tuning its own. Capped at
+  // 3.5mm (ISO 5457's own character height for the reference grid) but scaled down for a
+  // tighter margin band so the glyph never overflows the strip it sits in.
+  const zoneLabelSize = Math.min(margin * 0.5, 3.5);
 
   return (
     <g>
@@ -282,10 +290,24 @@ export function SheetBorder({ width, height, border }: { width: number; height: 
 
       {Array.from({ length: zoneColumns }, (_, i) => innerX + colWidth * (i + 0.5)).map((cx, i) => (
         <g key={`col-${i}`}>
-          <text x={cx} y={margin * 0.65} textAnchor="middle" className={styles.zoneLabel}>
+          <text
+            x={cx}
+            y={margin / 2}
+            fontSize={zoneLabelSize}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            className={styles.zoneLabel}
+          >
             {i + 1}
           </text>
-          <text x={cx} y={height - margin * 0.3} textAnchor="middle" className={styles.zoneLabel}>
+          <text
+            x={cx}
+            y={height - margin / 2}
+            fontSize={zoneLabelSize}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            className={styles.zoneLabel}
+          >
             {i + 1}
           </text>
         </g>
@@ -299,12 +321,20 @@ export function SheetBorder({ width, height, border }: { width: number; height: 
 
       {Array.from({ length: zoneRows }, (_, i) => innerY + rowHeight * (i + 0.5)).map((cy, i) => (
         <g key={`row-${i}`}>
-          <text x={margin * 0.5} y={cy} textAnchor="middle" dominantBaseline="middle" className={styles.zoneLabel}>
+          <text
+            x={margin / 2}
+            y={cy}
+            fontSize={zoneLabelSize}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            className={styles.zoneLabel}
+          >
             {String.fromCharCode(65 + i)}
           </text>
           <text
-            x={width - margin * 0.5}
+            x={width - margin / 2}
             y={cy}
+            fontSize={zoneLabelSize}
             textAnchor="middle"
             dominantBaseline="middle"
             className={styles.zoneLabel}
@@ -435,11 +465,19 @@ export function DrawingSheet() {
   const detailSourceViewId = useDrawingToolStore((state) => state.detailSourceViewId);
   const pickSectionSource = useDrawingToolStore((state) => state.pickSectionSource);
   const pickDetailSource = useDrawingToolStore((state) => state.pickDetailSource);
+  const zoom = useDrawingToolStore((state) => state.zoom);
+  const panX = useDrawingToolStore((state) => state.panX);
+  const panY = useDrawingToolStore((state) => state.panY);
+  const zoomAt = useDrawingToolStore((state) => state.zoomAt);
+  const setPan = useDrawingToolStore((state) => state.setPan);
+  const resetZoomPan = useDrawingToolStore((state) => state.resetZoomPan);
 
   const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const sheetRef = useRef<SVGSVGElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const panOrigin = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
 
   const views = drawing?.views ?? [];
   const notes = drawing?.notes ?? [];
@@ -525,6 +563,15 @@ export function DrawingSheet() {
           <Settings2 size={14} strokeWidth={1.75} />
           {t("drawing.sheet-format", "Sheet Format")}
         </button>
+        <button
+          type="button"
+          className={styles.toolbarButton}
+          onClick={() => runCommand("drawing.edit-background")}
+          title={t("drawing.edit-background-title", "Edit the sheet's border/background template")}
+        >
+          <Frame size={14} strokeWidth={1.75} />
+          {t("drawing.edit-background", "Edit Background")}
+        </button>
         <select
           className={styles.sheetFormatSelect}
           value={sheetFormat?.id ?? ""}
@@ -557,9 +604,65 @@ export function DrawingSheet() {
             {t("drawing.delete-selected", "Delete")}
           </button>
         )}
+        <button
+          type="button"
+          className={styles.toolbarButton}
+          title={t("drawing.zoom-out", "Zoom out")}
+          onClick={() => useDrawingToolStore.getState().setZoom(zoom / 1.25)}
+        >
+          <ZoomOut size={14} strokeWidth={1.75} />
+        </button>
+        <span className={styles.zoomReadout}>{Math.round(zoom * 100)}%</span>
+        <button
+          type="button"
+          className={styles.toolbarButton}
+          title={t("drawing.zoom-in", "Zoom in")}
+          onClick={() => useDrawingToolStore.getState().setZoom(zoom * 1.25)}
+        >
+          <ZoomIn size={14} strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          className={styles.toolbarButton}
+          title={t("drawing.zoom-reset", "Reset zoom/pan (or Ctrl+double-click the sheet)")}
+          onClick={resetZoomPan}
+        >
+          <Maximize size={14} strokeWidth={1.75} />
+        </button>
       </div>
 
-      <div className={styles.sheetScroll}>
+      <div
+        ref={scrollRef}
+        className={styles.sheetScroll}
+        onWheel={(event) => {
+          event.preventDefault();
+          const container = scrollRef.current?.getBoundingClientRect();
+          if (!container) return;
+          const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+          zoomAt(factor, event.clientX, event.clientY, container.left, container.top);
+        }}
+        onPointerDown={(event) => {
+          // Middle-mouse drag pans the sheet, the same button the 3D viewport already
+          // reserves for panning — left click stays free for select/place/pick.
+          if (event.button !== 1) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          panOrigin.current = { x: event.clientX, y: event.clientY, panX, panY };
+        }}
+        onPointerMove={(event) => {
+          if (!panOrigin.current) return;
+          setPan(
+            panOrigin.current.panX + (event.clientX - panOrigin.current.x),
+            panOrigin.current.panY + (event.clientY - panOrigin.current.y),
+          );
+        }}
+        onPointerUp={() => {
+          panOrigin.current = null;
+        }}
+        onDoubleClick={(event) => {
+          if (event.ctrlKey || event.metaKey) resetZoomPan();
+        }}
+      >
         <svg
           ref={sheetRef}
           className={styles.sheet}
@@ -567,7 +670,10 @@ export function DrawingSheet() {
           height={sheetHeight * SHEET_SCALE}
           viewBox={`0 0 ${sheetWidth} ${sheetHeight}`}
           onClick={handleBackgroundClick}
-          style={{ cursor: tool === "note" ? "crosshair" : "default" }}
+          style={{
+            cursor: tool === "note" ? "crosshair" : "default",
+            transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
+          }}
         >
           <defs>
             {/* ISO 128-50: thin lines at 45°, uniform spacing — one shared pattern so every

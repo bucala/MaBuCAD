@@ -35,6 +35,7 @@ const GLYPHS: Partial<Record<GeometricConstraintKind, { icon: LucideIcon; label:
   coincident: { icon: Anchor, label: "Coincident" },
   equal: { icon: AlignHorizontalJustifyCenter, label: "Equal" },
   fix: { icon: Lock, label: "Fixed" },
+  "fix-line": { icon: Lock, label: "Fixed (extendable)" },
   "point-on-line": { icon: Anchor, label: "Point on line" },
   "point-on-circle": { icon: CircleDot, label: "Point on circle" },
   "point-on-spline": { icon: Spline, label: "Point on spline" },
@@ -103,6 +104,7 @@ export function SketchConstraintGlyphs({ sketch }: { sketch: Sketch }) {
   const isSelectMode = useSketchStore((state) => state.tool === "select");
   const selection = useSketchStore((state) => state.selection);
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
+  const conflictingIds = useSketchStore((state) => state.conflictingIds);
   if (!visible) return null;
 
   // Constraints that land on (almost) the same spot are staggered rather than stacked
@@ -129,13 +131,18 @@ export function SketchConstraintGlyphs({ sketch }: { sketch: Sketch }) {
         const offsetY = 4 + index * 5;
 
         const isSelected = selection.includes(constraint.id);
+        const isConflicting = conflictingIds.includes(constraint.id);
 
         return (
           <Html key={constraint.id} position={[anchor.x, anchor.y + offsetY, 0.06]} center zIndexRange={[15, 0]}>
             <button
               type="button"
-              className={`${styles.constraintGlyph} ${isSelected ? styles.selected : ""}`}
-              title={`${glyph.label} — click to select, Delete to remove`}
+              className={`${styles.constraintGlyph} ${isConflicting ? styles.conflicting : isSelected ? styles.selected : ""}`}
+              title={
+                isConflicting
+                  ? `${glyph.label} — conflicts with another constraint; delete one of them to fix the sketch`
+                  : `${glyph.label} — click to select, Delete to remove`
+              }
               style={isSelectMode ? undefined : { pointerEvents: "none" }}
               onClick={(event) => {
                 event.stopPropagation();
