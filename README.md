@@ -444,7 +444,7 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Boundary surface | Guide-curve boundary blending | ⬜ |
 | Multi-document workspace | Tabbed Part/Drawing documents, each with its own history, undo and sketches | ✅ |
 | Assembly | Components, mates, exploded views | ⬜ |
-| Drawing | Model View (Front/Top/Right/Iso, real projected B-Rep edges via replicad, visible+hidden), Update Views, Sheet Formats/Borders/Title Blocks (A4–A0, parametric zone grid, draggable title block fields, import/export as templates); section/detail views, annotations, BOM | 🟡 |
+| Drawing | Model View (Front/Top/Right/Iso, real projected B-Rep edges via replicad), Section (real kernel cut) and Detail (2D crop) views, draggable views/notes, Sheet Formats/Borders/Title Blocks (A4–A0, import/export as templates); ordinate/GD&T annotations, BOM, hatching | 🟡 |
 | Inspect | Measure, Mass Properties, Section Properties, Check Geometry, Draft Analysis, Parent/Child, Equations, Sensors, Appearance; Curvature dropped (no kernel support) | ✅ |
 
 <sub>✅ done &nbsp;•&nbsp; 🟡 partial &nbsp;•&nbsp; ⬜ planned — see

@@ -177,11 +177,18 @@ export type DrawingProjectionKind = "front" | "top" | "right" | "iso";
  * "Update View" command (`kernel/drawingProjection.ts`'s `rebuildAndProjectPart`) is what
  * refreshes this cache after the referenced part changes.
  */
+/** A standard view is a plain projection; a section view is a standard view's projection
+ * kind but of a solid that's been cut first (`section` carries the cut); a detail view
+ * isn't projected from the solid at all — it's a magnified crop of another view's own
+ * already-cached paths (`detailOf`). */
+export type DrawingViewKind = "standard" | "section" | "detail";
+
 export interface DrawingViewData {
   id: string;
   label: string;
   projection: DrawingProjectionKind;
-  /** Sheet position (mm) of this view's own bounding-box centre. */
+  /** Sheet position (mm) of this view's own bounding-box centre. Freely draggable — see
+   * `documentStore.ts`'s `updateDrawingView`. */
   x: number;
   y: number;
   /** 1 = full size. */
@@ -193,6 +200,34 @@ export interface DrawingViewData {
   /** Projected bounding box (mm, before `scale`) shared by `visiblePaths`/`hiddenPaths`. */
   width: number;
   height: number;
+  /** World-space coordinate (in the source part's own camera-projected basis — see
+   * `kernel/drawingProjection.ts`'s `projectOne`) that `visiblePaths`/`hiddenPaths` were
+   * shifted by to land at (0, 0). Optional/defaults to (0, 0) for a view cached before this
+   * existed — only matters for placing a Section view's cut line in world space, so an
+   * absent value just means "don't offer a section cut from this view" in practice. */
+  originX?: number;
+  originY?: number;
+  /** Absent for a `"standard"` view — see `DrawingViewKind`'s own doc comment. */
+  kind?: DrawingViewKind;
+  /** Section view only: the world-space cut plane used to produce it — a plane
+   * perpendicular to one world axis, at a fixed offset along it. `keepPositiveSide` false
+   * keeps material on the axis's negative side instead (`drawing.section`'s "flip" toggle). */
+  section?: { axis: "x" | "y" | "z"; offset: number; keepPositiveSide: boolean };
+  /** Detail view only: which view it was cropped from and the circular region (in that
+   * source view's own rendered screen-space, unscaled) it magnifies. `sourceHeight` is the
+   * source view's own `height` at the moment of cropping, needed to replay the same Y-flip
+   * transform `View` applies to every view's cached (Y-up) paths. */
+  detailOf?: { sourceViewId: string; cx: number; cy: number; radius: number; sourceHeight: number };
+}
+
+/** A freeform text annotation placed directly on the sheet (not attached to a view) —
+ * `annotation.note`'s own data. Position is the text's top-left corner, sheet mm. */
+export interface DrawingNoteData {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
 }
 
 /**
@@ -217,6 +252,8 @@ export interface DrawingSheetData {
    * — e.g. `{ title: "Bracket", scale: "1:2" }`. A field with no entry here renders blank,
    * never a placeholder like a name or date filled in on the user's behalf. */
   titleBlockValues?: Record<string, string>;
+  /** Freeform text notes on the sheet — optional/absent means none yet. */
+  notes?: DrawingNoteData[];
 }
 
 /** A named number, referenced from a sketch dimension's value field as `=name` (see

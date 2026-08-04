@@ -3,7 +3,9 @@ import { create } from "zustand";
 import type {
   CadDocument,
   DocumentKind,
+  DrawingNoteData,
   DrawingSheetData,
+  DrawingViewData,
   Feature,
   FeatureKind,
   FeatureParameters,
@@ -170,6 +172,15 @@ interface DocumentStore {
   /** Replaces a Drawing document's whole sheet — `commands/drawingCommands.ts`'s Insert
    * Model View and Update Views, the only things that ever touch `CadDocument.drawing`. */
   setDrawingSheet: (drawing: DrawingSheetData) => void;
+  /** Patches one placed view (drag repositioning, or any other single-view edit) without
+   * the caller needing the rest of `drawing` in hand — a no-op if the active document
+   * isn't a Drawing or has no view with that id. */
+  updateDrawingView: (id: string, patch: Partial<Omit<DrawingViewData, "id">>) => void;
+  deleteDrawingView: (id: string) => void;
+  addDrawingView: (view: DrawingViewData) => void;
+  addDrawingNote: (note: Omit<DrawingNoteData, "id">) => string;
+  updateDrawingNote: (id: string, patch: Partial<Omit<DrawingNoteData, "id">>) => void;
+  deleteDrawingNote: (id: string) => void;
 
   /**
    * Replaces the whole document — Open, loading a saved file. Bypasses `commit()`
@@ -446,6 +457,66 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     setUnitSystem: (unitSystem) => set({ unitSystem }),
 
     setDrawingSheet: (drawing) => commit((document) => ({ ...document, drawing })),
+
+    updateDrawingView: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            views: document.drawing.views.map((view) => (view.id === id ? { ...view, ...patch } : view)),
+          },
+        };
+      }),
+
+    deleteDrawingView: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, views: document.drawing.views.filter((view) => view.id !== id) },
+        };
+      }),
+
+    addDrawingView: (view) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return { ...document, drawing: { ...document.drawing, views: [...document.drawing.views, view] } };
+      }),
+
+    addDrawingNote: (note) => {
+      const id = nextId("note");
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, notes: [...(document.drawing.notes ?? []), { ...note, id }] },
+        };
+      });
+      return id;
+    },
+
+    updateDrawingNote: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            notes: (document.drawing.notes ?? []).map((note) => (note.id === id ? { ...note, ...patch } : note)),
+          },
+        };
+      }),
+
+    deleteDrawingNote: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, notes: (document.drawing.notes ?? []).filter((note) => note.id !== id) },
+        };
+      }),
 
     loadDocument: (document) =>
       set({ document, past: [], future: [], selectedFeatureIds: [], contextMenu: null }),

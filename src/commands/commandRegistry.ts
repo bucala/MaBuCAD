@@ -6,6 +6,7 @@ import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { useInspectStore } from "@/state/inspectStore";
+import { useDrawingToolStore } from "@/state/drawingToolStore";
 import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 import { useTemplateStore } from "@/state/templateStore";
 import { useViewportStore } from "@/state/viewportStore";
@@ -364,6 +365,9 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "drawing.model-view": () => void runInsertModelView(),
   "drawing.update-views": () => void runUpdateViews(),
   "drawing.sheet-format": () => useTemplateStore.getState().openManager(),
+  "drawing.section": () => useDrawingToolStore.getState().setTool("section"),
+  "drawing.detail": () => useDrawingToolStore.getState().setTool("detail"),
+  "annotation.note": () => useDrawingToolStore.getState().setTool("note"),
   // There's no "drawing sheet" to print yet (Assembly and Drawing document types are
   // still "Coming soon" in NewDocumentDialog.tsx) — this prints the 3D view as currently
   // shown. `PrintCapture.tsx` (inside the Canvas) does the actual capture once it sees

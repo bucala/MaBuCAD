@@ -218,6 +218,7 @@ export const sk: Record<string, string> = {
   "drawing.showing": "Zobrazuje sa",
   "drawing.empty": "Vložením pohľadu na model zobrazíte premietnuté pohľady uloženého dielu.",
   "drawing.edit-resources": "Upraviť rámiky a titulné bloky",
+  "drawing.delete-selected": "Odstrániť",
 
   // ---------------------------------------------------------- drawing resources / templates
   "templates.title": "Zdroje výkresu",

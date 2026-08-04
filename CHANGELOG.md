@@ -7,6 +7,48 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-04 — View dragging, Section/Detail views, Note annotations (v0.11.0)
+
+A fifteenth round, closing out the three gaps the previous round's own "Notes" called out:
+views could only be placed where Insert Model View put them, and Section, Detail and Note
+were unimplemented ribbon stubs.
+
+### Added — drag-to-reposition
+- Every placed view (standard, section or detail alike) can now be dragged anywhere on the
+  sheet, and text notes the same way — Pointer Events + `setPointerCapture`, the same drag
+  shape the Title Block editor's fields already used last round. Delete/Backspace removes
+  whichever view or note is selected; a Delete button in the sheet's own toolbar does the
+  same for mouse-only use.
+
+### Added — Note annotations
+- **Drawing ▸ Annotation ▸ Note** places a freeform text note wherever you click next;
+  double-click (or the initial placement) turns it into a plain text input to type into,
+  Enter/blur commits it. New `DrawingNoteData` on `DrawingSheetData`.
+
+### Added — Detail views
+- **Drawing ▸ Views ▸ Detail** picks an existing view, then a draggable/resizable circle
+  crops and magnifies (2×) that region into a new "DETAIL A" view — pure 2D work on
+  geometry that's already been projected (an SVG `clipPath` circle + a re-windowed
+  viewBox), no kernel rebuild involved. `kernel/drawingProjection.ts`'s `projectOne` now
+  also returns each view's `originX`/`originY` (the world-space offset its cached paths
+  were shifted by to land at the origin), which is what makes a click on a view mappable
+  back to real coordinates at all — see the Section entry below for what that unlocked.
+
+### Added — Section views
+- **Drawing ▸ Views ▸ Section** picks a Front/Top/Right view (Isometric's axes aren't
+  world-aligned, so it's excluded), then a draggable horizontal/vertical cut line plus a
+  flip-side toggle. Confirming re-reads the referenced part, boolean-cuts its real solid
+  with a half-space tool positioned from the cut line's on-screen position mapped back
+  through the source view's own camera basis (`kernel/drawingProjection.ts`'s new
+  `sectionAxisAndOffset`, derived from replicad's own per-plane camera vectors), and
+  projects what remains from the same camera — a genuine section, not a re-styled copy of
+  the original view. Verified end to end: a vertical cut through a 48mm-wide part's Front
+  view produced a section exactly 24mm wide.
+- No hatching of the newly exposed cut face(s) yet — the cut's own new boundary edges
+  still render correctly (it's a real projection of the actually-cut solid), which reads
+  as a correct section even without the fill convention; a documented, deliberate scope
+  cut rather than an oversight.
+
 ## 2026-08-04 — Drawing Resources: Sheet Formats, Borders, Title Blocks (v0.10.0)
 
 A fourteenth round, built directly on the multi-document/Drawing work below: a Drawing
