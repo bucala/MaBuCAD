@@ -13,6 +13,10 @@ export interface Loop {
   segments: LoopSegment[];
   /** Signed area; the sign gives the winding direction. */
   signedArea: number;
+  /** The sketch entity id each segment in `segments` was walked from, same length/order —
+   * lets a caller (`profileRegions`'s optional filter) tell which loop a given entity
+   * belongs to without re-walking the sketch. */
+  entityIds: string[];
 }
 
 type EdgeEntity = LineEntity | ArcEntity;
@@ -103,7 +107,12 @@ export function extractLoops(sketch: Sketch): Loop[] {
         return { kind: "arc", to, mid };
       });
 
-      loops.push({ points, segments, signedArea: loopSignedArea(points, segments) });
+      loops.push({
+        points,
+        segments,
+        signedArea: loopSignedArea(points, segments),
+        entityIds: ringEdges.map((edge) => edge.id),
+      });
     }
   }
 
@@ -113,6 +122,8 @@ export function extractLoops(sketch: Sketch): Loop[] {
 export interface CircleLoop {
   centre: { x: number; y: number };
   radius: number;
+  /** The circle entity this loop came from — see `Loop.entityIds`'s own note. */
+  entityId: string;
 }
 
 /** Circles are already closed profiles and need no walking. */
@@ -125,6 +136,7 @@ export function extractCircles(sketch: Sketch): CircleLoop[] {
       return {
         centre: { x: centre?.x ?? 0, y: centre?.y ?? 0 },
         radius: circle.radius,
+        entityId: circle.id,
       };
     });
 }
@@ -175,14 +187,119 @@ export interface ProfileRegions {
 const areaOf = (region: Loop | CircleLoop): number =>
   "radius" in region ? Math.PI * region.radius ** 2 : Math.abs(region.signedArea);
 
+/** Entity ids a region (loop or circle) was built from — the `profileEntityIds` filter's
+ * own unit, and what a "Profile Regions" picker UI groups its checkboxes by. */
+export const regionEntityIds = (region: Loop | CircleLoop): string[] =>
+  "radius" in region ? [region.entityId] : region.entityIds;
+
+/** A representative point for containment testing — a circle's own centre, or a polygon
+ * loop's centroid. Not exact for a very concave loop, but every sketch profile this app can
+ * actually produce (walked entirely from lines/arcs sharing endpoints) is well-behaved
+ * enough that this reads correctly in practice. */
+function representativePoint(region: Loop | CircleLoop): { x: number; y: number } {
+  if ("radius" in region) return region.centre;
+  const sum = region.points.reduce((total, point) => ({ x: total.x + point.x, y: total.y + point.y }), {
+    x: 0,
+    y: 0,
+  });
+  return { x: sum.x / region.points.length, y: sum.y / region.points.length };
+}
+
+/** Ray-casting point-in-polygon test against a loop's own vertices — an arc's own bulge is
+ * ignored here (unlike `loopSignedArea`'s exact treatment), a deliberate approximation: this
+ * only ever decides *which* region a hole belongs to, not a solid's real geometry, so the
+ * kernel's own exact boolean cut is what actually has to be right, not this test. */
+function pointInLoop(point: { x: number; y: number }, loop: Loop): boolean {
+  let inside = false;
+  for (let i = 0, j = loop.points.length - 1; i < loop.points.length; j = i, i += 1) {
+    const a = loop.points[i];
+    const b = loop.points[j];
+    const crosses = a.y > point.y !== b.y > point.y;
+    if (!crosses) continue;
+    const xAtY = ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x;
+    if (point.x < xAtY) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInRegion(point: { x: number; y: number }, region: Loop | CircleLoop): boolean {
+  if ("radius" in region) {
+    return Math.hypot(point.x - region.centre.x, point.y - region.centre.y) <= region.radius;
+  }
+  return pointInLoop(point, region);
+}
+
+/**
+ * Groups a sketch's closed regions into one or more independent bodies, each with its own
+ * outer profile and whatever regions nest directly inside it as holes — unlike a single
+ * `{outer, inner[]}` picking just the largest region as "the" body and silently treating
+ * every other region as a hole regardless of where it actually sits, which only produces
+ * the right result when a sketch has one outer contour with holes in it. A sketch with two
+ * *disjoint* contours (two separate bosses from one Extrude) needs two separate groups, or
+ * the smaller one becomes a no-op "hole" that doesn't overlap the body it was subtracted
+ * from and simply vanishes.
+ *
+ * Nesting is resolved by each region's own immediate parent — the smallest other region
+ * whose boundary contains its representative point — so a region with no parent starts its
+ * own group, and a region with one becomes that parent's hole. Only one level deep: a hole
+ * inside a hole inside a body (alternating solid/void) is a real but rare case no mainstream
+ * modeller's single-sketch Extrude handles either, so it is treated as an (own, holeless)
+ * body of its own here rather than guessed at.
+ *
+ * `entityFilter`, when given, restricts this to only the regions that own at least one of
+ * those entity ids — how Extrude/Revolve build from a user-picked subset of a multi-contour
+ * sketch (`Feature.parameters.profileEntityIds`) instead of always taking every closed
+ * region the sketch has. Omitted (the default), every region is eligible, the existing
+ * whole-sketch behaviour.
+ */
+export function profileRegionGroups(sketch: Sketch, entityFilter?: ReadonlySet<string>): ProfileRegions[] {
+  const all: (Loop | CircleLoop)[] = [...extractLoops(sketch), ...extractCircles(sketch)];
+  const regions = entityFilter
+    ? all.filter((region) => regionEntityIds(region).some((id) => entityFilter.has(id)))
+    : all;
+  if (regions.length === 0) return [];
+
+  const points = regions.map(representativePoint);
+  const parents: (Loop | CircleLoop | null)[] = regions.map((region, index) => {
+    let parent: Loop | CircleLoop | null = null;
+    let parentArea = Infinity;
+    for (let other = 0; other < regions.length; other += 1) {
+      if (other === index) continue;
+      const candidate = regions[other];
+      const candidateArea = areaOf(candidate);
+      if (candidateArea <= areaOf(region) || candidateArea >= parentArea) continue;
+      if (pointInRegion(points[index], candidate)) {
+        parent = candidate;
+        parentArea = candidateArea;
+      }
+    }
+    return parent;
+  });
+
+  const groups: ProfileRegions[] = [];
+  regions.forEach((region, index) => {
+    if (parents[index] !== null) return; // it's a hole, collected below by its parent
+    const inner = regions.filter((_, holeIndex) => parents[holeIndex] === region);
+    groups.push({ outer: region, inner });
+  });
+
+  return groups;
+}
+
 /**
  * Splits a sketch's closed regions into one outer profile and any inner ones.
  *
- * The largest region becomes the body and the rest become holes, which is the convention
- * every mainstream modeller uses for a single-sketch extrude.
+ * The largest region becomes the body and the rest become holes — correct for a sketch with
+ * one outer contour and holes in it, but not for one with several *disjoint* contours; see
+ * `profileRegionGroups`'s own doc comment for that case, which every caller here should
+ * prefer for a single-sketch profile. Kept only for Sweep and Loft, which do not yet build
+ * more than one body per sketch either way.
  */
-export function profileRegions(sketch: Sketch): ProfileRegions | null {
-  const regions: (Loop | CircleLoop)[] = [...extractLoops(sketch), ...extractCircles(sketch)];
+export function profileRegions(sketch: Sketch, entityFilter?: ReadonlySet<string>): ProfileRegions | null {
+  const all: (Loop | CircleLoop)[] = [...extractLoops(sketch), ...extractCircles(sketch)];
+  const regions = entityFilter
+    ? all.filter((region) => regionEntityIds(region).some((id) => entityFilter.has(id)))
+    : all;
   if (regions.length === 0) return null;
 
   const sorted = [...regions].sort((a, b) => areaOf(b) - areaOf(a));

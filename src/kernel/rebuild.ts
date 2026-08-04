@@ -8,7 +8,7 @@ import type { EndCondition, Feature } from "@/types/document";
 
 import { getImportedShape } from "./importedShapes";
 import { initKernel } from "./occ";
-import { profileRegions, type CircleLoop, type Loop } from "./profile";
+import { profileRegionGroups, profileRegions, type CircleLoop, type Loop } from "./profile";
 
 /**
  * One kernel Face's triangle range within `MeshData.indices`, in index-buffer units (i.e.
@@ -124,7 +124,7 @@ function drawRegion(region: Loop | CircleLoop) {
  * avoids mapping our plane names onto the kernel's own plane conventions, where a mirrored
  * axis would silently flip a part.
  */
-function extrusionRange(
+export function extrusionRange(
   endCondition: EndCondition,
   depth: number,
   reversed: boolean,
@@ -150,6 +150,14 @@ function extrusionRange(
 interface RevolveAxis {
   origin: [number, number, number];
   direction: [number, number, number];
+}
+
+/** `profileRegions`'s optional entity filter, from `Feature.parameters.profileEntityIds` —
+ * `undefined` (not an empty `Set`) when unset so `profileRegions` takes the whole sketch,
+ * its own default, rather than a filter that matches nothing. */
+function profileEntityFilter(feature: Feature): ReadonlySet<string> | undefined {
+  const ids = feature.parameters.profileEntityIds;
+  return ids && ids.length > 0 ? new Set(ids) : undefined;
 }
 
 /**
@@ -187,27 +195,35 @@ function revolveAxis(sketch: Sketch): RevolveAxis {
 }
 
 function buildRevolveSolid(sketch: Sketch, feature: Feature): Solid | null {
-  const regions = profileRegions(sketch);
-  if (!regions) return null;
+  const groups = profileRegionGroups(sketch, profileEntityFilter(feature));
+  if (groups.length === 0) return null;
 
   const angle = feature.parameters.angle ?? 360;
   const axis = revolveAxis(sketch);
 
-  let solid = drawRegion(regions.outer)
-    .sketchOnPlane("XY")
-    .revolve(axis.direction, { origin: axis.origin, angle }) as Solid;
-
-  // Outer and inner regions sweep the identical axis/angle, so subtracting the swept hole
-  // from the swept body is exact — unlike extrude's inner-hole handling, no offset or
-  // over-length trick is needed to guarantee the cut fully passes through.
-  for (const inner of regions.inner) {
-    const tool = drawRegion(inner)
+  // Each disjoint contour group (see `profileRegionGroups`'s own doc comment) revolves and
+  // cuts its own holes independently, then the whole set fuses into the one body a revolve
+  // feature produces — the multi-body counterpart of the single-group loop just below.
+  let combined: Solid | null = null;
+  for (const regions of groups) {
+    let solid = drawRegion(regions.outer)
       .sketchOnPlane("XY")
       .revolve(axis.direction, { origin: axis.origin, angle }) as Solid;
-    solid = (solid as unknown as { cut: (other: Solid) => Solid }).cut(tool);
+
+    // Outer and inner regions sweep the identical axis/angle, so subtracting the swept hole
+    // from the swept body is exact — unlike extrude's inner-hole handling, no offset or
+    // over-length trick is needed to guarantee the cut fully passes through.
+    for (const inner of regions.inner) {
+      const tool = drawRegion(inner)
+        .sketchOnPlane("XY")
+        .revolve(axis.direction, { origin: axis.origin, angle }) as Solid;
+      solid = (solid as unknown as { cut: (other: Solid) => Solid }).cut(tool);
+    }
+
+    combined = combined ? asBoolean(combined).fuse(solid) : solid;
   }
 
-  return solid;
+  return combined;
 }
 
 const AXIS_VECTORS: Record<"x" | "y" | "z", [number, number, number]> = {
@@ -274,13 +290,31 @@ function buildLinearPatternSolid(source: Solid, feature: Feature): Solid | null 
   );
 }
 
+/**
+ * Pivot a Circular Pattern rotates its copies around.
+ *
+ * `replicad`'s `rotate` always turns a solid about a *line* (a point plus a direction), not
+ * just a direction — a circular pattern's own axis has to run through the seed feature's own
+ * geometry, not through the origin, or every instance ends up displaced sideways by however
+ * far the part happens to sit from world (0, 0, 0). There is no axis-picking UI yet (the
+ * pattern only offers a world-aligned X/Y/Z direction), so this instead defaults the pivot
+ * to the seed solid's own bounding-box centre — correct for the common case of patterning a
+ * feature that is itself rotationally arranged around its own middle (a bolt circle of
+ * holes, a ring of ribs), and exactly what "honour the feature's own orientation" means here
+ * absent an explicit axis to honour instead.
+ */
+function circularPatternPivot(source: Solid): [number, number, number] {
+  return source.boundingBox.center;
+}
+
 function buildCircularPatternSolid(source: Solid, feature: Feature): Solid | null {
   const direction = AXIS_VECTORS[feature.parameters.axis ?? "z"];
   const count = Math.max(1, Math.round(feature.parameters.count ?? 1));
   const step = (feature.parameters.angle ?? 360) / count;
+  const pivot = circularPatternPivot(source);
 
   return buildCopies(source, count, (index, copy) =>
-    asTransformable(copy).rotate(step * index, [0, 0, 0], direction),
+    asTransformable(copy).rotate(step * index, pivot, direction),
   );
 }
 
@@ -366,8 +400,8 @@ function buildDraftedSolid(solid: Solid, feature: Feature): Solid {
 }
 
 function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
-  const regions = profileRegions(sketch);
-  if (!regions) return null;
+  const groups = profileRegionGroups(sketch, profileEntityFilter(feature));
+  if (groups.length === 0) return null;
 
   const { distance, offset } = extrusionRange(
     feature.parameters.endCondition ?? "blind",
@@ -375,26 +409,35 @@ function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
     feature.parameters.reversed ?? false,
   );
 
-  let solid = drawRegion(regions.outer).sketchOnPlane("XY").extrude(distance) as Solid;
+  // Each disjoint contour group (see `profileRegionGroups`'s own doc comment) extrudes and
+  // cuts its own holes independently, then the whole set fuses into the one body an Extrude
+  // feature produces — e.g. two separate bosses from one sketch, not one contour silently
+  // "cutting" the other when they don't even overlap.
+  let combined: Solid | null = null;
+  for (const regions of groups) {
+    let solid = drawRegion(regions.outer).sketchOnPlane("XY").extrude(distance) as Solid;
 
-  // Inner regions become through holes rather than separate bodies.
-  for (const inner of regions.inner) {
-    const tool = drawRegion(inner)
-      .sketchOnPlane("XY")
-      .extrude(distance * 2)
-      .translate([0, 0, -Math.abs(distance) / 2]) as Solid;
-    solid = (solid as unknown as { cut: (other: Solid) => Solid }).cut(tool);
+    // Inner regions become through holes rather than separate bodies.
+    for (const inner of regions.inner) {
+      const tool = drawRegion(inner)
+        .sketchOnPlane("XY")
+        .extrude(distance * 2)
+        .translate([0, 0, -Math.abs(distance) / 2]) as Solid;
+      solid = (solid as unknown as { cut: (other: Solid) => Solid }).cut(tool);
+    }
+
+    combined = combined ? asBoolean(combined).fuse(solid) : solid;
   }
 
-  if (offset !== 0) {
-    solid = (solid as unknown as { translate: (v: [number, number, number]) => Solid }).translate([
+  if (combined && offset !== 0) {
+    combined = (combined as unknown as { translate: (v: [number, number, number]) => Solid }).translate([
       0,
       0,
       offset,
     ]);
   }
 
-  return solid;
+  return combined;
 }
 
 /**

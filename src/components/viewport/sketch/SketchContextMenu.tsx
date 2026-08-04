@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import {
   Circle,
+  CircleDashed,
   Crosshair,
   FlipHorizontal2,
   MoveDiagonal,
@@ -56,6 +57,7 @@ export function SketchContextMenu() {
   const deleteSelection = useSketchStore((state) => state.deleteSelection);
   const exitSketch = useSketchStore((state) => state.exitSketch);
   const sketch = useSketchStore(selectActiveSketch);
+  const toggleConstruction = useSketchStore((state) => state.toggleConstruction);
   const toggleDimensionRadiusDiameter = useSketchStore((state) => state.toggleDimensionRadiusDiameter);
   const toggleRadiusExtendToCenter = useSketchStore((state) => state.toggleRadiusExtendToCenter);
   const flipAngleDimension = useSketchStore((state) => state.flipAngleDimension);
@@ -66,6 +68,15 @@ export function SketchContextMenu() {
   // this is what lets the menu offer the right action for that one dimension's kind.
   const selectedDimension =
     selection.length === 1 ? sketch?.dimensions.find((dimension) => dimension.id === selection[0]) : undefined;
+
+  // Same "everything selected already agrees" rule `toggleConstruction` itself uses, so the
+  // label always reflects what clicking it is actually about to do.
+  const selectedConstructibles = sketch?.entities.filter(
+    (entity) => entity.kind !== "point" && selection.includes(entity.id),
+  );
+  const allSelectedAreConstruction = Boolean(
+    selectedConstructibles?.length && selectedConstructibles.every((entity) => entity.construction),
+  );
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -119,6 +130,24 @@ export function SketchContextMenu() {
           {label}
         </button>
       ))}
+
+      {selectedConstructibles && selectedConstructibles.length > 0 && (
+        <>
+          <div className={styles.divider} />
+          <button
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            onClick={() => {
+              toggleConstruction();
+              closeContextMenu();
+            }}
+          >
+            <CircleDashed size={14} strokeWidth={1.75} />
+            {allSelectedAreConstruction ? "Convert to Normal" : "Convert to Construction"}
+          </button>
+        </>
+      )}
 
       {selectedDimension && (selectedDimension.kind === "radius" || selectedDimension.kind === "diameter") && (
         <>

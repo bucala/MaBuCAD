@@ -17,6 +17,7 @@ import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 import { useClickGuard } from "../controls/useClickGuard";
+import { HoleThreadOverlay } from "./HoleThreadOverlay";
 
 /** How close (world units) a new pick needs to land to an already-picked point to toggle it
  * off instead of adding a duplicate — clicking the same edge again deselects it. */
@@ -645,6 +646,13 @@ export function SolidModel() {
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         )}
       </mesh>
+
+      <HoleThreadOverlay
+        features={features}
+        rollbackIndex={rollbackIndex}
+        sketches={sketches}
+        color={isDark ? "#8fb6e8" : "#3f6aab"}
+      />
 
       {sectionFaceHighlightGeometry && (
         <mesh geometry={sectionFaceHighlightGeometry} raycast={() => null}>

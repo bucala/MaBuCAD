@@ -180,6 +180,12 @@ interface SketchStore {
   trimWindowSelect: (minX: number, minY: number, maxX: number, maxY: number) => void;
 
   applyConstraint: (kind: GeometricConstraintKind) => boolean;
+  /** Converts every currently selected line/circle/arc/spline to construction geometry, or
+   * back to normal — see the implementation's own doc comment for which direction it picks
+   * when the selection is a mix of both. Unlike the Line tool's construction/axis cycling
+   * (which only decides a new entity's own flag at draw time), this is the only way to
+   * change an *already-drawn* entity's construction status after the fact. */
+  toggleConstruction: () => void;
   /** The "click the relation first" entry point: tries `applyConstraint(kind)` against
    * whatever is already selected, and only arms `pendingConstraintKind` (waiting on
    * `pickForConstraint`) if that selection doesn't already satisfy it. */
@@ -281,7 +287,12 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     if (!current) return;
 
     const mutated = mutate(current);
-    const { sketch, diagnostics } = solveSketch(mutated);
+    // `current`, not `mutated`, anchors "fix"/"fix-line" — see `solveSketch`'s own doc
+    // comment. Most edits never move an already-fixed point/entity, so this is a no-op for
+    // them; the ones that do (a drag-snap moving a point straight to a target, a trim
+    // reshaping a fixed line's endpoint) would otherwise have the mutation itself silently
+    // become the new "anchor", defeating the fix the same way an uncorrected point drag did.
+    const { sketch, diagnostics } = solveSketch(mutated, current);
     if (sketch === current) return;
 
     pushHistory(current);
@@ -486,7 +497,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       // Fix reads from either a point (pins it directly) or a single line/circle/arc
       // entity — a line dispatches to `fix-line` (pins its infinite extension, not its
       // endpoints, so it stays extendable/shortenable), a circle or arc to a plain `fix`
-      // on its own centre point (pins its location, leaves its radius free to resize).
+      // on its own centre point, which also pins the entity's own radius (see `fix`'s own
+      // residual in `residuals.ts`) so only its rim points stay free to slide.
       if (kind === "fix") {
         if (points.length === 1 && entities.length === 0) {
           edit((current) => addConstraint(current, "fix", [], points));
@@ -538,6 +550,36 @@ export const useSketchStore = create<SketchStore>((set, get) => {
 
       set({ selection: [] });
       return true;
+    },
+
+    toggleConstruction: () => {
+      const { activeSketchId, sketches, selection } = get();
+      const sketch = activeSketchId ? sketches[activeSketchId] : undefined;
+      if (!sketch) return;
+
+      const ids = new Set(selection);
+      const targets = sketch.entities.filter((entity) => entity.kind !== "point" && ids.has(entity.id));
+      if (targets.length === 0) return;
+
+      // A mixed selection converts everything to construction rather than flipping each
+      // entity individually — matching the convention of "make construction" reading as one
+      // deliberate action, with the toggle back to normal only kicking in once the whole
+      // selection already agrees it's construction. A single entity still behaves as a
+      // plain toggle, since `every` over one item is just that item's own flag.
+      const makeConstruction = !targets.every((entity) => entity.construction);
+
+      edit((current) => ({
+        ...current,
+        entities: current.entities.map((entity) => {
+          if (entity.kind === "point" || !ids.has(entity.id)) return entity;
+          // A construction line demoted back to normal can no longer also be the revolve
+          // axis — `isAxis` only means anything on a construction line to begin with.
+          if (entity.kind === "line") {
+            return { ...entity, construction: makeConstruction, isAxis: makeConstruction ? entity.isAxis : undefined };
+          }
+          return { ...entity, construction: makeConstruction };
+        }),
+      }));
     },
 
     armConstraint: (kind) => {
@@ -877,11 +919,12 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const current = sketches[activeSketchId];
       if (!current) return;
 
-      // A point under a real Fix constraint must not move at all — without this check the
-      // point is set to the cursor position below *before* solveSketch runs, so "fix"'s own
-      // anchor (captured fresh from the sketch at the start of every solve) simply adopts
-      // the drag destination as the new "original" position and the point follows the
-      // cursor anyway, silently defeating the constraint.
+      // A point under a real Fix constraint must not move at all. `solveSketch` below is
+      // handed `current` as its anchor sketch precisely so a fixed point/line/arc reads its
+      // pre-drag position rather than the cursor position `moved` writes it to — but a
+      // point that is *itself* directly fixed has no other DOF to resolve that residual
+      // with, so skipping the solve entirely here is just a fast path, not what makes Fix
+      // hold (see `solveSketch`'s own doc comment on `anchorSketch` for the general fix).
       const isFixed = current.constraints.some(
         (constraint) => constraint.kind === "fix" && constraint.points.includes(pointId),
       );
@@ -902,7 +945,13 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         ],
       };
 
-      const solved = solveSketch(pinned);
+      // Anchored to `current` (pre-drag), not `pinned`/`moved` — see `solveSketch`'s
+      // `anchorSketch` doc comment. `moved` already wrote the dragged point to the cursor
+      // position, so using it as the anchor source too would silently re-anchor any
+      // "fix"/"fix-line" touching that point (or, for an arc, its centre) to wherever the
+      // cursor currently is instead of where the constraint actually pinned it — exactly
+      // the "line moves anywhere" bug this fixes.
+      const solved = solveSketch(pinned, current);
       const settled: Sketch = {
         ...solved.sketch,
         constraints: solved.sketch.constraints.filter((constraint) => constraint.id !== "drag-pin"),

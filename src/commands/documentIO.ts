@@ -53,6 +53,11 @@ export async function runSaveDocument(): Promise<void> {
   if (saved) clearAutosaveSnapshot();
 }
 
+export async function runSaveDocumentAs(): Promise<void> {
+  const saved = await useWorkspaceStore.getState().saveActiveAs();
+  if (saved) clearAutosaveSnapshot();
+}
+
 export async function runOpenDocument(): Promise<void> {
   await useWorkspaceStore.getState().openFromDisk();
 }

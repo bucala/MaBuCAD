@@ -11,7 +11,7 @@ import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 import { useTemplateStore } from "@/state/templateStore";
 import { useViewportStore } from "@/state/viewportStore";
 
-import { runOpenDocument, runSaveDocument } from "./documentIO";
+import { runOpenDocument, runSaveDocument, runSaveDocumentAs } from "./documentIO";
 import { runInsertModelView, runUpdateViews } from "./drawingCommands";
 import { runExport, runImport } from "./interchange";
 
@@ -361,6 +361,7 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "doc.new": () => useDocumentStore.getState().openNewDocumentDialog(),
   "doc.open": () => void runOpenDocument(),
   "doc.save": () => void runSaveDocument(),
+  "doc.save-as": () => void runSaveDocumentAs(),
 
   "drawing.model-view": () => void runInsertModelView(),
   "drawing.update-views": () => void runUpdateViews(),

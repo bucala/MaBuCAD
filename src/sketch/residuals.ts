@@ -108,6 +108,7 @@ function geometricResiduals(
   values: Float64Array,
   layout: VariableLayout,
   original: Map<string, { x: number; y: number }>,
+  originalEntities: Map<string, SketchEntity>,
 ): number[] {
   switch (constraint.kind) {
     case "coincident": {
@@ -121,7 +122,22 @@ function geometricResiduals(
       const [id] = constraint.points;
       const p = readPoint(values, layout, id);
       const anchor = original.get(id) ?? { x: 0, y: 0 };
-      return [p.x - anchor.x, p.y - anchor.y];
+      const residuals = [p.x - anchor.x, p.y - anchor.y];
+
+      // "Fix" dispatched onto a circle/arc's centre (see `applyConstraint`'s "fix" branch)
+      // also pins the shape's own size at whatever it was when the constraint was added —
+      // otherwise the centre alone leaves radius completely free, so dragging an arc's rim
+      // point would silently resize it instead of just sliding it around the fixed circle.
+      for (const entity of entities.values()) {
+        if ((entity.kind !== "arc" && entity.kind !== "circle") || entity.center !== id) continue;
+        const anchorEntity = originalEntities.get(entity.id);
+        if (!anchorEntity || (anchorEntity.kind !== "arc" && anchorEntity.kind !== "circle")) continue;
+        const radiusIndex = layout.radiusIndex.get(entity.id);
+        if (radiusIndex === undefined) continue;
+        residuals.push(values[radiusIndex] - anchorEntity.radius);
+      }
+
+      return residuals;
     }
 
     case "fix-line": {
@@ -383,20 +399,22 @@ function dimensionResiduals(
 /**
  * Full residual vector for a sketch at a given guess.
  *
- * `anchors` holds the positions "fix" constraints pin to, captured before solving so a
- * fixed point does not drift with the guess.
+ * `anchors`/`anchorEntities` hold the positions and radii "fix"/"fix-line" constraints pin
+ * to, captured before solving so a fixed point (or a fixed arc/circle's radius) does not
+ * drift with the guess.
  */
 export function evaluateResiduals(
   sketch: Sketch,
   layout: VariableLayout,
   values: Float64Array,
   anchors: Map<string, { x: number; y: number }>,
+  anchorEntities: Map<string, SketchEntity> = new Map(sketch.entities.map((entity) => [entity.id, entity])),
 ): number[] {
   const entities = new Map(sketch.entities.map((entity) => [entity.id, entity]));
   const residuals: number[] = [];
 
   for (const constraint of sketch.constraints) {
-    residuals.push(...geometricResiduals(constraint, entities, values, layout, anchors));
+    residuals.push(...geometricResiduals(constraint, entities, values, layout, anchors, anchorEntities));
   }
 
   for (const dimension of sketch.dimensions) {

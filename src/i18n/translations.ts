@@ -56,6 +56,7 @@ export const sk: Record<string, string> = {
   "doc.new": "Nový",
   "doc.open": "Otvoriť",
   "doc.save": "Uložiť",
+  "doc.save-as": "Uložiť ako",
   "doc.print": "Tlačiť",
 
   "edit.undo": "Späť",
