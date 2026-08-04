@@ -138,6 +138,16 @@
   padding: 0 1px;
 }
 
+.hatchFill {
+  fill: url(#section-hatch);
+  stroke: none;
+}
+
+.hatchLine {
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
+}
+
 .visibleEdge {
   fill: none;
   stroke: #1a1a1a;

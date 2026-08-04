@@ -3,6 +3,7 @@ import {
   rebuildAndProjectPart,
   rebuildAndProjectSection,
   sectionAxisAndOffset,
+  sectionViewCamera,
   type OrthoProjection,
   type ProjectedViews,
 } from "@/kernel/drawingProjection";
@@ -10,7 +11,12 @@ import type { Sketch } from "@/sketch/types";
 import { useDocumentStore } from "@/state/documentStore";
 import { useDrawingToolStore } from "@/state/drawingToolStore";
 import { useGeometryStore } from "@/state/geometryStore";
-import type { CadDocument, DrawingProjectionKind, DrawingSheetData, DrawingViewData } from "@/types/document";
+import type {
+  CadDocument,
+  DrawingSheetData,
+  DrawingViewData,
+  StandardProjectionKind,
+} from "@/types/document";
 
 /**
  * Drawing-only commands: Insert Model View and Update Views.
@@ -54,7 +60,7 @@ function layoutViews(views: ProjectedViews): DrawingViewData[] {
   const scale = 1;
   const columnWidth = Math.max(views.front.width, views.top.width) * scale;
 
-  const centerOf = (projection: DrawingProjectionKind, columnX: number, rowY: number) => ({
+  const centerOf = (projection: StandardProjectionKind, columnX: number, rowY: number) => ({
     x: columnX + (views[projection].width * scale) / 2,
     y: rowY + (views[projection].height * scale) / 2,
   });
@@ -64,16 +70,16 @@ function layoutViews(views: ProjectedViews): DrawingViewData[] {
   const topRowY = SHEET_MARGIN;
   const frontRowY = SHEET_MARGIN + views.top.height * scale + VIEW_GAP;
 
-  const centers: Record<DrawingProjectionKind, { x: number; y: number }> = {
+  const centers: Record<StandardProjectionKind, { x: number; y: number }> = {
     top: centerOf("top", frontColumnX, topRowY),
     front: centerOf("front", frontColumnX, frontRowY),
     right: centerOf("right", rightColumnX, frontRowY),
     iso: centerOf("iso", rightColumnX, topRowY),
   };
 
-  const labels: Record<DrawingProjectionKind, string> = { front: "FRONT", top: "TOP", right: "RIGHT", iso: "ISO" };
+  const labels: Record<StandardProjectionKind, string> = { front: "FRONT", top: "TOP", right: "RIGHT", iso: "ISO" };
 
-  return (Object.keys(views) as DrawingProjectionKind[]).map((projection) => ({
+  return (Object.keys(views) as StandardProjectionKind[]).map((projection) => ({
     id: `view-${projection}`,
     label: labels[projection],
     projection,
@@ -183,7 +189,9 @@ export async function runUpdateViews(): Promise<void> {
     // wrong geometry. They keep their last-computed cache until recreated by their own tool.
     const refreshed = sheet.views.map((view) => {
       if (view.kind === "section" || view.kind === "detail") return view;
-      const next = projected.views[view.projection];
+      // Safe: only a "standard" view reaches here, and those are always created with one
+      // of `StandardProjectionKind`'s four values (see `layoutViews` above).
+      const next = projected.views[view.projection as StandardProjectionKind];
       return {
         ...view,
         visiblePaths: next.visiblePaths,
@@ -237,14 +245,7 @@ export async function runCreateSectionView(
     const { axis, offset } = sectionAxisAndOffset(sourceView.projection as OrthoProjection, orientation, u, v);
 
     showToast("Creating section view…", 15000);
-    const projected = await rebuildAndProjectSection(
-      source.document,
-      source.sketches,
-      sourceView.projection as OrthoProjection,
-      axis,
-      offset,
-      !flipped,
-    );
+    const projected = await rebuildAndProjectSection(source.document, source.sketches, axis, offset, !flipped);
     if (!projected) {
       showToast(`${source.label} has no geometry to project there`, 5000);
       return;
@@ -253,7 +254,7 @@ export async function runCreateSectionView(
     const newView: DrawingViewData = {
       id: crypto.randomUUID(),
       label: `SECTION ${axis.toUpperCase()}-${axis.toUpperCase()}`,
-      projection: sourceView.projection,
+      projection: sectionViewCamera(axis, !flipped),
       kind: "section",
       x: sourceView.x + sourceView.width * sourceView.scale + 40,
       y: sourceView.y,
@@ -264,6 +265,7 @@ export async function runCreateSectionView(
       height: projected.height,
       originX: projected.originX,
       originY: projected.originY,
+      hatchPaths: projected.hatchPaths,
       section: { axis, offset, keepPositiveSide: !flipped },
     };
 

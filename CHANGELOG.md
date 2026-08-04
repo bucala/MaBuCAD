@@ -7,6 +7,40 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-04 — ISO 128-50 section hatching (v0.12.0)
+
+A sixteenth round, closing the one gap the previous round's own Section entry called
+out on purpose: the cut face(s) exposed by a Section view now render filled with the
+standard 45°-diagonal ISO 128-50 hatch pattern, not just their bare outline.
+
+### Added
+- Every Section view's newly exposed cut face is now traced and filled with a shared
+  45°, evenly-spaced hatch pattern (`DrawingSheet.tsx`'s `<pattern id="section-hatch">`),
+  drawn under the section's own visible/hidden edges so the real outline still reads on
+  top. Faces with holes punch through correctly (`fillRule="evenodd"` over the outer
+  wire plus every inner wire in one path).
+- Also fixed the section-cutting tool's size: it now scales off the part's own bounding
+  box (`10× the largest dimension + 100mm` margin) instead of a fixed 100-metre
+  constant, avoiding the numerical precision loss extreme scale mismatches caused in
+  OpenCascade's boolean cut.
+
+### Fixed — replicad quirks the hatch tracing had to work around
+- `drawProjection(face, camera)` on an isolated planar face crashes
+  (`Unexpected numItems value: 0`) whenever hidden-line removal finds the face entirely
+  visible or entirely hidden from that camera — always true for a cut face viewed
+  head-on, so it crashed every time. Traced the cut face's own outline directly instead:
+  a `Wire` is itself a `_1DShape` (`pointAt(t)` walks its whole loop as one continuous
+  curve, correctly ordered, regardless of the underlying edges' individual
+  orientations), sampled and projected onto the same camera basis `drawProjection`
+  itself resolves a named plane to (`lookFromPlane`'s cameras all sit at the world
+  origin, so `point · axis` alone matches its real projector).
+- `Face#outerWire()`/`#innerWires()` each delete the face they're called on (replicad's
+  own GC-scoping convention) — calling one after the other on the same face threw "This
+  object has been deleted". Fixed by running `outerWire()` on a throwaway `clone()`.
+
+Partial/local sections (a freehand break-line boundary rather than a straight full cut)
+remain a separate, larger feature, not attempted this round.
+
 ## 2026-08-04 — View dragging, Section/Detail views, Note annotations (v0.11.0)
 
 A fifteenth round, closing out the three gaps the previous round's own "Notes" called out:

@@ -1,8 +1,8 @@
-import { drawProjection, makeBaseBox, ProjectionCamera } from "replicad";
-import type { AnyShape, ProjectionPlane } from "replicad";
+import { drawProjection, FaceFinder, lookFromPlane, makeBaseBox, ProjectionCamera } from "replicad";
+import type { AnyShape, Face, PlaneName, ProjectionPlane, Wire } from "replicad";
 
 import type { Sketch } from "@/sketch/types";
-import type { CadDocument, DrawingProjectionKind } from "@/types/document";
+import type { CadDocument, DrawingProjectionKind, StandardProjectionKind } from "@/types/document";
 
 import { getCurrentShape, rebuildDocument } from "./rebuild";
 
@@ -19,7 +19,7 @@ export interface ProjectedGeometry {
   originY: number;
 }
 
-export type ProjectedViews = Record<DrawingProjectionKind, ProjectedGeometry>;
+export type ProjectedViews = Record<StandardProjectionKind, ProjectedGeometry>;
 
 /** The three standard views a section cut can be taken from — unlike Front/Top/Right,
  * Isometric's projection axes aren't world-axis-aligned, so a horizontal/vertical cut
@@ -149,11 +149,6 @@ export function sectionAxisAndOffset(
   return orientation === "vertical" ? { axis: "y", offset: -u } : { axis: "z", offset: v };
 }
 
-/** Bigger than any real part this app models — the "remove everything past here" half of
- * a section cut's cutting tool needs to extend well beyond the solid's own bounding box in
- * every direction, and there is no cheap way to know that box's real extent up front. */
-const HALF_SPACE_SIZE = 1e5;
-
 function asCuttable(shape: unknown) {
   return shape as unknown as {
     translate: (vector: [number, number, number]) => unknown;
@@ -162,15 +157,20 @@ function asCuttable(shape: unknown) {
 }
 
 /**
- * A solid cube big enough to swallow any real part, positioned so cutting it away removes
- * everything on one side of the world-space plane `axis = offset` — `makeBaseBox`'s own Z
- * extent runs from 0 to its length (not centred, unlike its X/Y), so a box already built
- * along Z only needs a translate to land its `z = 0` face exactly on the cutting plane;
- * for X or Y a 90° rotation first re-points that same asymmetric face along the axis
- * actually being cut.
+ * A solid cube big enough to swallow the shape being cut, positioned so cutting it away
+ * removes everything on one side of the world-space plane `axis = offset` —
+ * `makeBaseBox`'s own Z extent runs from 0 to its length (not centred, unlike its X/Y), so
+ * a box already built along Z only needs a translate to land its `z = 0` face exactly on
+ * the cutting plane; for X or Y a 90° rotation first re-points that same asymmetric face
+ * along the axis actually being cut.
+ *
+ * `size` is deliberately *not* the fixed `HALF_SPACE_SIZE` constant applied directly —
+ * OpenCascade's boolean ops and the `FaceFinder.inPlane` lookup that finds the cut face
+ * afterward both lose numerical precision when the cutting tool is many orders of
+ * magnitude bigger than the shape it's cutting (a 100-metre box slicing a 50 mm part), so
+ * callers instead pass a size scaled to the actual shape (see `cutAndProjectSection`).
  */
-function halfSpaceBox(axis: "x" | "y" | "z", offset: number, keepPositiveSide: boolean) {
-  const size = HALF_SPACE_SIZE;
+function halfSpaceBox(axis: "x" | "y" | "z", offset: number, keepPositiveSide: boolean, size: number) {
   let box = asCuttable(makeBaseBox(size, size, size));
   if (axis === "x") box = asCuttable(box.rotate(90, [0, 0, 0], [0, 1, 0]));
   else if (axis === "y") box = asCuttable(box.rotate(-90, [0, 0, 0], [1, 0, 0]));
@@ -185,32 +185,147 @@ function halfSpaceBox(axis: "x" | "y" | "z", offset: number, keepPositiveSide: b
   return box.translate(translation);
 }
 
-/** Cuts `shape` with a world-space half-space and projects what remains from the same
- * camera a normal Front/Top/Right view would use — the section view itself. No hatching
- * of the newly exposed cut face(s) yet; the cut's own new boundary edges still render (the
- * projection is of the real, already-cut solid), which reads as a correct section even
- * without the fill convention. */
+/** The plane a `FaceFinder.inPlane` needs to find the newly exposed cut face(s) — the
+ * plane whose normal is the axis being cut, matching `rebuild.ts`'s own `MIRROR_PLANES`. */
+const AXIS_PLANE: Record<"x" | "y" | "z", PlaneName> = { x: "YZ", y: "XZ", z: "XY" };
+
+/** Every `DrawingProjectionKind` a Section view's own camera can land on — i.e. every one
+ * except `"iso"`, which is also exactly replicad's own `ProjectionPlane` string union, so
+ * this is what actually gets passed to `drawProjection` below. */
+export type SectionCameraKind = Exclude<DrawingProjectionKind, "iso">;
+
+/**
+ * Which of replicad's six axis-aligned cameras a Section view's own camera should use.
+ *
+ * A section view must look *straight at* the newly exposed cut face — not reuse its
+ * source view's own direction — or that face projects edge-on as a line instead of a
+ * fillable area (easy to get wrong: cutting a Front view's vertical line still feels like
+ * it should stay "front", but the cut face there has normal X, which is perpendicular to
+ * Front's own view direction Y, so looking along Y again shows that face edge-on). The
+ * camera instead looks *along the cut axis itself*, from whichever side has the kept
+ * material, toward the cut: keeping the positive side means viewing from further along
+ * the positive axis back toward the cut (e.g. a positive-X cut is viewed by "right", which
+ * looks in the −X direction); keeping the negative side flips to the opposite named plane.
+ */
+export function sectionViewCamera(axis: "x" | "y" | "z", keepPositiveSide: boolean): SectionCameraKind {
+  const byAxis: Record<"x" | "y" | "z", [SectionCameraKind, SectionCameraKind]> = {
+    x: ["right", "left"],
+    y: ["front", "back"],
+    // A positive-Z cut is viewed from *below* looking up (replicad's own "bottom" camera
+    // looks in the +Z direction) — the kept upper material's cut face faces down.
+    z: ["bottom", "top"],
+  };
+  const [positive, negative] = byAxis[axis];
+  return keepPositiveSide ? positive : negative;
+}
+
+export interface SectionGeometry extends ProjectedGeometry {
+  /** SVG path `d` strings for the newly exposed cut face(s)' own outline — fill these with
+   * a hatch pattern (`DrawingSheet.tsx`'s `<pattern>` fill) per ISO 128-50. Empty when the
+   * cutting plane happened to miss the solid's interior entirely (a cut past its bounds). */
+  hatchPaths: string[];
+}
+
+/**
+ * Cuts `shape` with a world-space half-space and projects what remains — from a camera
+ * chosen to look straight at the cut (`sectionViewCamera`), with the newly exposed face(s)'
+ * own outline additionally traced for hatching. Faces are found via `FaceFinder().inPlane`
+ * on the *cut* solid (only the boolean cut itself creates them, so this always runs after
+ * `cut`), each re-projected from the same camera and folded into the same `minX`/`minY`
+ * origin the main geometry uses, so hatch paths land exactly where the outline they fill
+ * says they should.
+ */
+/** Points sampled along a hatch face's wire outline — a Wire is `_1DShape` too (a
+ * `BRepAdaptor_CompCurve` treating every edge in it as one continuous curve), so
+ * `pointAt(t)` alone walks the whole loop in the right order without touching individual
+ * edges' own orientation. Coarse enough for a fill outline, fine enough that filleted
+ * corners still read as curves rather than facets. */
+const HATCH_WIRE_SAMPLES = 48;
+
+/** Projects one closed wire to a 2D SVG subpath ("M...Z") using the same camera basis
+ * `drawProjection` itself resolves a named plane to (`lookFromPlane`'s cameras all sit at
+ * the world origin, so `point · axis` alone matches its real projector with no extra
+ * offset math needed) — kept in the same `minX`/`minY`-shifted origin as the view's own
+ * visible/hidden edges so the fill lands exactly under the outline it belongs to. */
+function projectWireOutline(wire: Wire, camera: ProjectionCamera, minX: number, minY: number): string {
+  const segments: string[] = [];
+  for (let i = 0; i <= HATCH_WIRE_SAMPLES; i += 1) {
+    const point = wire.pointAt(i / HATCH_WIRE_SAMPLES);
+    const x = point.dot(camera.xAxis) - minX;
+    const y = point.dot(camera.yAxis) - minY;
+    segments.push(`${i === 0 ? "M" : "L"} ${x} ${y}`);
+  }
+  return `${segments.join(" ")} Z`;
+}
+
+/** One face's full hatch fill outline: its outer boundary plus every inner wire (a hole
+ * punched through the cut cross-section) as additional subpaths in the same `d` string,
+ * relying on the `fillRule="evenodd"` the caller renders this with to cut them out. */
+function faceHatchPath(face: Face, camera: ProjectionCamera, minX: number, minY: number): string {
+  // `Face#outerWire()`/`#innerWires()` each delete the face they're called on (replicad's
+  // own GC-scoping convention) — `outerWire()` runs on a throwaway `clone()` so the real
+  // `face` survives to have `innerWires()` (which deletes it for real) called last.
+  const outer = projectWireOutline(face.clone().outerWire(), camera, minX, minY);
+  const inner = face.innerWires().map((wire) => projectWireOutline(wire, camera, minX, minY));
+  return [outer, ...inner].join(" ");
+}
+
 function cutAndProjectSection(
   shape: AnyShape,
-  projection: OrthoProjection,
   axis: "x" | "y" | "z",
   offset: number,
   keepPositiveSide: boolean,
-): ProjectedGeometry {
-  const tool = halfSpaceBox(axis, offset, keepPositiveSide);
+): SectionGeometry {
+  // 10x the shape's own largest dimension (plus a flat margin) safely clears it from every
+  // direction without the precision loss `halfSpaceBox`'s own doc comment describes.
+  const partBounds = shape.boundingBox;
+  const toolSize = Math.max(partBounds.width, partBounds.height, partBounds.depth) * 10 + 100;
+
+  const tool = halfSpaceBox(axis, offset, keepPositiveSide, toolSize);
   const cutShape = (shape as unknown as { cut: (tool: unknown) => AnyShape }).cut(tool);
-  return projectOne(cutShape, projection);
+  const camera = sectionViewCamera(axis, keepPositiveSide);
+
+  const { visible, hidden } = drawProjection(cutShape, camera);
+  const box = visible.boundingBox;
+  box.add(hidden.boundingBox);
+  const [[minX, minY], [maxX, maxY]] = box.bounds;
+  const width = Math.max(maxX - minX, MIN_VIEW_SIZE);
+  const height = Math.max(maxY - minY, MIN_VIEW_SIZE);
+
+  // Hatching is a finishing touch on top of a geometrically complete section view (the
+  // solid really is cut, and its real edges already render above), so a failure tracing
+  // the cut face(s) for fill — an edge case in the underlying OpenCascade binding, not
+  // anything this app's own code gets to control — degrades to an unhatched-but-otherwise-
+  // correct section rather than losing the section view entirely.
+  let hatchPaths: string[] = [];
+  try {
+    const cameraAxes = lookFromPlane(camera);
+    const hatchFaces = new FaceFinder().inPlane(AXIS_PLANE[axis], offset).find(cutShape);
+    hatchPaths = hatchFaces.map((face) => faceHatchPath(face, cameraAxes, minX, minY));
+  } catch (err) {
+    console.error("HATCH DEBUG err", err);
+    hatchPaths = [];
+  }
+
+  return {
+    visiblePaths: flattenPaths(visible.translate(-minX, -minY).toSVGPaths()),
+    hiddenPaths: flattenPaths(hidden.translate(-minX, -minY).toSVGPaths()),
+    width,
+    height,
+    originX: minX,
+    originY: minY,
+    hatchPaths,
+  };
 }
 
 export async function rebuildAndProjectSection(
   document: CadDocument,
   sketches: Record<string, Sketch>,
-  projection: OrthoProjection,
   axis: "x" | "y" | "z",
   offset: number,
   keepPositiveSide: boolean,
-): Promise<ProjectedGeometry | null> {
+): Promise<SectionGeometry | null> {
   const built = await rebuildPartShape(document, sketches);
   if (!built) return null;
-  return cutAndProjectSection(built.shape, projection, axis, offset, keepPositiveSide);
+  return cutAndProjectSection(built.shape, axis, offset, keepPositiveSide);
 }

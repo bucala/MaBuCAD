@@ -58,6 +58,12 @@ function View({ view }: { view: DrawingViewData }) {
             source's own height rather than its own (`detailOf.sourceHeight`). */}
         <g clipPath={clipId ? `url(#${clipId})` : undefined}>
           <g transform={`translate(0, ${flipTranslateY}) scale(1, -1)`}>
+            {/* ISO 128-50 hatching: the newly exposed cut face(s)' own outline, filled with
+                the shared 45°-diagonal pattern (`DrawingSheet`'s own <defs>) — same angle
+                and spacing for every section on the sheet, since they're all this one part. */}
+            {view.hatchPaths?.map((d, index) => (
+              <path key={`hatch-${index}`} d={d} className={styles.hatchFill} fillRule="evenodd" />
+            ))}
             {view.hiddenPaths.map((d, index) => (
               <path key={`hidden-${index}`} d={d} className={styles.hiddenEdge} />
             ))}
@@ -563,6 +569,18 @@ export function DrawingSheet() {
           onClick={handleBackgroundClick}
           style={{ cursor: tool === "note" ? "crosshair" : "default" }}
         >
+          <defs>
+            {/* ISO 128-50: thin lines at 45°, uniform spacing — one shared pattern so every
+                section view on this sheet (all cut from the same part) hatches identically,
+                per the standard's "same part, same angle and spacing" rule. `userSpaceOnUse`
+                means the 3mm tile is measured in whichever view's own local mm space
+                actually references it, so spacing reads consistently regardless of that
+                view's individual `scale`. */}
+            <pattern id="section-hatch" patternUnits="userSpaceOnUse" width="3" height="3" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="3" className={styles.hatchLine} />
+            </pattern>
+          </defs>
+
           {border && <SheetBorder width={sheetWidth} height={sheetHeight} border={border} />}
 
           {views.map((view) => (

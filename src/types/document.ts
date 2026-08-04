@@ -164,8 +164,16 @@ export interface Feature {
 
 export type DocumentKind = "part" | "assembly" | "drawing";
 
-/** One of the four standard views `drawing.model-view` places — see `kernel/drawingProjection.ts`. */
-export type DrawingProjectionKind = "front" | "top" | "right" | "iso";
+/** The four standard views `drawing.model-view` places. */
+export type StandardProjectionKind = "front" | "top" | "right" | "iso";
+
+/**
+ * A placed view's own camera — the four standard ones, plus the other three axis-aligned
+ * directions (`"back"`/`"left"`/`"bottom"`) a Section view's camera can land on: it looks
+ * straight at the newly exposed cut face rather than reusing its source view's own
+ * direction — see `kernel/drawingProjection.ts`'s `sectionViewCamera`.
+ */
+export type DrawingProjectionKind = StandardProjectionKind | "back" | "left" | "bottom";
 
 /**
  * One placed view on a Drawing sheet.
@@ -207,6 +215,10 @@ export interface DrawingViewData {
    * absent value just means "don't offer a section cut from this view" in practice. */
   originX?: number;
   originY?: number;
+  /** Section view only: SVG path `d` strings for the newly exposed cut face(s)' own
+   * outline, filled with a hatch pattern per ISO 128-50 — see
+   * `kernel/drawingProjection.ts`'s `SectionGeometry`. */
+  hatchPaths?: string[];
   /** Absent for a `"standard"` view — see `DrawingViewKind`'s own doc comment. */
   kind?: DrawingViewKind;
   /** Section view only: the world-space cut plane used to produce it — a plane
