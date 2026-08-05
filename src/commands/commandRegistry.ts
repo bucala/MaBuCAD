@@ -376,6 +376,7 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "annotation.datum": () => useDrawingToolStore.getState().setTool("datum"),
   "annotation.gdt": () => useDrawingToolStore.getState().setTool("gdt"),
   "annotation.surface-finish": () => useDrawingToolStore.getState().setTool("surface-finish"),
+  "annotation.weld": () => useDrawingToolStore.getState().setTool("weld"),
   "table.bom": () => void runInsertBomTable(),
   "table.hole": () => void runInsertHoleTable(),
   // There's no "drawing sheet" to print yet (Assembly and Drawing document types are

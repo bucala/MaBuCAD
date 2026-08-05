@@ -12,6 +12,7 @@ import type {
   DrawingSurfaceFinishData,
   DrawingTableData,
   DrawingViewData,
+  DrawingWeldData,
   Feature,
   FeatureKind,
   FeatureParameters,
@@ -224,6 +225,11 @@ interface DocumentStore {
   addDrawingSurfaceFinish: (finish: Omit<DrawingSurfaceFinishData, "id">) => string;
   updateDrawingSurfaceFinish: (id: string, patch: Partial<Omit<DrawingSurfaceFinishData, "id">>) => void;
   deleteDrawingSurfaceFinish: (id: string) => void;
+
+  /** `annotation.weld`'s own data. */
+  addDrawingWeld: (weld: Omit<DrawingWeldData, "id">) => string;
+  updateDrawingWeld: (id: string, patch: Partial<Omit<DrawingWeldData, "id">>) => void;
+  deleteDrawingWeld: (id: string) => void;
 
   /** `table.bom`/`table.hole`'s own data. */
   addDrawingTable: (table: Omit<DrawingTableData, "id">) => string;
@@ -770,6 +776,42 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           drawing: {
             ...document.drawing,
             surfaceFinishes: (document.drawing.surfaceFinishes ?? []).filter((finish) => finish.id !== id),
+          },
+        };
+      }),
+
+    addDrawingWeld: (weld) => {
+      const id = nextId("weld");
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, welds: [...(document.drawing.welds ?? []), { ...weld, id }] },
+        };
+      });
+      return id;
+    },
+
+    updateDrawingWeld: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            welds: (document.drawing.welds ?? []).map((weld) => (weld.id === id ? { ...weld, ...patch } : weld)),
+          },
+        };
+      }),
+
+    deleteDrawingWeld: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            welds: (document.drawing.welds ?? []).filter((weld) => weld.id !== id),
           },
         };
       }),

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import { useDrawingToolStore } from "@/state/drawingToolStore";
 import type { DrawingDimensionData, DrawingOrdinateChainData } from "@/types/document";
@@ -12,6 +12,8 @@ const SHEET_SCALE = 2.5;
 const ARROW_LENGTH = 2;
 const ARROW_WIDTH = 0.7;
 
+type ToleranceMode = NonNullable<DrawingDimensionData["toleranceMode"]>;
+
 /** A small "V" arrowhead at `(tipX, tipY)`, pointing back along the unit vector
  * `(dirX, dirY)` — the same shape `SketchDimensions.tsx`'s own `arrowheadPoints` draws for
  * the 3D viewport's sketch dimensions, reimplemented here in plain SVG-point-string form
@@ -24,28 +26,129 @@ function arrowheadPoints(tipX: number, tipY: number, dirX: number, dirY: number)
   return `${tipX},${tipY} ${backX + perpX},${backY + perpY} ${backX - perpX},${backY - perpY}`;
 }
 
+/** The label background rect's own size per tolerance mode — deviation/limits both need a
+ * taller box for their own stacked second line, and deviation needs the extra width its
+ * nominal-plus-stacked-pair layout takes up. */
+const LABEL_BOX: Record<ToleranceMode, { width: number; height: number }> = {
+  none: { width: 18, height: 6.4 },
+  basic: { width: 18, height: 6.4 },
+  symmetric: { width: 24, height: 6.4 },
+  fit: { width: 22, height: 6.4 },
+  deviation: { width: 28, height: 9 },
+  limits: { width: 18, height: 9 },
+};
+
+function signed(value: number): string {
+  return value >= 0 ? `+${value.toFixed(2)}` : value.toFixed(2);
+}
+
+/** The label's own content for every tolerance mode — a plain nominal for "none", a boxed
+ * nominal for "basic" (ASME Y14.5's "theoretically exact" convention: the frame itself
+ * carries no tolerance, so nothing else is drawn), a single ± value for "symmetric", a
+ * stacked +upper/-lower pair to the right of the nominal for "deviation", the two absolute
+ * limit values stacked in place of the nominal for "limits", and the nominal plus an ISO
+ * 286 class designation for "fit". */
+function DimensionLabelContent({ dimension }: { dimension: DrawingDimensionData }) {
+  const mode: ToleranceMode = dimension.toleranceMode ?? "none";
+  const nominal = dimension.value.toFixed(2);
+  const upper = dimension.toleranceUpper ?? 0;
+  const lower = dimension.toleranceLower ?? 0;
+
+  if (mode === "limits") {
+    return (
+      <>
+        <text y={-1.6} textAnchor="middle" className={styles.dimensionLabel}>
+          {(dimension.value + upper).toFixed(2)}
+        </text>
+        <text y={2.4} textAnchor="middle" className={styles.dimensionLabel}>
+          {(dimension.value + lower).toFixed(2)}
+        </text>
+      </>
+    );
+  }
+
+  if (mode === "deviation") {
+    return (
+      <>
+        <text x={-3} textAnchor="end" dominantBaseline="middle" className={styles.dimensionLabel}>
+          {nominal}
+        </text>
+        <text x={-1} y={-1.4} textAnchor="start" className={styles.dimensionLabelSmall}>
+          {signed(upper)}
+        </text>
+        <text x={-1} y={2.4} textAnchor="start" className={styles.dimensionLabelSmall}>
+          {signed(lower)}
+        </text>
+      </>
+    );
+  }
+
+  if (mode === "symmetric") {
+    return (
+      <text textAnchor="middle" dominantBaseline="middle" className={styles.dimensionLabel}>
+        {nominal} ±{Math.abs(upper).toFixed(2)}
+      </text>
+    );
+  }
+
+  if (mode === "fit") {
+    return (
+      <text textAnchor="middle" dominantBaseline="middle" className={styles.dimensionLabel}>
+        {nominal} {dimension.fitClass}
+      </text>
+    );
+  }
+
+  if (mode === "basic") {
+    return (
+      <>
+        <rect
+          x={-(nominal.length * 1.5 + 2)}
+          y={-3}
+          width={nominal.length * 3 + 4}
+          height={6}
+          className={styles.dimensionBasicBox}
+        />
+        <text textAnchor="middle" dominantBaseline="middle" className={styles.dimensionLabel}>
+          {nominal}
+        </text>
+      </>
+    );
+  }
+
+  return (
+    <text textAnchor="middle" dominantBaseline="middle" className={styles.dimensionLabel}>
+      {nominal}
+    </text>
+  );
+}
+
 /**
  * One drawing-level linear dimension (`annotation.smart-dimension`'s own data) — extension
  * lines from the two measured points out to a draggable dimension line, with the real-world
  * value labelled at its midpoint.
  *
  * Unlike a sketch dimension, this never drives geometry: it is read-only annotation over an
- * already-projected view (see `DrawingDimensionData`'s own doc comment), so there is no
- * inline-edit-the-value affordance here — only drag-to-declutter and delete.
+ * already-projected view (see `DrawingDimensionData`'s own doc comment). Double-click opens
+ * a tolerance form (none/symmetric/deviation/limits/basic/fit, matching the tolerance-type
+ * dropdown every mainstream CAD package's own dimension property panel offers).
  */
 export function DimensionView({
   dimension,
   selected,
   onSelect,
   onMove,
+  onEdit,
 }: {
   dimension: DrawingDimensionData;
   selected: boolean;
   onSelect: () => void;
   onMove: (offsetX: number, offsetY: number) => void;
+  onEdit: (patch: Partial<DrawingDimensionData>) => void;
 }) {
   const zoom = useDrawingToolStore((state) => state.zoom);
   const dragOrigin = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const [editing, setEditing] = useState(false);
 
   const q1 = { x: dimension.x1 + dimension.offsetX, y: dimension.y1 + dimension.offsetY };
   const q2 = { x: dimension.x2 + dimension.offsetX, y: dimension.y2 + dimension.offsetY };
@@ -54,6 +157,7 @@ export function DimensionView({
   const dirY = (q2.y - q1.y) / length;
   const midX = (q1.x + q2.x) / 2;
   const midY = (q1.y + q2.y) / 2;
+  const box = LABEL_BOX[dimension.toleranceMode ?? "none"];
 
   return (
     <g className={selected ? styles.dimensionSelected : styles.dimension}>
@@ -68,7 +172,12 @@ export function DimensionView({
           event.stopPropagation();
           onSelect();
         }}
+        onDoubleClick={(event) => {
+          event.stopPropagation();
+          setEditing(true);
+        }}
         onPointerDown={(event) => {
+          if (editing) return;
           event.stopPropagation();
           onSelect();
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -84,12 +193,94 @@ export function DimensionView({
           dragOrigin.current = null;
         }}
       >
-        <rect x={-9} y={-3.2} width={18} height={6.4} className={styles.dimensionLabelBg} />
-        <text textAnchor="middle" dominantBaseline="middle" className={styles.dimensionLabel}>
-          {dimension.value.toFixed(2)}
-        </text>
+        {dimension.toleranceMode !== "basic" && (
+          <rect x={-box.width / 2} y={-box.height / 2} width={box.width} height={box.height} className={styles.dimensionLabelBg} />
+        )}
+        <DimensionLabelContent dimension={dimension} />
+        {editing && (
+          <foreignObject x={-55} y={6} width={110} height={92}>
+            <DimensionToleranceForm
+              dimension={dimension}
+              onDone={(patch) => {
+                onEdit(patch);
+                setEditing(false);
+              }}
+            />
+          </foreignObject>
+        )}
       </g>
     </g>
+  );
+}
+
+const TOLERANCE_MODE_LABELS: Record<ToleranceMode, string> = {
+  none: "none",
+  symmetric: "symmetric (±)",
+  deviation: "deviation (+/-)",
+  limits: "limits (stacked)",
+  basic: "basic (boxed)",
+  fit: "fit (ISO 286)",
+};
+
+function DimensionToleranceForm({
+  dimension,
+  onDone,
+}: {
+  dimension: DrawingDimensionData;
+  onDone: (patch: Partial<DrawingDimensionData>) => void;
+}) {
+  const [mode, setMode] = useState<ToleranceMode>(dimension.toleranceMode ?? "none");
+  const [upper, setUpper] = useState(String(dimension.toleranceUpper ?? 0.1));
+  const [lower, setLower] = useState(String(dimension.toleranceLower ?? -0.1));
+  const [fitClass, setFitClass] = useState(dimension.fitClass ?? "H7");
+
+  const commit = () =>
+    onDone({
+      toleranceMode: mode,
+      toleranceUpper: Number(upper) || 0,
+      toleranceLower: Number(lower) || 0,
+      fitClass,
+    });
+
+  return (
+    <div className={styles.gdtForm} onClick={(event) => event.stopPropagation()}>
+      <select value={mode} onChange={(event) => setMode(event.target.value as ToleranceMode)} className={styles.gdtFormInput}>
+        {(Object.keys(TOLERANCE_MODE_LABELS) as ToleranceMode[]).map((key) => (
+          <option key={key} value={key}>
+            {TOLERANCE_MODE_LABELS[key]}
+          </option>
+        ))}
+      </select>
+      {(mode === "symmetric" || mode === "deviation" || mode === "limits") && (
+        <div className={styles.gdtFormRow}>
+          <input
+            value={upper}
+            placeholder={mode === "symmetric" ? "±" : "+upper"}
+            onChange={(event) => setUpper(event.target.value)}
+            className={styles.gdtFormInput}
+          />
+          {mode !== "symmetric" && (
+            <input
+              value={lower}
+              placeholder="-lower"
+              onChange={(event) => setLower(event.target.value)}
+              className={styles.gdtFormInput}
+            />
+          )}
+        </div>
+      )}
+      {mode === "fit" && (
+        <input
+          value={fitClass}
+          placeholder="H7"
+          onChange={(event) => setFitClass(event.target.value)}
+          className={styles.gdtFormInput}
+        />
+      )}
+      <button type="button" className={styles.gdtFormDone} onClick={commit}>
+        Done
+      </button>
+    </div>
   );
 }
 

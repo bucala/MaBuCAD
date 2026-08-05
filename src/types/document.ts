@@ -287,6 +287,27 @@ export interface DrawingDimensionData {
    * other placed element here already follows. */
   offsetX: number;
   offsetY: number;
+  /** How the tolerance is displayed next to `value` — absent/"none" means a plain nominal,
+   * matching every dimension placed before this existed. "symmetric" shows one ± value;
+   * "deviation" shows independent +upper/-lower deviations stacked to the right of the
+   * nominal; "limits" replaces the nominal entirely with the two computed limit values
+   * stacked (upper over lower); "basic" boxes the plain nominal (ASME Y14.5's "theoretically
+   * exact" convention, no tolerance shown at all — the frame *is* the callout); "fit" appends
+   * an ISO 286 class designation after the nominal. */
+  toleranceMode?: "none" | "symmetric" | "deviation" | "limits" | "basic" | "fit";
+  /** Symmetric: the single ± value (always shown positive). Deviation/Limits: the upper
+   * (over-nominal) deviation, signed — almost always ≥ 0 but not required to be. */
+  toleranceUpper?: number;
+  /** Deviation/Limits only: the lower (under-nominal) deviation, signed (e.g. -0.05) —
+   * stored as a deviation from `value`, not an absolute limit, so it reads the same way a
+   * caliper or a drawing's own tolerance block already specifies a bilateral tolerance. */
+  toleranceLower?: number;
+  /** Fit mode only: the ISO 286 hole/shaft class typed after the nominal, e.g. "H7" or
+   * "g6". This app has no ISO 286 grade/deviation table to compute actual limits from, so a
+   * Fit dimension shows the same designation a machinist would look up themselves — the
+   * information every other CAD package's own "Fit" tolerance type shows before it also
+   * happens to have that table wired in. */
+  fitClass?: string;
 }
 
 /** Ordinate dimensions sharing one datum/zero point — `annotation.ordinate`'s own data.
@@ -318,10 +339,8 @@ export interface DrawingDatumData {
   labelY: number;
 }
 
-/** One of the ASME Y14.5 geometric characteristic symbols a feature control frame's first
- * compartment can hold — the subset this app actually offers, not the full 14-symbol table
- * (profile of a surface/line and a couple of rarely-needed ones are left out rather than
- * built and never reachable from any real workflow here). */
+/** ASME Y14.5's full geometric characteristic table, minus profile-of-a-line/surface's own
+ * rarely-distinguished-in-practice pair being the only prior omission — now included too. */
 export type GdtSymbol =
   | "position"
   | "flatness"
@@ -332,35 +351,152 @@ export type GdtSymbol =
   | "parallelism"
   | "angularity"
   | "runout"
-  | "concentricity";
+  | "total-runout"
+  | "concentricity"
+  | "symmetry"
+  | "profile-line"
+  | "profile-surface";
+
+/** A material-condition modifier on a feature control frame's tolerance or a datum
+ * reference, ASME Y14.5's own circled-letter symbols — absent means RFS (regardless of
+ * feature size), the default that needs no symbol at all. */
+export type GdtModifier = "MMC" | "LMC";
+
+/** One datum reference in a feature control frame's third compartment (or beyond, for a
+ * multi-datum frame) — a bare letter, e.g. "A", plus its own optional material modifier. */
+export interface GdtDatumReference {
+  letter: string;
+  modifier?: GdtModifier;
+}
 
 /** A GD&T feature control frame — symbol, tolerance value and up to three datum
  * references, with a leader to the feature it constrains. */
 export interface DrawingGdtData {
   id: string;
   symbol: GdtSymbol;
-  /** Tolerance value in mm, as typed (e.g. "0.05" or "⌀0.1 M") — kept as free text rather
-   * than a bare number since a real callout routinely carries a diameter/MMC modifier that
-   * a plain number field can't represent. */
+  /** Tolerance value in mm, as typed (e.g. "0.05") — kept as free text since a real callout
+   * can carry extra qualifiers a bare number can't (this app's own `diameter`/`modifier`
+   * fields below cover the two most common of those; anything else can still be typed
+   * straight into this field the way it always could). */
   tolerance: string;
+  /** Prefixes `tolerance` with ⌀ — a cylindrical tolerance zone (position on a hole/pin,
+   * the single most common reason for this), rather than the default planar/linear zone. */
+  diameter?: boolean;
+  /** The tolerance's own material-condition modifier (e.g. "⌀0.1 Ⓜ"). */
+  modifier?: GdtModifier;
   /** Datum letters this frame references, in precedence order, e.g. ["A", "B"] — empty for
-   * a form tolerance (flatness/straightness/circularity/cylindricity), which has none. */
+   * a form tolerance (flatness/straightness/circularity/cylindricity), which has none.
+   * @deprecated superseded by `datumRefs`, which also carries each one's own modifier;
+   * kept so a frame saved before `datumRefs` existed still has *a* value to migrate from
+   * (`documentStore.ts`'s `addDrawingGdt`/`updateDrawingGdt` keep both in sync). */
   datums: string[];
+  /** Same references as `datums`, each with its own optional material modifier — what every
+   * reader/writer added after this field existed actually uses. */
+  datumRefs?: GdtDatumReference[];
   anchorX: number;
   anchorY: number;
   labelX: number;
   labelY: number;
 }
 
+/** ISO 1302's three base symbol shapes: a bare open tick (any manufacturing process), the
+ * same tick with a bar across its long leg (material removal by machining is required), or
+ * the tick with a circle at its vertex (material removal is *not* permitted — e.g. a
+ * cast/forged surface left as-is). */
+export type SurfaceFinishSymbolType = "basic" | "machining-required" | "machining-prohibited";
+
+/** ISO 1302's lay-direction symbols (the dominant direction of the surface pattern left by
+ * machining), position "d" in the standard's own lettered-position layout. */
+export type SurfaceLaySymbol = "=" | "⊥" | "X" | "M" | "C" | "R" | "P";
+
 /** An ISO 1302 surface finish (roughness) symbol with a leader — `annotation.surface-finish`'s
  * own data. `roughness` is free text (e.g. "Ra 1.6", "3.2", or blank for "any process"). */
 export interface DrawingSurfaceFinishData {
   id: string;
   roughness: string;
+  /** Absent/"basic" matches every symbol placed before this field existed. */
+  symbolType?: SurfaceFinishSymbolType;
+  /** A small circle at the symbol's own vertex — this requirement applies to every surface
+   * visible in the view's outline, not just the one surface the leader points at. */
+  allAround?: boolean;
+  /** Manufacturing process/heat treatment text along the symbol's long leg (ISO 1302
+   * position "b"), e.g. "TURNED", "GROUND", "ANODIZED". */
+  manufacturingMethod?: string;
+  laySymbol?: SurfaceLaySymbol;
+  /** Machining allowance in mm (ISO 1302 position "e") — stock left for a later finishing
+   * pass, shown to the left of the symbol's own vertex. */
+  allowance?: string;
   anchorX: number;
   anchorY: number;
   labelX: number;
   labelY: number;
+}
+
+/** One weld symbol type ISO 2553 / AWS A2.4 both define a dedicated glyph for — the subset
+ * covering the joint types this app's own users actually draw, not the full standard's
+ * much longer table (e.g. stud, edge-flange and scarf welds are left out). */
+export type WeldSymbolType =
+  | "fillet"
+  | "square"
+  | "v-groove"
+  | "bevel-groove"
+  | "u-groove"
+  | "j-groove"
+  | "flare-v"
+  | "flare-bevel"
+  | "plug"
+  | "spot"
+  | "seam"
+  | "backing"
+  | "surfacing";
+
+/** One side (arrow side or other side) of a weld callout — a symbol plus the numbers that
+ * qualify it. Absent fields render blank, the same "nothing to say yet" convention every
+ * other free-text annotation field here already follows. */
+export interface WeldSideData {
+  symbol: WeldSymbolType;
+  /** Leg size (fillet) or groove depth (groove types), mm, shown left of the symbol. */
+  size?: string;
+  /** Included angle, groove types only, shown above the symbol's own opening. */
+  angle?: string;
+  /** Weld length, shown right of the symbol — an intermittent weld's own "N mm" segment. */
+  length?: string;
+  /** Centre-to-centre spacing for an intermittent weld, shown after `length` as "length-pitch". */
+  pitch?: string;
+  /** Final contour of the finished weld face — flat/convex/concave add their own small
+   * straight/arc line on top of the base symbol; absent means "as welded", no extra mark. */
+  contour?: "flat" | "convex" | "concave";
+}
+
+/**
+ * An ISO 2553 / AWS A2.4 weld symbol — a leader from the joint to a bend point, then a
+ * horizontal reference line carrying the actual callout. Arrow-side information sits below
+ * the reference line and other-side information above it (or the reverse, mirrored, if the
+ * reference line runs to the *left* of the bend) — the standard's own "which side of the
+ * line matches which side of the joint" convention, which is what actually lets a welder
+ * standing at the arrow tell arrow-side and other-side apart without extra text.
+ */
+export interface DrawingWeldData {
+  id: string;
+  /** Leader tip — the joint being called out, sheet mm, snapped to a placed view's own
+   * projected geometry the same way every other leadered annotation here snaps. */
+  anchorX: number;
+  anchorY: number;
+  /** The reference line's own left endpoint, sheet mm — draggable independently of the
+   * anchor, the same "leader stays put, label moves" split every other leadered symbol here
+   * already uses. */
+  labelX: number;
+  labelY: number;
+  /** At least one of the two is set; both set means a weld on both sides of the joint. */
+  arrowSide: WeldSideData | null;
+  otherSide: WeldSideData | null;
+  /** A small circle at the leader/reference-line bend — this weld goes all around the joint. */
+  allAround: boolean;
+  /** A small flag at the bend — a field weld, made on site rather than in the shop. */
+  fieldWeld: boolean;
+  /** Free text in the reference line's own tail (its right end) — process/spec reference,
+   * e.g. "GMAW" or a welding procedure specification number. */
+  tail?: string;
 }
 
 /** A table inserted onto the sheet — `table.bom`/`table.hole`'s own data. `rows[0]` is
@@ -407,6 +543,7 @@ export interface DrawingSheetData {
   datums?: DrawingDatumData[];
   gdtFrames?: DrawingGdtData[];
   surfaceFinishes?: DrawingSurfaceFinishData[];
+  welds?: DrawingWeldData[];
   tables?: DrawingTableData[];
 }
 

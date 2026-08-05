@@ -19,6 +19,7 @@ import { SectionOverlay } from "./SectionOverlay";
 import { DatumView, GdtView, SurfaceFinishView } from "./SymbolAnnotations";
 import { TableView } from "./TableAnnotations";
 import { TemplateManagerDialog } from "./TemplateManagerDialog";
+import { WeldView } from "./WeldAnnotations";
 
 /** Sheet-mm snap tolerance for the annotation picking tools (dimension/ordinate/datum/GD&T) —
  * large enough to forgive an imprecise click, small enough not to jump to unrelated geometry
@@ -27,7 +28,16 @@ const PICK_TOLERANCE = 3;
 
 /** Every tool whose next sheet click places or picks something, rather than plain
  * select/drag — used only to pick the crosshair cursor. */
-const PICKING_TOOLS = new Set(["note", "datum", "gdt", "surface-finish", "smart-dimension", "ordinate", "projected"]);
+const PICKING_TOOLS = new Set([
+  "note",
+  "datum",
+  "gdt",
+  "surface-finish",
+  "weld",
+  "smart-dimension",
+  "ordinate",
+  "projected",
+]);
 
 /** The subset of `PICKING_TOOLS` that reads the click straight off the background sheet
  * (`sheetPointFromEvent` plus, for the vertex-snapping ones, `nearestVertex` search across
@@ -35,7 +45,7 @@ const PICKING_TOOLS = new Set(["note", "datum", "gdt", "surface-finish", "smart-
  * do — `PlacedView` must not render its own interactive rect for these, or a click over any
  * view's bounding box would claim the click for "select this view" before it ever reaches
  * `handleBackgroundClick`. */
-const PASSTHROUGH_TOOLS = new Set(["note", "datum", "gdt", "surface-finish", "smart-dimension", "ordinate"]);
+const PASSTHROUGH_TOOLS = new Set(["note", "datum", "gdt", "surface-finish", "weld", "smart-dimension", "ordinate"]);
 
 /** px per sheet-mm the outer sheet `<svg>` is rendered at — every drag handler in this
  * file (views, notes) converts screen-pixel deltas back to sheet-mm by dividing by this. */
@@ -508,6 +518,9 @@ export function DrawingSheet() {
   const addDrawingSurfaceFinish = useDocumentStore((state) => state.addDrawingSurfaceFinish);
   const updateDrawingSurfaceFinish = useDocumentStore((state) => state.updateDrawingSurfaceFinish);
   const deleteDrawingSurfaceFinish = useDocumentStore((state) => state.deleteDrawingSurfaceFinish);
+  const addDrawingWeld = useDocumentStore((state) => state.addDrawingWeld);
+  const updateDrawingWeld = useDocumentStore((state) => state.updateDrawingWeld);
+  const deleteDrawingWeld = useDocumentStore((state) => state.deleteDrawingWeld);
   const updateDrawingTable = useDocumentStore((state) => state.updateDrawingTable);
   const deleteDrawingTable = useDocumentStore((state) => state.deleteDrawingTable);
   const sheetFormats = useTemplateStore((state) => state.sheetFormats);
@@ -539,11 +552,12 @@ export function DrawingSheet() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   /** The one dead-button annotation kind (dimension/ordinate chain/datum/GD&T/surface
-   * finish/table) currently selected, if any — a single tagged-union field rather than six
-   * more parallel `useState`s, since only one of these can be selected at a time and every
-   * consumer (Delete key, toolbar's Delete button) needs to branch on "which kind" anyway. */
+   * finish/weld/table) currently selected, if any — a single tagged-union field rather than
+   * seven more parallel `useState`s, since only one of these can be selected at a time and
+   * every consumer (Delete key, toolbar's Delete button) needs to branch on "which kind"
+   * anyway. */
   const [selectedAnnotation, setSelectedAnnotation] = useState<
-    { kind: "dimension" | "ordinate" | "datum" | "gdt" | "surfaceFinish" | "table"; id: string } | null
+    { kind: "dimension" | "ordinate" | "datum" | "gdt" | "surfaceFinish" | "weld" | "table"; id: string } | null
   >(null);
   const sheetRef = useRef<SVGSVGElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -556,11 +570,15 @@ export function DrawingSheet() {
   const datums = drawing?.datums ?? [];
   const gdtFrames = drawing?.gdtFrames ?? [];
   const surfaceFinishes = drawing?.surfaceFinishes ?? [];
+  const welds = drawing?.welds ?? [];
   const tables = drawing?.tables ?? [];
   const sourcePart = drawing?.sourcePart ?? null;
   const titleBlockValues = drawing?.titleBlockValues ?? {};
 
-  const selectAnnotation = (kind: "dimension" | "ordinate" | "datum" | "gdt" | "surfaceFinish" | "table", id: string) => {
+  const selectAnnotation = (
+    kind: "dimension" | "ordinate" | "datum" | "gdt" | "surfaceFinish" | "weld" | "table",
+    id: string,
+  ) => {
     setSelectedAnnotation({ kind, id });
     setSelectedViewId(null);
     setSelectedNoteId(null);
@@ -583,6 +601,9 @@ export function DrawingSheet() {
         break;
       case "surfaceFinish":
         deleteDrawingSurfaceFinish(selectedAnnotation.id);
+        break;
+      case "weld":
+        deleteDrawingWeld(selectedAnnotation.id);
         break;
       case "table":
         deleteDrawingTable(selectedAnnotation.id);
@@ -656,7 +677,7 @@ export function DrawingSheet() {
       return;
     }
 
-    if (tool === "datum" || tool === "gdt" || tool === "surface-finish") {
+    if (tool === "datum" || tool === "gdt" || tool === "surface-finish" || tool === "weld") {
       const local = sheetPointFromEvent(event);
       if (!local) return;
       const vertex = nearestVertex(views, local, PICK_TOLERANCE);
@@ -679,9 +700,21 @@ export function DrawingSheet() {
           labelY: label.y,
         });
         selectAnnotation("gdt", id);
-      } else {
+      } else if (tool === "surface-finish") {
         const id = addDrawingSurfaceFinish({ roughness: "Ra 1.6", anchorX: anchor.x, anchorY: anchor.y, labelX: label.x, labelY: label.y });
         selectAnnotation("surfaceFinish", id);
+      } else {
+        const id = addDrawingWeld({
+          anchorX: anchor.x,
+          anchorY: anchor.y,
+          labelX: label.x,
+          labelY: label.y,
+          arrowSide: { symbol: "fillet", size: "6" },
+          otherSide: null,
+          allAround: false,
+          fieldWeld: false,
+        });
+        selectAnnotation("weld", id);
       }
       setTool("select");
       return;
@@ -959,6 +992,7 @@ export function DrawingSheet() {
               selected={selectedAnnotation?.kind === "dimension" && selectedAnnotation.id === dimension.id}
               onSelect={() => selectAnnotation("dimension", dimension.id)}
               onMove={(offsetX, offsetY) => updateDrawingDimension(dimension.id, { offsetX, offsetY })}
+              onEdit={(patch) => updateDrawingDimension(dimension.id, patch)}
             />
           ))}
 
@@ -1000,7 +1034,18 @@ export function DrawingSheet() {
               selected={selectedAnnotation?.kind === "surfaceFinish" && selectedAnnotation.id === finish.id}
               onSelect={() => selectAnnotation("surfaceFinish", finish.id)}
               onMove={(labelX, labelY) => updateDrawingSurfaceFinish(finish.id, { labelX, labelY })}
-              onEdit={(roughness) => updateDrawingSurfaceFinish(finish.id, { roughness })}
+              onEdit={(patch) => updateDrawingSurfaceFinish(finish.id, patch)}
+            />
+          ))}
+
+          {welds.map((weld) => (
+            <WeldView
+              key={weld.id}
+              weld={weld}
+              selected={selectedAnnotation?.kind === "weld" && selectedAnnotation.id === weld.id}
+              onSelect={() => selectAnnotation("weld", weld.id)}
+              onMove={(labelX, labelY) => updateDrawingWeld(weld.id, { labelX, labelY })}
+              onEdit={(patch) => updateDrawingWeld(weld.id, patch)}
             />
           ))}
 

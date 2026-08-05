@@ -6,12 +6,12 @@ import { create } from "zustand";
  * 3D/sketch side of the app, scoped instead to `DrawingSheet.tsx`.
  *
  * "select" (the default) is plain click-to-select/drag-to-move on views, notes and title
- * block fields. "note", "datum", "gdt" and "surface-finish" each place one annotation on
- * the next sheet click and self-disarm back to "select" (see `DrawingSheet.tsx`'s
- * `handleBackgroundClick`). "section" and "detail" each need a source view picked first,
- * then a cut line / crop circle dragged into place before confirming. "smart-dimension"
- * needs two picked points (see `dimensionFirstPoint` below); "ordinate" needs a datum pick
- * followed by any number of further point picks added to the same chain.
+ * block fields. "note", "datum", "gdt", "surface-finish" and "weld" each place one
+ * annotation on the next sheet click and self-disarm back to "select" (see
+ * `DrawingSheet.tsx`'s `handleBackgroundClick`). "section" and "detail" each need a source
+ * view picked first, then a cut line / crop circle dragged into place before confirming.
+ * "smart-dimension" needs two picked points (see `dimensionFirstPoint` below); "ordinate"
+ * needs a datum pick followed by any number of further point picks added to the same chain.
  */
 export type DrawingTool =
   | "select"
@@ -23,7 +23,8 @@ export type DrawingTool =
   | "ordinate"
   | "datum"
   | "gdt"
-  | "surface-finish";
+  | "surface-finish"
+  | "weld";
 
 interface DrawingToolStore {
   tool: DrawingTool;

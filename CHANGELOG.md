@@ -7,6 +7,63 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-05 — Tolerances, complex surface finish, welds, and richer GD&T (v0.16.0)
+
+A twentieth round, extending the annotation types the previous round introduced into their
+full CAD-standard forms rather than the minimal versions they shipped as: dimension
+tolerances, ISO 1302 surface finish symbols, ISO 2553 weld symbols (a brand-new annotation
+type), and richer GD&T feature control frames.
+
+### Added — Dimension tolerances
+- Every linear/ordinate dimension now carries a `toleranceMode`: **none** (plain nominal, the
+  previous behaviour), **symmetric** (`48.00 ±0.05`), **deviation** (independent stacked
+  +upper/-lower values beside the nominal), **limits** (two stacked absolute limit values
+  replacing the nominal), **basic** (ASME Y14.5's boxed "theoretically exact" value, no
+  tolerance shown), and **fit** (an ISO 286 class designation like `H7` appended after the
+  nominal — this app has no grade table to compute actual numeric limits from, so, like
+  other CAD packages without one wired in, it shows the plain designation only). Double-
+  clicking a dimension's label opens a form for all of this.
+
+### Added — Complex surface finish symbols (ISO 1302)
+- Surface finish symbols now support the **machining-required** (bar across the tick) and
+  **machining-prohibited** (circle at the vertex) variants alongside the original basic
+  "any process" tick, an **all-around** modifier (small circle at the leader attachment
+  point), a **manufacturing method** callout (e.g. "GROUND") above the roughness value, a
+  **lay direction** symbol (=, ⊥, X, M, C, R, P) appended to the roughness line, and a
+  **machining allowance** value to the left of the vertex.
+
+### Added — Weld symbols (ISO 2553 / AWS A2.4)
+- A brand-new annotation type: place a weld symbol (`annotation.weld`) with a leader to the
+  joint, a bend point, and a horizontal reference line. Arrow-side and other-side callouts
+  (drawn below/above the line respectively) each carry their own weld type — fillet, square,
+  V-groove, bevel-groove, U-groove, J-groove, flare-V, flare-bevel, plug/slot, spot,
+  seam, backing, or surfacing — plus size, length/pitch, angle, and contour (flat/convex/
+  concave). All-around and field-weld (site) modifiers render at the bend point, and a tail
+  after the reference line carries process/spec text (e.g. "GMAW").
+
+### Added — Richer GD&T feature control frames
+- Feature control frames now use real Unicode GD&T glyphs (⌖ ⏥ ⏤ ⌭ ⊥ ∥ ∠ ⌰ ◎ ⌯ ⌒ ⌓, plus a
+  circle fallback for circularity and an arrow approximation for runout, since Unicode has
+  no dedicated glyphs for those two) instead of text abbreviations, four additional
+  characteristics (total runout, symmetry, profile of a line, profile of a surface), an
+  optional ⌀ diameter prefix on the tolerance value, a material-condition modifier (Ⓜ MMC /
+  Ⓛ LMC) on the tolerance itself, and up to three datum references each with their own
+  independent modifier.
+
+### Fixed
+- Dimensions in "basic" tolerance mode were completely unclickable — the boxed value's
+  background had `fill: none`, and combined with the label text's own `pointer-events: none`
+  (needed so drag handlers on a painted sibling still work), the box had no hit-testable area
+  at all. It now paints a real white background like every other tolerance mode's label.
+- The Surface Finish edit form's Done button silently did nothing: its `<foreignObject>` sat
+  nested inside the same interactive `<g>` that captures the pointer for dragging, so a click
+  on the button never reached its own `onClick` — the pointer capture claimed it first. Moved
+  the form outside that group, matching the GD&T and dimension edit forms' own structure.
+- Picking a different weld type from either side's symbol dropdown had no effect: the
+  `onChange` handler spread the previous side object *after* the new symbol
+  (`{ symbol, ...side }`), so the old symbol always overwrote the new one. Reordered the
+  spread so the new symbol wins.
+
 ## 2026-08-05 — Drawing annotations, Projected View, tables, and a view-alignment fix (v0.15.0)
 
 A nineteenth round: the Drawing tab had eight ribbon buttons that had been visually present
