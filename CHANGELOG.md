@@ -7,6 +7,78 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-05 — ISO E/A projection, associated views, section/detail callouts, threads (v0.17.0)
+
+A twenty-first round overhauling how the Drawing tab builds and documents its view layout,
+prompted directly by a set of standards slides (STN ISO 5457/128) covering ISO 128-30's two
+projection conventions. Every standard view is now genuinely associated to Front rather than
+placed at a fixed offset once and forgotten; sections and details finally leave a mark on the
+view they were cut/cropped from; and tapped holes read as threads in a 2D view, not a plain
+hole.
+
+### Added — ISO E / ISO A projection method
+- A Drawing document now carries its own `projectionMethod` (`"ISO-E"` first-angle/European,
+  the new default, or `"ISO-A"` third-angle/American) — the title block's own PROJECTION cell
+  draws the standard's real cone-and-circle symbol (reading the method, not a free-text
+  value) and toggles it on click, re-laying out every placed standard view to match.
+- `commands/drawingViewLayout.ts` (new): pure position math deriving every standard view's
+  sheet position from Front's own, per the active method — Top/Bottom and Left/Right swap
+  sides between the two conventions, Back always lands two slots past whichever of Left/Right
+  sits closer to Front, matching both conventions' own six-view "cross" diagrams.
+
+### Added — Associated six-view layout
+- Every standard view (Front/Top/Bottom/Left/Right/Back, plus Isometric) is now a real,
+  addable projection — Projected View can add any of the six, not just the original four —
+  and every placed one's position is re-derived from Front on every addition and on every
+  projection-method toggle, instead of being set once at creation and left to drift.
+- `kernel/drawingProjection.ts` now projects all six axis-aligned directions (previously only
+  Front/Top/Right), so Bottom/Left/Back have real cached geometry the moment they're needed.
+
+### Added — Section and Detail callouts on the source view
+- A Section view now leaves the ISO 128-40 cutting-plane line — with sighting arrows and a
+  sequential `A-A`/`B-B`/… designation matching its own "SECTION A-A" label — on the exact
+  view it was cut from, instead of the cut line disappearing the moment the section was
+  created.
+- A Detail view now leaves its own crop boundary circle plus a leadered `A`/`B`/… letter
+  callout on the source view, matching its own "DETAIL A" label.
+
+### Added — ISO 6410 thread representation
+- A tapped/taper-tapped hole viewed straight down its own axis now draws the ISO 6410 thin,
+  3/4-broken major-diameter circle around its actual (minor-diameter) drilled edge, computed
+  once at projection time from the source part's own Hole Wizard data and cached alongside
+  the view's other edges. The 3D model side already had a cosmetic helical thread indicator
+  from an earlier round (real thread geometry isn't modelled by any CAD at this scale without
+  a purpose-built machining simulation, matching Inventor's/SolidWorks' own default) — this
+  round's work was specifically the 2D drawing side, which previously showed a tapped hole
+  identically to a plain one.
+
+### Added — Leader anchor re-attachment
+- Every leadered annotation's own anchor (Datum, GD&T, Surface Finish, Weld) can now be
+  dragged independently of its label, via a small handle visible while selected — previously
+  the anchor was set once at creation and had no way to be moved afterward.
+
+### Changed — Unified annotation text scale
+- Datum letters and GD&T frame text now share the same 3.2px size every other leadered
+  annotation's primary text already used (were 4px/3px respectively), consolidating four
+  slightly-different "on-sheet callout text" sizes down to one two-tier scale (3.2px primary,
+  2.2px secondary) — distinct from the title block's own 1.7px corner labels and the table
+  classes' 2.4-2.6px grid text, both sized to their own fixed boxed-cell layout instead.
+
+### Fixed
+- Insert Model View produced `NaN` view positions (and a burst of React DOM console errors)
+  the moment this round's new layout math needed each view's own placement `scale` — the
+  geometry object it built didn't carry one at all, since the field used to be a bare `const
+  scale = 1` local variable rather than part of the per-view record.
+- The title block's projection-method symbol didn't respond to clicks at all: its `onClick`
+  sat on the thin, unfilled glyph strokes (`fill: none`, so only stroke pixels are
+  hit-testable), the same class of bug a "basic" tolerance dimension had a few rounds ago —
+  moved onto the shared, already-painted cell background rect every other title block field
+  already uses to catch its own click.
+- A section view's own cutting-plane-line arrows pointed along the wrong axis — perpendicular
+  to the actual cut line only by accident of a copy-pasted ternary with its two branches
+  swapped, so a *vertical* cut line's arrows moved vertically instead of sideways (and vice
+  versa for a horizontal one).
+
 ## 2026-08-05 — Tolerances, complex surface finish, welds, and richer GD&T (v0.16.0)
 
 A twentieth round, extending the annotation types the previous round introduced into their

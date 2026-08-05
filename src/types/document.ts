@@ -177,16 +177,21 @@ export interface Feature {
 
 export type DocumentKind = "part" | "assembly" | "drawing";
 
-/** The four standard views `drawing.model-view` places. */
-export type StandardProjectionKind = "front" | "top" | "right" | "iso";
+/** Every direction a standard view can look from — `"front"` plus the other six a
+ * Projected View can add (the five remaining axis-aligned directions, and `"iso"`'s own
+ * conventional (1,-1,1) corner). All seven are associated to whichever one is `"front"`
+ * for layout purposes — see `commands/drawingViewLayout.ts`'s `repositionStandardViews`,
+ * which is what re-derives every placed one's sheet position from `front`'s own whenever a
+ * view is added or the sheet's `projectionMethod` is toggled. */
+export type StandardProjectionKind = "front" | "top" | "bottom" | "left" | "right" | "back" | "iso";
 
-/**
- * A placed view's own camera — the four standard ones, plus the other three axis-aligned
- * directions (`"back"`/`"left"`/`"bottom"`) a Section view's camera can land on: it looks
- * straight at the newly exposed cut face rather than reusing its source view's own
- * direction — see `kernel/drawingProjection.ts`'s `sectionViewCamera`.
- */
-export type DrawingProjectionKind = StandardProjectionKind | "back" | "left" | "bottom";
+/** A placed view's own camera — identical to `StandardProjectionKind` today (a Section
+ * view's camera, chosen by `kernel/drawingProjection.ts`'s `sectionViewCamera` to look
+ * straight at the newly exposed cut face, always lands on one of that same axis-aligned
+ * set). Kept as its own alias since a view's *camera* and a view's *place in the standard
+ * six-view layout* are conceptually different things that only happen to share one set of
+ * values right now. */
+export type DrawingProjectionKind = StandardProjectionKind;
 
 /**
  * One placed view on a Drawing sheet.
@@ -232,16 +237,38 @@ export interface DrawingViewData {
    * outline, filled with a hatch pattern per ISO 128-50 — see
    * `kernel/drawingProjection.ts`'s `SectionGeometry`. */
   hatchPaths?: string[];
+  /** ISO 6410's own thin, 3/4-broken thread-major-diameter circles — one per tapped hole
+   * this view happens to show end-on, computed once at projection time alongside
+   * `visiblePaths`/`hiddenPaths` (see `kernel/drawingProjection.ts`'s `threadOverlaysFor`).
+   * Absent/empty means either no tapped holes, or none of them viewed down their own axis. */
+  threadPaths?: string[];
   /** Absent for a `"standard"` view — see `DrawingViewKind`'s own doc comment. */
   kind?: DrawingViewKind;
-  /** Section view only: the world-space cut plane used to produce it — a plane
-   * perpendicular to one world axis, at a fixed offset along it. `keepPositiveSide` false
-   * keeps material on the axis's negative side instead (`drawing.section`'s "flip" toggle). */
-  section?: { axis: "x" | "y" | "z"; offset: number; keepPositiveSide: boolean };
+  /** Section view only: the world-space cut plane used to produce it, plus enough of the
+   * *source* view's own picking state to draw the ISO 128 cutting-plane line (with its
+   * direction arrows and `letter-letter` label, e.g. "A-A") back onto that source view —
+   * `sourceViewId` says which view to draw it on, `orientation`/`localScreenPosition` are
+   * exactly the values `SectionOverlay.tsx` captured when the line was picked (the same
+   * source-view-local, unscaled coordinate space `kernel/drawingGeometry.ts`'s
+   * `viewVertices` uses), and `letter` is this section's own sequential designation
+   * (A-A, B-B, C-C, …, one shared with the new section view's own "SECTION A-A" label).
+   * `keepPositiveSide` false keeps material on the axis's negative side instead
+   * (`drawing.section`'s "flip" toggle). */
+  section?: {
+    axis: "x" | "y" | "z";
+    offset: number;
+    keepPositiveSide: boolean;
+    sourceViewId: string;
+    orientation: "horizontal" | "vertical";
+    localScreenPosition: number;
+    letter: string;
+  };
   /** Detail view only: which view it was cropped from and the circular region (in that
    * source view's own rendered screen-space, unscaled) it magnifies. `sourceHeight` is the
    * source view's own `height` at the moment of cropping, needed to replay the same Y-flip
-   * transform `View` applies to every view's cached (Y-up) paths. */
+   * transform `View` applies to every view's cached (Y-up) paths. The same `sourceViewId`/
+   * `cx`/`cy`/`radius` also drive the matching boundary circle + leadered letter callout
+   * drawn back onto the source view — see `DrawingSheet.tsx`'s `DetailCalloutView`. */
   detailOf?: { sourceViewId: string; cx: number; cy: number; radius: number; sourceHeight: number };
 }
 
@@ -523,9 +550,23 @@ export interface DrawingTableData {
  * in the browser dev build there is no reusable file handle, so `path` stays null and
  * "Update View" falls back to re-prompting with the file picker — see `io/files.ts`.
  */
+/** ISO 128-30's two projection conventions — which quadrant the object is imagined to sit
+ * in relative to the projection planes, which is what decides whether the Top view lands
+ * above or below Front, and Right lands beside or across from it. "ISO-E" (1st quadrant,
+ * "evrópske uspořádání pohledů"/European arrangement) is this app's own default, matching
+ * the convention most of its users' drawings are expected to follow; "ISO-A" (3rd quadrant,
+ * American arrangement) is the alternative, selected per-document. Absent means "ISO-E",
+ * for a Drawing saved before this field existed. */
+export type ProjectionMethod = "ISO-E" | "ISO-A";
+
 export interface DrawingSheetData {
   sourcePart: { fileName: string; path: string | null } | null;
   views: DrawingViewData[];
+  /** Absent means `"ISO-E"` — see `ProjectionMethod`'s own doc comment. Toggling this
+   * re-lays out every placed `"standard"` view (see `commands/drawingViewLayout.ts`'s
+   * `repositionStandardViews`) and is what the title block's projection-method symbol cell
+   * both displays and, on click, toggles. */
+  projectionMethod?: ProjectionMethod;
   /** Which `SheetFormat` (from `state/templateStore.ts`'s library) this sheet uses — the
    * paper size/orientation and which Border/Title Block templates draw around the views.
    * Optional so a Drawing saved before Drawing Resources existed still loads: absent means

@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { FileUp, Frame, Maximize, RotateCw, Settings2, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 
 import { runCommand } from "@/commands/commandRegistry";
-import { runCreateProjectedView } from "@/commands/drawingCommands";
+import { runCreateProjectedView, runToggleProjectionMethod } from "@/commands/drawingCommands";
+import { DEFAULT_PROJECTION_METHOD } from "@/commands/drawingViewLayout";
 import { useTranslation } from "@/i18n/useTranslation";
 import { nearestVertex, viewScaleFor } from "@/kernel/drawingGeometry";
+import { sectionArrowSign, type OrthoProjection } from "@/kernel/drawingProjection";
 import { useDocumentStore } from "@/state/documentStore";
 import { useDrawingToolStore } from "@/state/drawingToolStore";
 import { DEFAULT_SHEET_FORMAT_ID, useTemplateStore } from "@/state/templateStore";
 import { paperDimensions } from "@/types/drawingTemplates";
-import type { BorderTemplate, SheetFormat, TitleBlockTemplate } from "@/types/drawingTemplates";
+import type { BorderTemplate, SheetFormat, TitleBlockField, TitleBlockTemplate } from "@/types/drawingTemplates";
 import type { DrawingNoteData, DrawingViewData } from "@/types/document";
 
 import { DetailOverlay } from "./DetailOverlay";
@@ -107,6 +109,11 @@ function View({ view }: { view: DrawingViewData }) {
             {view.visiblePaths.map((d, index) => (
               <path key={`visible-${index}`} d={d} className={styles.visibleEdge} />
             ))}
+            {/* ISO 6410's own thread-major-diameter circle — see
+                `kernel/drawingProjection.ts`'s `threadOverlaysFor` for how it's found. */}
+            {view.threadPaths?.map((d, index) => (
+              <path key={`thread-${index}`} d={d} className={styles.threadEdge} />
+            ))}
           </g>
         </g>
       </svg>
@@ -201,6 +208,101 @@ function PlacedView({
           }}
         />
       )}
+    </g>
+  );
+}
+
+/** How far past the source view's own bounding box the cutting-plane line and its arrows
+ * extend, sheet mm — ISO 128-40's own convention draws it clear of the view outline rather
+ * than flush with it. */
+const SECTION_MARK_OVERHANG = 6;
+const SECTION_ARROW_LENGTH = 4;
+const SECTION_ARROW_WIDTH = 2;
+
+/**
+ * The ISO 128-40 cutting-plane line an existing Section view's own source view is missing
+ * until now: a line across the source view at the position it was cut, an arrowhead at
+ * each end pointing in the direction of sight for the resulting section, and the same
+ * `letter-letter` designation (e.g. "A-A") the section view's own "SECTION A-A" label
+ * already carries — drawn from `section.orientation`/`localScreenPosition`, the exact
+ * values captured when the cut line was originally placed (`types/document.ts`'s
+ * `DrawingViewData.section`'s own doc comment).
+ */
+function SectionCutMarkView({ sourceView, section }: { sourceView: DrawingViewData; section: NonNullable<DrawingViewData["section"]> }) {
+  const width = sourceView.width * sourceView.scale;
+  const height = sourceView.height * sourceView.scale;
+  const left = sourceView.x - width / 2;
+  const top = sourceView.y - height / 2;
+  const scaledPosition = section.localScreenPosition * sourceView.scale;
+  const arrowSign = sectionArrowSign(sourceView.projection as OrthoProjection, section.orientation, section.keepPositiveSide);
+
+  const vertical = section.orientation === "vertical";
+  const lineX1 = vertical ? left + scaledPosition : left - SECTION_MARK_OVERHANG;
+  const lineX2 = vertical ? left + scaledPosition : left + width + SECTION_MARK_OVERHANG;
+  const lineY1 = vertical ? top - SECTION_MARK_OVERHANG : top + scaledPosition;
+  const lineY2 = vertical ? top + height + SECTION_MARK_OVERHANG : top + scaledPosition;
+
+  // Arrows point perpendicular to the cutting line itself (ISO 128-40's own "direction of
+  // sight" convention) — a *vertical* line's normal runs along screen X, a *horizontal*
+  // line's along screen Y, so each axis's own tip/perpendicular-width pair is keyed the
+  // opposite way from the line's own orientation flag.
+  const arrowAt = (baseX: number, baseY: number) => {
+    const tipX = vertical ? baseX + SECTION_ARROW_LENGTH * arrowSign : baseX;
+    const tipY = vertical ? baseY : baseY + SECTION_ARROW_LENGTH * arrowSign;
+    const perpX = vertical ? 0 : SECTION_ARROW_WIDTH / 2;
+    const perpY = vertical ? SECTION_ARROW_WIDTH / 2 : 0;
+    return `${baseX - perpX},${baseY - perpY} ${baseX + perpX},${baseY + perpY} ${tipX},${tipY}`;
+  };
+  const labelOffset = SECTION_ARROW_LENGTH + 3;
+  const labelAt = (baseX: number, baseY: number) => ({
+    x: vertical ? baseX + labelOffset * arrowSign : baseX,
+    y: vertical ? baseY + 1 : baseY + labelOffset * arrowSign,
+  });
+  const start = { x: lineX1, y: lineY1 };
+  const end = { x: lineX2, y: lineY2 };
+  const startLabel = labelAt(start.x, start.y);
+  const endLabel = labelAt(end.x, end.y);
+
+  return (
+    <g className={styles.sectionMark}>
+      <line x1={lineX1} y1={lineY1} x2={lineX2} y2={lineY2} className={styles.sectionMarkLine} />
+      <polygon points={arrowAt(start.x, start.y)} className={styles.sectionMarkArrow} />
+      <polygon points={arrowAt(end.x, end.y)} className={styles.sectionMarkArrow} />
+      <text x={startLabel.x} y={startLabel.y} textAnchor="middle" dominantBaseline="middle" className={styles.sectionMarkLabel}>
+        {section.letter}
+      </text>
+      <text x={endLabel.x} y={endLabel.y} textAnchor="middle" dominantBaseline="middle" className={styles.sectionMarkLabel}>
+        {section.letter}
+      </text>
+    </g>
+  );
+}
+
+/**
+ * The boundary circle + leadered letter callout an existing Detail view's own source view
+ * is missing until now — matches `detailOf`'s own crop circle exactly, with a leader to a
+ * letter callout positioned the same way `runCreateDetailView` parks the detail view itself
+ * (up and to the right of the cropped circle), so it reads as "this circle became DETAIL A,
+ * over there."
+ */
+function DetailCalloutView({ sourceView, detailOf, label }: { sourceView: DrawingViewData; detailOf: NonNullable<DrawingViewData["detailOf"]>; label: string }) {
+  const width = sourceView.width * sourceView.scale;
+  const height = sourceView.height * sourceView.scale;
+  const left = sourceView.x - width / 2;
+  const top = sourceView.y - height / 2;
+  const cx = left + detailOf.cx * sourceView.scale;
+  const cy = top + detailOf.cy * sourceView.scale;
+  const r = detailOf.radius * sourceView.scale;
+  const labelX = cx + r * 0.85;
+  const labelY = cy - r * 0.85 - 6;
+
+  return (
+    <g className={styles.sectionMark}>
+      <circle cx={cx} cy={cy} r={r} className={styles.detailCalloutCircle} />
+      <line x1={cx + r * 0.7} y1={cy - r * 0.7} x2={labelX} y2={labelY + 2} className={styles.sectionMarkLine} />
+      <text x={labelX} y={labelY} textAnchor="middle" dominantBaseline="middle" className={styles.sectionMarkLabel}>
+        {label}
+      </text>
     </g>
   );
 }
@@ -411,19 +513,82 @@ export function SheetBorder({ width, height, border }: { width: number; height: 
   );
 }
 
+/** ISO 128-30's own projection-method symbol: a truncated cone (the frustum outline every
+ * such symbol shows, wide end always drawn on the left) and a circle, on a shared
+ * chain-dotted axis line — cone-then-circle for ISO-E (1st angle), circle-then-cone for
+ * ISO-A (3rd angle), the same left-to-right order the standard's own reference diagrams
+ * use (see the PDF this app's own drawing overhaul was speced against, "evrópske
+ * uspořádání pohledů" vs "americké uspořádání pohledů"). Sized to fit inside whatever cell
+ * rect it's given, centred both ways. */
+function ProjectionMethodGlyph({ method, width, height }: { method: "ISO-E" | "ISO-A"; width: number; height: number }) {
+  const size = Math.min(width, height) * 0.7;
+  const coneWidth = size * 1.1;
+  const gap = size * 0.35;
+  const circleR = size / 2;
+  const totalWidth = coneWidth + gap + circleR * 2;
+  const startX = width / 2 - totalWidth / 2;
+  const midY = height / 2;
+
+  const cone =
+    method === "ISO-E" ? (
+      <polygon
+        points={`${startX},${midY - size / 2} ${startX + coneWidth},${midY - circleR * 0.55} ${startX + coneWidth},${midY + circleR * 0.55} ${startX},${midY + size / 2}`}
+        className={styles.projectionGlyph}
+      />
+    ) : (
+      <polygon
+        points={`${startX + totalWidth - coneWidth},${midY - circleR * 0.55} ${startX + totalWidth},${midY - size / 2} ${startX + totalWidth},${midY + size / 2} ${startX + totalWidth - coneWidth},${midY + circleR * 0.55}`}
+        className={styles.projectionGlyph}
+      />
+    );
+  const circleCx = method === "ISO-E" ? startX + coneWidth + gap + circleR : startX + circleR;
+
+  return (
+    <g>
+      <line x1={startX - size * 0.15} y1={midY} x2={startX + totalWidth + size * 0.15} y2={midY} className={styles.projectionAxis} />
+      {cone}
+      <circle cx={circleCx} cy={midY} r={circleR} className={styles.projectionGlyph} />
+    </g>
+  );
+}
+
+/** The title block's own projection-method cell content: the `ProjectionMethodGlyph` plus
+ * the method's own short text underneath. Purely visual — the click-to-toggle handler that
+ * makes this interactive lives on the shared full-cell background rect one level up
+ * (`TitleBlockView`), the same painted-and-therefore-hit-testable element every other title
+ * block cell already uses to catch its own click; the glyph's own `fill: none` strokes
+ * would otherwise only catch a click landing exactly on a stroke pixel. */
+function ProjectionSymbolCell({ field, method }: { field: TitleBlockField; method: "ISO-E" | "ISO-A" }) {
+  return (
+    <g>
+      <title>{method === "ISO-E" ? "ISO E — first-angle (click to switch to ISO A)" : "ISO A — third-angle (click to switch to ISO E)"}</title>
+      <ProjectionMethodGlyph method={method} width={field.width} height={field.height - 3} />
+      <g transform={`translate(0, ${field.height - 1.5})`}>
+        <text x={field.x + 1} y={0} fontSize={field.fontSize} className={styles.titleBlockValue}>
+          {method}
+        </text>
+      </g>
+    </g>
+  );
+}
+
 /**
  * The title block, anchored so its own bottom-right corner sits at the border's
  * bottom-right corner. Each field is a labelled cell; clicking one turns it into a plain
  * text input (via `foreignObject`, which inherits the surrounding SVG's mm-per-unit scale
  * automatically) for typing that field's value — Enter or blur commits it, Escape cancels.
+ * A `"projection-symbol"` field is the one exception: it's never editable text, always the
+ * document's own projection-method glyph (`ProjectionSymbolCell`).
  */
 function TitleBlockView({
   titleBlock,
   values,
+  projectionMethod,
   onEditValue,
 }: {
   titleBlock: TitleBlockTemplate;
   values: Record<string, string>;
+  projectionMethod: "ISO-E" | "ISO-A";
   onEditValue: (key: string, value: string) => void;
 }) {
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
@@ -432,6 +597,28 @@ function TitleBlockView({
     <g>
       <rect x={0} y={0} width={titleBlock.width} height={titleBlock.height} className={styles.titleBlockOutline} />
       {titleBlock.fields.map((field) => {
+        if (field.fieldType === "projection-symbol") {
+          return (
+            <g key={field.id} transform={`translate(${field.x}, ${field.y})`} className={styles.titleBlockProjectionCell}>
+              <rect
+                x={0}
+                y={0}
+                width={field.width}
+                height={field.height}
+                className={styles.titleBlockCell}
+                data-field-key={field.key}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  runToggleProjectionMethod();
+                }}
+              />
+              <text x={1} y={2.4} className={styles.titleBlockLabel}>
+                {field.label}
+              </text>
+              <ProjectionSymbolCell field={{ ...field, x: 0, y: 0 }} method={projectionMethod} />
+            </g>
+          );
+        }
         const value = values[field.key] ?? "";
         const isEditing = editingFieldId === field.id;
         return (
@@ -574,6 +761,7 @@ export function DrawingSheet() {
   const tables = drawing?.tables ?? [];
   const sourcePart = drawing?.sourcePart ?? null;
   const titleBlockValues = drawing?.titleBlockValues ?? {};
+  const projectionMethod = drawing?.projectionMethod ?? DEFAULT_PROJECTION_METHOD;
 
   const selectAnnotation = (
     kind: "dimension" | "ordinate" | "datum" | "gdt" | "surfaceFinish" | "weld" | "table",
@@ -961,6 +1149,29 @@ export function DrawingSheet() {
             />
           ))}
 
+          {/* Every Section/Detail view's own cutting-plane line / crop-boundary callout,
+              drawn back onto whichever view it was cut/cropped from — see
+              `SectionCutMarkView`/`DetailCalloutView`'s own doc comments. */}
+          {views.map((sourceView) =>
+            views
+              .filter((view) => view.kind === "section" && view.section?.sourceViewId === sourceView.id)
+              .map((sectionView) => (
+                <SectionCutMarkView key={`cut-${sectionView.id}`} sourceView={sourceView} section={sectionView.section!} />
+              )),
+          )}
+          {views.map((sourceView) =>
+            views
+              .filter((view) => view.kind === "detail" && view.detailOf?.sourceViewId === sourceView.id)
+              .map((detailView) => (
+                <DetailCalloutView
+                  key={`detail-${detailView.id}`}
+                  sourceView={sourceView}
+                  detailOf={detailView.detailOf!}
+                  label={detailView.label}
+                />
+              )),
+          )}
+
           {notes.map((note) => (
             <NoteView
               key={note.id}
@@ -1012,6 +1223,7 @@ export function DrawingSheet() {
               selected={selectedAnnotation?.kind === "datum" && selectedAnnotation.id === datum.id}
               onSelect={() => selectAnnotation("datum", datum.id)}
               onMove={(labelX, labelY) => updateDrawingDatum(datum.id, { labelX, labelY })}
+              onMoveAnchor={(anchorX, anchorY) => updateDrawingDatum(datum.id, { anchorX, anchorY })}
               onRename={(letter) => updateDrawingDatum(datum.id, { letter })}
             />
           ))}
@@ -1023,6 +1235,7 @@ export function DrawingSheet() {
               selected={selectedAnnotation?.kind === "gdt" && selectedAnnotation.id === gdt.id}
               onSelect={() => selectAnnotation("gdt", gdt.id)}
               onMove={(labelX, labelY) => updateDrawingGdt(gdt.id, { labelX, labelY })}
+              onMoveAnchor={(anchorX, anchorY) => updateDrawingGdt(gdt.id, { anchorX, anchorY })}
               onEdit={(patch) => updateDrawingGdt(gdt.id, patch)}
             />
           ))}
@@ -1034,6 +1247,7 @@ export function DrawingSheet() {
               selected={selectedAnnotation?.kind === "surfaceFinish" && selectedAnnotation.id === finish.id}
               onSelect={() => selectAnnotation("surfaceFinish", finish.id)}
               onMove={(labelX, labelY) => updateDrawingSurfaceFinish(finish.id, { labelX, labelY })}
+              onMoveAnchor={(anchorX, anchorY) => updateDrawingSurfaceFinish(finish.id, { anchorX, anchorY })}
               onEdit={(patch) => updateDrawingSurfaceFinish(finish.id, patch)}
             />
           ))}
@@ -1045,6 +1259,7 @@ export function DrawingSheet() {
               selected={selectedAnnotation?.kind === "weld" && selectedAnnotation.id === weld.id}
               onSelect={() => selectAnnotation("weld", weld.id)}
               onMove={(labelX, labelY) => updateDrawingWeld(weld.id, { labelX, labelY })}
+              onMoveAnchor={(anchorX, anchorY) => updateDrawingWeld(weld.id, { anchorX, anchorY })}
               onEdit={(patch) => updateDrawingWeld(weld.id, patch)}
             />
           ))}
@@ -1068,7 +1283,12 @@ export function DrawingSheet() {
                 sheetHeight - border.margin - titleBlock.height
               })`}
             >
-              <TitleBlockView titleBlock={titleBlock} values={titleBlockValues} onEditValue={setTitleBlockValue} />
+              <TitleBlockView
+                titleBlock={titleBlock}
+                values={titleBlockValues}
+                projectionMethod={projectionMethod}
+                onEditValue={setTitleBlockValue}
+              />
             </g>
           )}
         </svg>

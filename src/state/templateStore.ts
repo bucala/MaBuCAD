@@ -111,6 +111,7 @@ const DEFAULT_TITLE_BLOCK: TitleBlockTemplate = {
       width: 45,
       height: 15,
       fontSize: 3,
+      fieldType: "projection-symbol",
     },
     { id: "field-scale", key: "scale", label: "SCALE", x: 135, y: 0, width: 45, height: 7.5, fontSize: 3 },
     { id: "field-size", key: "size", label: "SIZE", x: 135, y: 7.5, width: 45, height: 7.5, fontSize: 3 },
@@ -146,7 +147,6 @@ const DEFAULT_TITLE_BLOCK: TitleBlockTemplate = {
  * Only standard boilerplate, per this template's own doc comment. */
 const DEFAULT_TITLE_BLOCK_VALUES: Record<string, string> = {
   notes: "ALL DIMENSIONS IN MM. TOLERANCES PER ISO 2768-mK UNLESS OTHERWISE STATED.",
-  projection: "THIRD ANGLE",
   sheet: "1 / 1",
 };
 

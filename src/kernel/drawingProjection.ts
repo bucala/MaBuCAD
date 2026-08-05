@@ -1,9 +1,12 @@
 import { drawProjection, FaceFinder, lookFromPlane, makeBaseBox, ProjectionCamera } from "replicad";
 import type { AnyShape, Face, PlaneName, ProjectionPlane, Wire } from "replicad";
 
+import { resolveTapDrill } from "@/data/holeResolution";
+import type { TappedStandardId } from "@/data/holeStandards";
 import type { Sketch } from "@/sketch/types";
 import type { CadDocument, DrawingProjectionKind, StandardProjectionKind } from "@/types/document";
 
+import { fitCircle } from "./drawingGeometry";
 import { getCurrentShape, rebuildDocument } from "./rebuild";
 
 /** One projected view's geometry, in the part's own millimetre space, shifted to land at
@@ -17,6 +20,12 @@ export interface ProjectedGeometry {
   height: number;
   originX: number;
   originY: number;
+  /** ISO 6410's own thin, 3/4-broken circle at the thread's major diameter, drawn around
+   * whichever of `visiblePaths`/`hiddenPaths` circle turns out to be a tapped hole's own
+   * minor-diameter (tap drill) circle — see `threadOverlaysFor`'s own doc comment for how
+   * that match is made. Absent/empty when the part has no tapped holes, or none of them
+   * happen to be viewed straight down their own axis. */
+  threadPaths?: string[];
 }
 
 export type ProjectedViews = Record<StandardProjectionKind, ProjectedGeometry>;
@@ -102,6 +111,76 @@ async function rebuildPartShape(
   return { shape: shape as unknown as AnyShape, errors: result.errors };
 }
 
+/** A tapped hole's own two ISO 6410-relevant radii — the drilled (tap drill / minor
+ * diameter) circle the plain-cylinder cut geometry actually projects as, and the thread's
+ * own major (nominal) diameter the standard draws as a thin broken circle around it. */
+interface ThreadRadii {
+  minorRadius: number;
+  majorRadius: number;
+}
+
+/** Every tapped/taper-tapped Hole Wizard feature actually built in `document`
+ * (suppressed/rolled-back ones excluded, the same filter `commands/drawingCommands.ts`'s
+ * Hole Table already uses), reduced to the two radii `threadOverlaysFor` needs — one entry
+ * per feature, not per placement point, since every point a single feature places shares
+ * the same thread size. */
+function tappedHoleRadii(document: CadDocument): ThreadRadii[] {
+  const radii: ThreadRadii[] = [];
+  for (const feature of document.features.slice(0, document.rollbackIndex)) {
+    if (feature.kind !== "hole" || feature.suppressed) continue;
+    const { holeType, holeStandard, holeSize } = feature.parameters;
+    if (holeType !== "tapped" && holeType !== "taper-tapped") continue;
+    if (!holeStandard || !holeSize) continue;
+    const entry = resolveTapDrill(holeStandard as TappedStandardId, holeSize);
+    if (!entry) continue;
+    radii.push({ minorRadius: entry.tapDrill / 2, majorRadius: entry.nominalSize / 2 });
+  }
+  return radii;
+}
+
+/** ISO 6410's own thread-major-diameter symbol: a thin circle broken over a 90° gap (the
+ * standard requires a visible break somewhere so it reads as "the thread crest," not a
+ * second real edge; it doesn't mandate exactly where, so a fixed gap in the upper-right
+ * reads consistently across every thread this app draws). */
+const THREAD_ARC_GAP_DEGREES = 90;
+
+function threadArcPath(cx: number, cy: number, r: number): string {
+  const startDeg = 45;
+  const sweepDeg = 360 - THREAD_ARC_GAP_DEGREES;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const startX = cx + r * Math.cos(toRad(startDeg));
+  const startY = cy + r * Math.sin(toRad(startDeg));
+  const endX = cx + r * Math.cos(toRad(startDeg + sweepDeg));
+  const endY = cy + r * Math.sin(toRad(startDeg + sweepDeg));
+  const largeArcFlag = sweepDeg > 180 ? 1 : 0;
+  return `M ${startX} ${startY} A ${r} ${r} 0 ${largeArcFlag} 1 ${endX} ${endY}`;
+}
+
+/**
+ * Finds every circle in `geometry`'s own cached edges that's really a tapped hole's minor-
+ * diameter (tap drill) circle — the plain-cylinder cut this app's kernel actually builds
+ * for a tapped hole (`kernel/rebuild.ts`'s `buildHoleSolid`, real B-Rep geometry only ever
+ * matches the *drilled* diameter, never the thread's own crest) — matched purely by radius
+ * against `radii`'s own known tap-drill sizes, since resolving a hole feature's real
+ * world-space placement (which could sit on any reference plane, not just the default one)
+ * would need a much larger geometric undertaking for comparatively little extra payoff:
+ * a coincidental radius match is cosmetically harmless (one extra thin circle), while a
+ * real tapped hole not viewed straight down its own axis (i.e. it doesn't project as a
+ * circle at all in this view) is correctly left undecorated either way.
+ */
+function threadOverlaysFor(geometry: { visiblePaths: string[]; hiddenPaths: string[] }, radii: ThreadRadii[]): string[] {
+  if (radii.length === 0) return [];
+  const overlays: string[] = [];
+  for (const d of [...geometry.visiblePaths, ...geometry.hiddenPaths]) {
+    const circle = fitCircle(d);
+    if (!circle) continue;
+    const match = radii.find((entry) => Math.abs(circle.r - entry.minorRadius) < Math.max(entry.minorRadius * 0.05, 0.05));
+    if (!match) continue;
+    overlays.push(threadArcPath(circle.cx, circle.cy, match.majorRadius));
+  }
+  return overlays;
+}
+
 export async function rebuildAndProjectPart(
   document: CadDocument,
   sketches: Record<string, Sketch>,
@@ -110,15 +189,29 @@ export async function rebuildAndProjectPart(
   if (!built) return null;
 
   const iso = isometricCamera();
-  return {
-    views: {
-      front: projectOne(built.shape, "front"),
-      top: projectOne(built.shape, "top"),
-      right: projectOne(built.shape, "right"),
-      iso: projectOne(built.shape, iso),
-    },
-    errors: built.errors,
+  // All six axis-aligned directions plus Isometric are projected every time, not just
+  // whichever four the sheet currently shows — a Projected View (or a projection-method
+  // toggle re-laying out an existing set) needs any of the six's own geometry on demand,
+  // and re-running the WASM-backed `drawProjection` call seven times instead of four is
+  // cheap next to the boolean-cut work a Section view already redoes on every recompute.
+  const views: ProjectedViews = {
+    front: projectOne(built.shape, "front"),
+    top: projectOne(built.shape, "top"),
+    bottom: projectOne(built.shape, "bottom"),
+    left: projectOne(built.shape, "left"),
+    right: projectOne(built.shape, "right"),
+    back: projectOne(built.shape, "back"),
+    iso: projectOne(built.shape, iso),
   };
+
+  const radii = tappedHoleRadii(document);
+  if (radii.length > 0) {
+    for (const key of Object.keys(views) as StandardProjectionKind[]) {
+      views[key] = { ...views[key], threadPaths: threadOverlaysFor(views[key], radii) };
+    }
+  }
+
+  return { views, errors: built.errors };
 }
 
 /**
@@ -147,6 +240,35 @@ export function sectionAxisAndOffset(
   }
   // "right"
   return orientation === "vertical" ? { axis: "y", offset: -u } : { axis: "z", offset: v };
+}
+
+/**
+ * Which direction the cutting-plane line's own sighting arrows should point, in
+ * `sourceView`'s local screen space — `+1` means increasing local X (rightward) for a
+ * vertical cut line, or increasing local screen Y (downward, since screen Y runs opposite
+ * the un-normalised `v` register — see `runCreateSectionView`'s own `v = originY + (height
+ * - localScreenPosition)` inversion) for a horizontal one.
+ *
+ * ISO 128-40's own convention: the arrows point in the direction of sight for the resulting
+ * section — i.e. toward the kept material. Derived from the same per-projection axis
+ * mapping `sectionAxisAndOffset` uses above: each (projection, orientation) pair maps its
+ * local coordinate to a world axis value via a pure ±1 scale factor `S` (no offset — e.g.
+ * Front-vertical's `u` *is* world X, Top-horizontal's `v` maps to world Y via `-v`), so
+ * "which local direction moves toward the kept side" is exactly `keepPositiveSide ? S : -S`,
+ * flipped once more for the horizontal case's own screen-Y inversion.
+ */
+export function sectionArrowSign(
+  projection: OrthoProjection,
+  orientation: "horizontal" | "vertical",
+  keepPositiveSide: boolean,
+): 1 | -1 {
+  if (orientation === "vertical") {
+    const s: 1 | -1 = projection === "right" ? -1 : 1;
+    return keepPositiveSide ? s : (-s as 1 | -1);
+  }
+  const s: 1 | -1 = projection === "top" ? -1 : 1;
+  const towardKeptInV = keepPositiveSide ? s : (-s as 1 | -1);
+  return -towardKeptInV as 1 | -1;
 }
 
 function asCuttable(shape: unknown) {

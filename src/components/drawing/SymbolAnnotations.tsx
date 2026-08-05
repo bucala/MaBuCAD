@@ -70,6 +70,45 @@ function useDrag(onMove: (x: number, y: number) => void, x: number, y: number) {
   };
 }
 
+/**
+ * The leader's own anchor end, draggable independently of the label — every leadered
+ * annotation on this sheet (Datum/GD&T/Surface Finish/Weld) placed its anchor once at
+ * creation time (a `nearestVertex` snap or a raw click) and offered no way to move it
+ * afterward; if the referenced view is later repositioned, or the wrong vertex was picked,
+ * the leader stayed stuck. A small filled circle at the anchor point, visible only while
+ * this annotation is selected (so it doesn't clutter a dense drawing's every symbol at
+ * once), re-attaches it to wherever it's dragged.
+ */
+function AnchorHandle({
+  x,
+  y,
+  selected,
+  onSelect,
+  onMove,
+}: {
+  x: number;
+  y: number;
+  selected: boolean;
+  onSelect: () => void;
+  onMove: (x: number, y: number) => void;
+}) {
+  const drag = useDrag(onMove, x, y);
+  if (!selected) return null;
+  return (
+    <circle
+      cx={x}
+      cy={y}
+      r={1.4}
+      className={styles.anchorHandle}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+      {...drag}
+    />
+  );
+}
+
 /** A datum feature symbol — boxed letter + filled triangle, leadered to the feature it
  * references (ASME Y14.5's own "named reference" convention). Double-click renames the
  * letter, the same inline-edit shape `NoteView` uses for its text. */
@@ -78,12 +117,14 @@ export function DatumView({
   selected,
   onSelect,
   onMove,
+  onMoveAnchor,
   onRename,
 }: {
   datum: DrawingDatumData;
   selected: boolean;
   onSelect: () => void;
   onMove: (labelX: number, labelY: number) => void;
+  onMoveAnchor: (anchorX: number, anchorY: number) => void;
   onRename: (letter: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -96,6 +137,7 @@ export function DatumView({
         points={`${datum.anchorX},${datum.anchorY} ${datum.anchorX - 1.5},${datum.anchorY - 3} ${datum.anchorX + 1.5},${datum.anchorY - 3}`}
         className={styles.datumTriangle}
       />
+      <AnchorHandle x={datum.anchorX} y={datum.anchorY} selected={selected} onSelect={onSelect} onMove={onMoveAnchor} />
       <g
         transform={`translate(${datum.labelX} ${datum.labelY})`}
         onClick={(event) => {
@@ -161,12 +203,14 @@ export function GdtView({
   selected,
   onSelect,
   onMove,
+  onMoveAnchor,
   onEdit,
 }: {
   gdt: DrawingGdtData;
   selected: boolean;
   onSelect: () => void;
   onMove: (labelX: number, labelY: number) => void;
+  onMoveAnchor: (anchorX: number, anchorY: number) => void;
   onEdit: (patch: GdtEditPatch) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -179,6 +223,7 @@ export function GdtView({
   return (
     <g className={selected ? styles.dimensionSelected : styles.dimension}>
       <line x1={gdt.anchorX} y1={gdt.anchorY} x2={gdt.labelX} y2={gdt.labelY} className={styles.leaderLine} />
+      <AnchorHandle x={gdt.anchorX} y={gdt.anchorY} selected={selected} onSelect={onSelect} onMove={onMoveAnchor} />
       <g
         transform={`translate(${gdt.labelX - width / 2} ${gdt.labelY - FRAME_ROW_HEIGHT / 2})`}
         onClick={(event) => {
@@ -362,12 +407,14 @@ export function SurfaceFinishView({
   selected,
   onSelect,
   onMove,
+  onMoveAnchor,
   onEdit,
 }: {
   finish: DrawingSurfaceFinishData;
   selected: boolean;
   onSelect: () => void;
   onMove: (labelX: number, labelY: number) => void;
+  onMoveAnchor: (anchorX: number, anchorY: number) => void;
   onEdit: (patch: SurfaceFinishEditPatch) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -385,6 +432,7 @@ export function SurfaceFinishView({
         y2={finish.labelY}
         className={styles.leaderLine}
       />
+      <AnchorHandle x={finish.anchorX} y={finish.anchorY} selected={selected} onSelect={onSelect} onMove={onMoveAnchor} />
       <g
         transform={`translate(${finish.labelX} ${finish.labelY})`}
         onClick={(event) => {
