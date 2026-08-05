@@ -6,11 +6,24 @@ import { create } from "zustand";
  * 3D/sketch side of the app, scoped instead to `DrawingSheet.tsx`.
  *
  * "select" (the default) is plain click-to-select/drag-to-move on views, notes and title
- * block fields. "note" places a new text note on the next sheet click. "section" and
- * "detail" each need a source view picked first, then a cut line / crop circle dragged
- * into place before confirming — see their own state below.
+ * block fields. "note", "datum", "gdt" and "surface-finish" each place one annotation on
+ * the next sheet click and self-disarm back to "select" (see `DrawingSheet.tsx`'s
+ * `handleBackgroundClick`). "section" and "detail" each need a source view picked first,
+ * then a cut line / crop circle dragged into place before confirming. "smart-dimension"
+ * needs two picked points (see `dimensionFirstPoint` below); "ordinate" needs a datum pick
+ * followed by any number of further point picks added to the same chain.
  */
-export type DrawingTool = "select" | "note" | "section" | "detail";
+export type DrawingTool =
+  | "select"
+  | "note"
+  | "section"
+  | "detail"
+  | "projected"
+  | "smart-dimension"
+  | "ordinate"
+  | "datum"
+  | "gdt"
+  | "surface-finish";
 
 interface DrawingToolStore {
   tool: DrawingTool;
@@ -39,8 +52,27 @@ interface DrawingToolStore {
   pickDetailSource: (viewId: string, cx: number, cy: number) => void;
   setDetailCircle: (cx: number, cy: number, radius: number) => void;
 
-  /** Common exit for both tools — a confirm, a cancel, or switching away all go through
-   * this, so nothing but `setTool`/`pickXSource` ever needs to remember every field above. */
+  /** Smart Dimension: the first of the two points a linear dimension needs, sheet-mm plus
+   * which view it was snapped from (a dimension's real-world value only makes sense read
+   * against one view's own scale — see `kernel/drawingGeometry.ts`'s `viewScaleFor`). `null`
+   * before the first pick, and reset to `null` again once the second pick commits the
+   * dimension (so the tool stays armed for the next one, matching a sketch's own Smart
+   * Dimension not disarming after a single use). */
+  dimensionFirstPoint: { viewId: string; x: number; y: number } | null;
+  pickDimensionFirstPoint: (viewId: string, x: number, y: number) => void;
+
+  /** Ordinate: the shared datum every point in the current chain measures from, plus which
+   * chain (once started) further picks append to and along which axis. `null` fields mean
+   * "chain not started yet" — the very next pick becomes the datum. */
+  ordinateDatum: { x: number; y: number } | null;
+  ordinateChainId: string | null;
+  ordinateAxis: "x" | "y" | null;
+  pickOrdinateDatum: (x: number, y: number) => void;
+  startOrdinateChain: (chainId: string, axis: "x" | "y") => void;
+
+  /** Common exit for every armed tool — a confirm, a cancel, Escape, or switching away all
+   * go through this, so nothing but `setTool`/`pickXSource` ever needs to remember every
+   * field above. */
   resetPicking: () => void;
 
   /** Sheet-level zoom/pan, applied as a CSS transform on the rendered `<svg>` in
@@ -67,7 +99,16 @@ const MAX_ZOOM = 8;
 
 export const useDrawingToolStore = create<DrawingToolStore>((set) => ({
   tool: "select",
-  setTool: (tool) => set({ tool, sectionSourceViewId: null, detailSourceViewId: null }),
+  setTool: (tool) =>
+    set({
+      tool,
+      sectionSourceViewId: null,
+      detailSourceViewId: null,
+      dimensionFirstPoint: null,
+      ordinateDatum: null,
+      ordinateChainId: null,
+      ordinateAxis: null,
+    }),
 
   sectionSourceViewId: null,
   sectionOrientation: "vertical",
@@ -86,11 +127,24 @@ export const useDrawingToolStore = create<DrawingToolStore>((set) => ({
   pickDetailSource: (viewId, cx, cy) => set({ detailSourceViewId: viewId, detailCentreX: cx, detailCentreY: cy }),
   setDetailCircle: (cx, cy, radius) => set({ detailCentreX: cx, detailCentreY: cy, detailRadius: radius }),
 
+  dimensionFirstPoint: null,
+  pickDimensionFirstPoint: (viewId, x, y) => set({ dimensionFirstPoint: { viewId, x, y } }),
+
+  ordinateDatum: null,
+  ordinateChainId: null,
+  ordinateAxis: null,
+  pickOrdinateDatum: (x, y) => set({ ordinateDatum: { x, y }, ordinateChainId: null, ordinateAxis: null }),
+  startOrdinateChain: (chainId, axis) => set({ ordinateChainId: chainId, ordinateAxis: axis }),
+
   resetPicking: () =>
     set({
       tool: "select",
       sectionSourceViewId: null,
       detailSourceViewId: null,
+      dimensionFirstPoint: null,
+      ordinateDatum: null,
+      ordinateChainId: null,
+      ordinateAxis: null,
     }),
 
   zoom: 1,

@@ -256,6 +256,128 @@ export interface DrawingNoteData {
 }
 
 /**
+ * A dimension measured directly on a placed view's own projected geometry — distinct from a
+ * sketch dimension (`sketch/types.ts`'s `Dimension`), which drives constraint-solved 2D
+ * geometry; this one is read-only annotation over an already-projected, already-final view,
+ * the same distinction a sketch's own construction-time dimensions have from a drawing's
+ * documentation-time ones in every mainstream CAD tool.
+ *
+ * `x1,y1`/`x2,y2` are both sheet mm, snapped from the picked view's own projected vertices
+ * (see `kernel/drawingGeometry.ts`'s `nearestVertex`) at the moment the dimension was
+ * created — not live-linked to the view, so dragging/rescaling a view afterward leaves an
+ * existing dimension where it was measured, matching how a Model View's own cached
+ * `visiblePaths` already work (`DrawingViewData`'s own doc comment).
+ */
+export interface DrawingDimensionData {
+  id: string;
+  /** "linear" is a free aligned distance; "horizontal"/"vertical" project onto one axis
+   * only — auto-picked from how the two points relate when the dimension was created
+   * (see `commands/drawingCommands.ts`'s `runPickDimensionPoint`). */
+  kind: "linear" | "horizontal" | "vertical";
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** The real-world distance this dimension reports, already divided by the source view's
+   * own `scale` — a dimension on a 2:1 detail view still reads the part's actual size, not
+   * the enlarged on-paper one. */
+  value: number;
+  /** Offset of the dimension line/label from the two points' own midpoint, sheet mm —
+   * draggable, the same "user can always declutter a crowded drawing" convention every
+   * other placed element here already follows. */
+  offsetX: number;
+  offsetY: number;
+}
+
+/** Ordinate dimensions sharing one datum/zero point — `annotation.ordinate`'s own data.
+ * Unlike `DrawingDimensionData`, every entry in one chain measures from the same
+ * `datumX`/`datumY`, which is what keeps them visually and numerically consistent as a set
+ * (adding a fourth ordinate to an existing chain doesn't need touching the first three). */
+export interface DrawingOrdinateChainData {
+  id: string;
+  axis: "x" | "y";
+  datumX: number;
+  datumY: number;
+  /** Each further point in the chain, sheet mm — `value` is that point's real-world offset
+   * from the datum along `axis`, already divided by the source view's `scale`. */
+  points: { id: string; x: number; y: number; value: number }[];
+}
+
+/** A datum feature symbol (boxed letter + filled triangle) with a leader to the feature it
+ * references — GD&T's own "named reference surface/point" convention (ASME Y14.5). */
+export interface DrawingDatumData {
+  id: string;
+  letter: string;
+  /** Leader tip, sheet mm — snapped to the referenced feature's own geometry. */
+  anchorX: number;
+  anchorY: number;
+  /** The boxed-letter symbol's own position, sheet mm — draggable independently of the
+   * anchor, the same "leader stays put, label moves" convention `SketchDimensions.tsx`'s
+   * own leader/label split already uses. */
+  labelX: number;
+  labelY: number;
+}
+
+/** One of the ASME Y14.5 geometric characteristic symbols a feature control frame's first
+ * compartment can hold — the subset this app actually offers, not the full 14-symbol table
+ * (profile of a surface/line and a couple of rarely-needed ones are left out rather than
+ * built and never reachable from any real workflow here). */
+export type GdtSymbol =
+  | "position"
+  | "flatness"
+  | "straightness"
+  | "circularity"
+  | "cylindricity"
+  | "perpendicularity"
+  | "parallelism"
+  | "angularity"
+  | "runout"
+  | "concentricity";
+
+/** A GD&T feature control frame — symbol, tolerance value and up to three datum
+ * references, with a leader to the feature it constrains. */
+export interface DrawingGdtData {
+  id: string;
+  symbol: GdtSymbol;
+  /** Tolerance value in mm, as typed (e.g. "0.05" or "⌀0.1 M") — kept as free text rather
+   * than a bare number since a real callout routinely carries a diameter/MMC modifier that
+   * a plain number field can't represent. */
+  tolerance: string;
+  /** Datum letters this frame references, in precedence order, e.g. ["A", "B"] — empty for
+   * a form tolerance (flatness/straightness/circularity/cylindricity), which has none. */
+  datums: string[];
+  anchorX: number;
+  anchorY: number;
+  labelX: number;
+  labelY: number;
+}
+
+/** An ISO 1302 surface finish (roughness) symbol with a leader — `annotation.surface-finish`'s
+ * own data. `roughness` is free text (e.g. "Ra 1.6", "3.2", or blank for "any process"). */
+export interface DrawingSurfaceFinishData {
+  id: string;
+  roughness: string;
+  anchorX: number;
+  anchorY: number;
+  labelX: number;
+  labelY: number;
+}
+
+/** A table inserted onto the sheet — `table.bom`/`table.hole`'s own data. `rows[0]` is
+ * always the header; every cell is already-formatted display text (not live-linked back to
+ * the part, the same "snapshot at insert time" convention `DrawingViewData`'s cached paths
+ * already use — re-run the command to refresh after the part changes). */
+export interface DrawingTableData {
+  id: string;
+  kind: "bom" | "hole";
+  title: string;
+  /** Top-left corner, sheet mm. */
+  x: number;
+  y: number;
+  rows: string[][];
+}
+
+/**
  * A Drawing document's sheet: which part it shows views of, and the views themselves.
  *
  * Unlike a Part (`Feature[]` replayed by `kernel/rebuild.ts`), a Drawing has no history of
@@ -279,6 +401,13 @@ export interface DrawingSheetData {
   titleBlockValues?: Record<string, string>;
   /** Freeform text notes on the sheet — optional/absent means none yet. */
   notes?: DrawingNoteData[];
+  /** All optional/absent-means-none-yet, the same reasoning as `notes` above. */
+  dimensions?: DrawingDimensionData[];
+  ordinateChains?: DrawingOrdinateChainData[];
+  datums?: DrawingDatumData[];
+  gdtFrames?: DrawingGdtData[];
+  surfaceFinishes?: DrawingSurfaceFinishData[];
+  tables?: DrawingTableData[];
 }
 
 /** A named number, referenced from a sketch dimension's value field as `=name` (see

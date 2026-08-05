@@ -7,7 +7,75 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
-## 2026-08-04 — Multi-body Extrude, cosmetic threads, Save fix, CSP fix (v0.14.0)
+## 2026-08-05 — Drawing annotations, Projected View, tables, and a view-alignment fix (v0.15.0)
+
+A nineteenth round: the Drawing tab had eight ribbon buttons that had been visually present
+but never wired to anything since the tab was first built — Projected View, Smart Dimension,
+Ordinate, Datum Feature, Geometric Tolerance, Surface Finish, Bill of Materials, and Hole
+Table. All eight now do real work. Investigating why a picked point wasn't landing on the
+geometry a user could see also surfaced a real, pre-existing rendering bug affecting every
+Drawing view (standard, section, and detail alike), fixed at its root.
+
+### Added — Drawing views and tables
+- **Projected View** (`drawing.projected`): click a placed standard view to add whichever of
+  the other three standard projections (Front/Top/Right/Iso) isn't on the sheet yet, aligned
+  to the picked view the same way the initial four-view layout aligns them (Top shares
+  Front's own x and sits above it, Right shares Front's own y and sits beside it). Re-reads
+  and re-projects the referenced part the same way Update Views does, since only views
+  already placed have cached geometry.
+- **Bill of Materials** and **Hole Table** (`table.bom`/`table.hole`): both insert a plain
+  grid table below whatever's already on the sheet. The BOM is honestly a one-row table for
+  the single part a Drawing references (this app has no assembly document yet to draw a
+  real multi-item BOM from) — part name from the source document's own title, material from
+  its "Material" reference feature's name if renamed away from the default placeholder. The
+  Hole Table lists every Hole Wizard feature actually built in the part (suppressed/rolled-
+  back ones excluded), one row per placement point, ordinate-referenced from its own
+  sketch's origin — HOLE / X / Y / SIZE / TYPE.
+
+### Added — Drawing annotations
+- **Smart Dimension** (`annotation.smart-dimension`): click two points on any placed view's
+  own projected geometry for a linear/horizontal/vertical dimension between them, value
+  read against that view's own scale so a callout on a 2:1 detail view still reports the
+  part's real size. Stays armed across clicks, the same "doesn't disarm after one use"
+  convention a sketch's own Smart Dimension already follows.
+- **Ordinate** (`annotation.ordinate`): pick a datum point, then any number of further
+  points along the same axis, each labelled with its own offset from that one shared datum
+  (ISO 129-1's "every value measured from the same zero" convention) rather than a chain of
+  individual dimensions.
+- **Datum Feature**, **Geometric Tolerance**, and **Surface Finish**
+  (`annotation.datum`/`annotation.gdt`/`annotation.surface-finish`): a boxed-letter datum
+  symbol, an ASME Y14.5 feature control frame (symbol/tolerance/up to three datum
+  references, editable inline via double-click), and an ISO 1302 roughness symbol — each
+  places on the next click, snapped to the nearest real vertex of a placed view within a
+  small tolerance (`kernel/drawingGeometry.ts`'s new `nearestVertex`, which recovers real
+  vertices from a view's own cached SVG paths).
+- Every new annotation type is fully interactive: click to select, drag to reposition its
+  label, Delete key or the toolbar's Delete button to remove — the same selection/drag/
+  delete shapes Notes and placed Views already had, now shared across six more entity types
+  via one unified `selectedAnnotation` state instead of one `useState` apiece.
+
+### Fixed
+- **View geometry rendered a full view-height off from its own selection handle,
+  label, and (for a Detail view) crop circle.** `View`'s render transform
+  (`translate(0, height) scale(1, -1)`) assumed `kernel/drawingProjection.ts` hands back
+  plain CAD-space (Y-up) paths needing a flip — but replicad's own `toSVGPathD()` already
+  mirrors Y before emitting path data, so the extra `scale(1, -1)` mirrored it a *second*
+  time, shifting every view's actual geometry down by exactly its own height from where the
+  invisible selection/drag hitbox, the view's label, and (for a Detail view) its crop circle
+  all assumed it would be. Visually this meant: clicking a view to select or drag it could
+  miss the geometry you could see entirely; a Detail view's crop circle could clip the wrong
+  region; and a view's own label could land on top of unrelated geometry instead of below
+  it, all depending on which direction a given projection's path coordinates happened to
+  come out in. Fixed to a plain vertical shift with no extra flip; `kernel/drawingGeometry.ts`'s
+  `nearestVertex`-based picking (used by every new annotation tool above) is written against
+  the corrected transform.
+- **A view's own selection rect never stopped click propagation**, so clicking it to select
+  it also always immediately re-triggered the sheet's own background-click handler, which
+  cleared the selection right back to nothing on the same click — select-then-Delete on a
+  view only ever worked by accident, via a drag distinguishing itself from a plain click.
+  Now has its own `onClick` + `stopPropagation`, matching the pattern `NoteView` already used.
+
+
 
 An eighteenth round: multi-body Extrude/Revolve from a per-contour profile picker, a
 cosmetic thread indicator on tapped holes, a Fix-constraint anchoring bug found and fixed
