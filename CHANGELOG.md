@@ -73,6 +73,18 @@ CSP config gap that broke Insert Model View.
   wired (verified end-to-end: selecting Tapped does reveal Standard/Size/Thread
   designation/Direction/Full Depth), but four unlabeled icons with no visible indication of
   which one is active is a real discoverability gap on its own.
+- **`plugin:dialog|confirm` blocked by ACL**: `window.confirm`, used to ask before closing
+  a dirty tab or restoring an autosave over the active one, is monkeypatched by the Tauri
+  dialog plugin into an IPC call — but `src-tauri/capabilities/default.json`'s `dialog:default`
+  only actually grants `message`/`save`/`open`, not `confirm`, despite its own permission
+  file's doc comment claiming "all dialog types are enabled". Added `dialog:allow-confirm`
+  explicitly, fixing an unhandled promise rejection on every such prompt.
+- **Invalid hex colours for construction/axis geometry**: `InactiveSketches.tsx`'s
+  construction and revolve-axis line colours were hand-written as 8-digit `#RRGGBBAA` hex
+  (an attempted alpha suffix), which `THREE.Color` has no support for and silently rejects
+  with a console warning, leaving the colour unset. Fixed to plain 6-digit hex, with the
+  intended ~60% dimming now applied the way it actually works — `transparent`/`opacity` on
+  the line itself.
 
 ## 2026-08-04 — Sketch solver fixes, dimension gaps, ViewCube, Drawing pan/zoom (v0.13.0)
 

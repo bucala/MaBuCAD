@@ -12,8 +12,12 @@ import { useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 const LINE_COLOR = { light: "#8a94a3", dark: "#5c6470" };
-const CONSTRUCTION_COLOR = "#c48b1a99";
-const AXIS_COLOR = "#0891b299";
+// Plain 6-digit hex — THREE.Color has no CSS alpha-hex support, so an `#RRGGBBAA` suffix
+// (the original, incorrect form of these two) is silently rejected rather than applied as
+// opacity; `CONSTRUCTION_OPACITY` below is how the intended ~60% dimming is actually done.
+const CONSTRUCTION_COLOR = "#c48b1a";
+const AXIS_COLOR = "#0891b2";
+const CONSTRUCTION_OPACITY = 0.6;
 
 /**
  * Every sketch that isn't the one actively being edited, drawn faint and un-pickable in
@@ -104,6 +108,7 @@ function InactiveEntity({ entity, sketch, isDark }: { entity: SketchEntity; sket
 
   if (positions.length < 2) return null;
 
+  const isSpecialColor = (entity.kind === "line" && entity.isAxis) || entity.construction;
   const color = entity.kind === "line" && entity.isAxis
     ? AXIS_COLOR
     : entity.construction
@@ -117,6 +122,8 @@ function InactiveEntity({ entity, sketch, isDark }: { entity: SketchEntity; sket
       points={positions}
       color={color}
       lineWidth={1}
+      transparent={isSpecialColor}
+      opacity={isSpecialColor ? CONSTRUCTION_OPACITY : 1}
       dashed={entity.construction}
       dashSize={entity.kind === "line" && entity.isAxis ? 3 : 2}
       gapSize={entity.kind === "line" && entity.isAxis ? 0.8 : 1.5}
