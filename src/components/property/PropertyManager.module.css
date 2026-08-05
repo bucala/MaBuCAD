@@ -218,3 +218,12 @@
   color: var(--status-over);
   border-color: var(--status-over);
 }
+
+.regionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-caption);
+  color: var(--text-primary);
+  cursor: pointer;
+}

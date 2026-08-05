@@ -5,7 +5,7 @@ import {
   unpackVariables,
   type VariableLayout,
 } from "./residuals";
-import type { Sketch, SketchDiagnostics } from "./types";
+import type { Sketch, SketchDiagnostics, SketchEntity } from "./types";
 
 const MAX_ITERATIONS = 60;
 const CONVERGENCE_TOLERANCE = 1e-8;
@@ -34,6 +34,7 @@ function jacobian(
   layout: VariableLayout,
   values: Float64Array,
   anchors: Map<string, { x: number; y: number }>,
+  anchorEntities: Map<string, SketchEntity>,
   rows: number,
 ): number[][] {
   const matrix: number[][] = Array.from({ length: rows }, () => new Array(layout.size).fill(0));
@@ -44,10 +45,10 @@ function jacobian(
     const step = DERIVATIVE_STEP * Math.max(1, Math.abs(original));
 
     probe[column] = original + step;
-    const forward = evaluateResiduals(sketch, layout, probe, anchors);
+    const forward = evaluateResiduals(sketch, layout, probe, anchors, anchorEntities);
 
     probe[column] = original - step;
-    const backward = evaluateResiduals(sketch, layout, probe, anchors);
+    const backward = evaluateResiduals(sketch, layout, probe, anchors, anchorEntities);
 
     probe[column] = original;
 
@@ -156,13 +157,23 @@ export interface SolveOutcome {
  * Returns the updated geometry together with diagnostics the status bar turns into
  * "Fully Defined" / "Under Defined" / "Over Defined". An under-defined sketch is not an
  * error: it solves fine and simply retains degrees of freedom.
+ *
+ * `anchorSketch` (defaults to `sketch` itself) is where "fix"/"fix-line" read the positions
+ * and radii they pin to — pass the sketch as it stood *before* whatever mutation produced
+ * `sketch` when that mutation itself moved the very point/entity a fix constraint anchors
+ * to (a live point drag is exactly this: the dragged point is written to the cursor position
+ * before solving). Using `sketch` for both, the default, is correct whenever `sketch` hasn't
+ * had a fixed point's own position perturbed ahead of the solve — the common case of adding
+ * or removing a constraint — since anchors then just reflect the sketch's own last-settled,
+ * constraint-satisfying geometry.
  */
-export function solveSketch(sketch: Sketch): SolveOutcome {
+export function solveSketch(sketch: Sketch, anchorSketch: Sketch = sketch): SolveOutcome {
   const layout = buildLayout(sketch);
-  const anchors = new Map(sketch.points.map((point) => [point.id, { x: point.x, y: point.y }]));
+  const anchors = new Map(anchorSketch.points.map((point) => [point.id, { x: point.x, y: point.y }]));
+  const anchorEntities = new Map(anchorSketch.entities.map((entity) => [entity.id, entity]));
 
   let values = packVariables(sketch, layout);
-  let residuals = evaluateResiduals(sketch, layout, values, anchors);
+  let residuals = evaluateResiduals(sketch, layout, values, anchors, anchorEntities);
 
   if (residuals.length === 0 || layout.size === 0) {
     return {
@@ -181,14 +192,14 @@ export function solveSketch(sketch: Sketch): SolveOutcome {
   let converged = norm(residuals) < CONVERGENCE_TOLERANCE;
 
   while (!converged && iterations < MAX_ITERATIONS) {
-    const matrix = jacobian(sketch, layout, values, anchors, residuals.length);
+    const matrix = jacobian(sketch, layout, values, anchors, anchorEntities, residuals.length);
     const step = solveNormalEquations(matrix, residuals, layout.size);
     if (!step) break;
 
     const candidate = Float64Array.from(values);
     for (let index = 0; index < layout.size; index += 1) candidate[index] += step[index];
 
-    const candidateResiduals = evaluateResiduals(sketch, layout, candidate, anchors);
+    const candidateResiduals = evaluateResiduals(sketch, layout, candidate, anchors, anchorEntities);
     if (!candidateResiduals.every(Number.isFinite)) break;
 
     values = candidate;
@@ -197,7 +208,7 @@ export function solveSketch(sketch: Sketch): SolveOutcome {
     converged = norm(residuals) < CONVERGENCE_TOLERANCE;
   }
 
-  const finalJacobian = jacobian(sketch, layout, values, anchors, residuals.length);
+  const finalJacobian = jacobian(sketch, layout, values, anchors, anchorEntities, residuals.length);
   const rank = matrixRank(finalJacobian, layout.size);
 
   return {

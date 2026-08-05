@@ -7,6 +7,85 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-04 — Multi-body Extrude, cosmetic threads, Save fix, CSP fix (v0.14.0)
+
+An eighteenth round: multi-body Extrude/Revolve from a per-contour profile picker, a
+cosmetic thread indicator on tapped holes, a Fix-constraint anchoring bug found and fixed
+at its root, a Circular Pattern pivot fix, Save no longer re-prompting a location, and the
+CSP config gap that broke Insert Model View.
+
+### Added — Extrude/Revolve profile selection
+- **Profile Regions picker**: Extrude/Cut-Extrude/Revolve/Cut-Revolve's property panel now
+  lists every closed contour a multi-contour sketch has, each with its own checkbox — a
+  sketch can drive just part of itself instead of always taking the whole thing
+  (`Feature.parameters.profileEntityIds`, `kernel/profile.ts`'s `regionEntityIds`).
+- **Multi-body profile grouping**: fixed a real bug this surfaced immediately — a sketch
+  with two *separate*, non-overlapping contours previously built only the larger one, with
+  the smaller silently treated as a no-op "hole" that didn't overlap anything and simply
+  vanished. `profileRegionGroups` (`kernel/profile.ts`) now resolves proper nesting (a
+  region's own immediate parent, by point-in-region containment) so disjoint contours each
+  become their own body — two separate bosses from one sketch — fused together, while a
+  contour actually nested inside another still becomes a hole in it as before. Extrude and
+  Revolve both use it now; Sweep and Loft are unchanged.
+
+### Added — cosmetic threads and sketch/pattern fixes
+- **Cosmetic thread indicator**: a tapped or taper-tapped hole now draws a helical line
+  into its cylinder (`components/viewport/model/HoleThreadOverlay.tsx`) — display only, no
+  kernel geometry or STEP/STL export effect, the same "cosmetic thread" convention
+  SolidWorks itself uses. Reads the hole's own thread designation for pitch/major diameter,
+  and the already-present-but-previously-unused `threadDirection`/`fullDepthThread` fields
+  for winding direction and engagement length.
+- **Fix constraint, root-caused**: found and fixed why a line/arc under Fix could still be
+  dragged "anywhere" instead of only sliding along its own fixed trajectory — `solveSketch`
+  was anchoring every "fix"/"fix-line" residual to wherever the point *currently* sits at
+  the start of the very solve testing it, which during a live point drag is the cursor
+  destination itself (already overwritten before the solve runs), silently defeating the
+  constraint. `solveSketch` now takes an explicit `anchorSketch` (defaulting to itself),
+  and every call site that mutates a point before solving — a live drag, a drag-snap, any
+  generic sketch edit — passes the pre-mutation sketch instead. Also: Fix on an arc/circle
+  now pins the shape's own radius too, not just its centre, so dragging a rim point can
+  extend/shorten the arc's sweep but can no longer resize it.
+- **Construction Line, for existing geometry**: the sketch right-click menu's
+  "Construction Line" item only ever switched the *drawing tool*; it never touched already
+  drawn geometry. Added a genuinely new "Convert to Construction"/"Convert to Normal" item
+  that flips the selected line/circle/arc/spline's own flag (`toggleConstruction`).
+- **Circular Pattern pivot**: instances now rotate around the seed solid's own
+  bounding-box centre instead of always the world origin — a circular pattern of a feature
+  that isn't centred at (0, 0, 0) (the common case) previously rotated every instance
+  around the wrong point, displacing the whole pattern sideways.
+
+### Fixed
+- **Save** (`doc.save`) no longer re-prompts a save-location dialog on a document that
+  already has one — it now writes straight back to the known path, matching what "Save"
+  is supposed to do; a new, separate **Save As** command (ribbon, File menu) always
+  prompts and updates the remembered path. Previously Save and Save As were the exact same
+  code path.
+- **Insert Model View**'s CSP failure ("Evaluating a string as JavaScript violates...
+  'unsafe-eval' is not an allowed source of script"): the vendored OpenCASCADE WASM glue's
+  Emscripten embind layer builds each bound function's JS invoker via `new Function(...)`,
+  lazily on first use — `drawProjection`/`ProjectionCamera`/`lookFromPlane` (only ever
+  touched by a Drawing's Model View) were the first bindings in the whole app to trip this,
+  since every other kernel call had already warmed up its own invokers earlier. Added
+  `'unsafe-eval'` to `script-src` in `tauri.conf.json` (`'wasm-unsafe-eval'` alone covers
+  WASM compilation, not this).
+- Hole Wizard's type/seat icon rows now also show the active choice as plain text under
+  the icons, not just a hover tooltip — the settings were always there and correctly
+  wired (verified end-to-end: selecting Tapped does reveal Standard/Size/Thread
+  designation/Direction/Full Depth), but four unlabeled icons with no visible indication of
+  which one is active is a real discoverability gap on its own.
+- **`plugin:dialog|confirm` blocked by ACL**: `window.confirm`, used to ask before closing
+  a dirty tab or restoring an autosave over the active one, is monkeypatched by the Tauri
+  dialog plugin into an IPC call — but `src-tauri/capabilities/default.json`'s `dialog:default`
+  only actually grants `message`/`save`/`open`, not `confirm`, despite its own permission
+  file's doc comment claiming "all dialog types are enabled". Added `dialog:allow-confirm`
+  explicitly, fixing an unhandled promise rejection on every such prompt.
+- **Invalid hex colours for construction/axis geometry**: `InactiveSketches.tsx`'s
+  construction and revolve-axis line colours were hand-written as 8-digit `#RRGGBBAA` hex
+  (an attempted alpha suffix), which `THREE.Color` has no support for and silently rejects
+  with a console warning, leaving the colour unset. Fixed to plain 6-digit hex, with the
+  intended ~60% dimming now applied the way it actually works — `transparent`/`opacity` on
+  the line itself.
+
 ## 2026-08-04 — Sketch solver fixes, dimension gaps, ViewCube, Drawing pan/zoom (v0.13.0)
 
 A seventeenth round: a batch of sketch-solver correctness fixes, several dimensioning gaps

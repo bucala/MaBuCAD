@@ -22,15 +22,16 @@ export interface PickedFile {
   path: string | null;
 }
 
-/** Writes a blob to a location the user chooses. Returns false if they cancelled. */
-export async function saveBlob(
+/** Writes a blob to a location the user chooses. Returns the path saved to, or null if they
+ * cancelled — the browser fallback has no real path, so it returns `""` on success there. */
+export async function saveBlobAs(
   blob: Blob,
   suggestedName: string,
   extensions: string[],
-): Promise<boolean> {
+): Promise<string | null> {
   if (!isTauri()) {
     downloadInBrowser(blob, suggestedName);
-    return true;
+    return "";
   }
 
   const path = await save({
@@ -38,11 +39,26 @@ export async function saveBlob(
     filters: [{ name: extensions.join("/").toUpperCase(), extensions }],
   });
 
-  if (!path) return false;
+  if (!path) return null;
 
+  await writeBinaryAtPath(path, blob);
+  return path;
+}
+
+/** Writes a blob directly to an already-known path, no dialog — what plain Save uses once a
+ * document has a real file behind it, so re-saving never re-prompts for a location the way
+ * Save As deliberately does. Browser-only sessions have no such path to begin with (`saveAs`
+ * always returns `""` there), so callers only reach this inside Tauri. */
+export async function writeBinaryAtPath(path: string, blob: Blob): Promise<void> {
   const contents = Array.from(new Uint8Array(await blob.arrayBuffer()));
   await invoke("write_binary_file", { path, contents });
-  return true;
+}
+
+/** Writes a blob to a location the user chooses. Returns false if they cancelled.
+ * @deprecated kept for callers that only need the boolean outcome; prefer `saveBlobAs` when
+ * the resulting path needs to be remembered (e.g. so a later plain Save can reuse it). */
+export async function saveBlob(blob: Blob, suggestedName: string, extensions: string[]): Promise<boolean> {
+  return (await saveBlobAs(blob, suggestedName, extensions)) !== null;
 }
 
 /** Reads a file the user chooses. Returns null if they cancelled. */

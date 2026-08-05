@@ -86,7 +86,7 @@ const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideI
     kind: "fix",
     label: "Fix",
     icon: Lock,
-    hint: "Select a point to pin it, or a line/circle/arc to pin its position (still extendable/resizable)",
+    hint: "Select a point to pin it, or a line/circle/arc to pin its position and size (endpoints can still slide along it)",
   },
 ];
 

@@ -1,7 +1,8 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { create } from "zustand";
 
 import { releaseImportedShapesForFeatures } from "@/kernel/importedShapes";
-import { openFile, saveBlob } from "@/io/files";
+import { openFile, saveBlobAs, writeBinaryAtPath } from "@/io/files";
 import type { Sketch } from "@/sketch/types";
 import type { CadDocument, DocumentKind } from "@/types/document";
 import type { UnitSystemId } from "@/types/ui";
@@ -54,9 +55,10 @@ export interface DocumentSession {
    * carry the same `document.id` and would collide as session/React keys if reused here. */
   id: string;
   kind: DocumentKind;
-  /** Real filesystem path if this tab was opened from disk under Tauri, else `null` — see
-   * `PickedFile.path`'s own doc comment in `io/files.ts`. Never set by Save: `saveBlob`
-   * doesn't hand a path back, only whether the user went through with it. */
+  /** Real filesystem path if this tab was opened from disk under Tauri, or has been saved to
+   * one since — see `PickedFile.path`'s own doc comment in `io/files.ts`. Once set, a plain
+   * Save writes straight back to it instead of prompting; Save As always prompts and updates
+   * this to whatever new path the user picks. */
   filePath: string | null;
   document: CadDocument;
   sketches: Record<string, Sketch>;
@@ -149,10 +151,15 @@ interface WorkspaceStore {
   /** Closes a tab, prompting first if it has unsaved changes. Closing the last remaining
    * tab replaces it with a fresh blank Part rather than leaving nothing open. */
   closeDocument: (id: string) => void;
-  /** File ▸ Save — writes the active tab's document to disk. Returns whether it actually
-   * saved (false if the user cancelled the dialog or it failed), so `documentIO.ts` knows
-   * whether the autosave recovery snapshot is now redundant. */
+  /** File ▸ Save — writes the active tab's document to disk. Silently overwrites the tab's
+   * known `filePath` if it has one; otherwise falls back to the same picker as Save As (a
+   * brand-new, never-saved document has nowhere else to write to). Returns whether it
+   * actually saved (false if the user cancelled the dialog or it failed), so
+   * `documentIO.ts` knows whether the autosave recovery snapshot is now redundant. */
   saveActive: () => Promise<boolean>;
+  /** File ▸ Save As — always prompts for a location, even if the tab already has one, and
+   * makes the picked path the tab's new `filePath` for subsequent plain Saves. */
+  saveActiveAs: () => Promise<boolean>;
   /** Restore Autosave: overwrites the active tab's content in place (fresh undo history,
    * same as Open), used only by `commands/documentIO.ts`'s `runRestoreAutosave`. */
   restoreIntoActive: (document: CadDocument, sketches: Record<string, Sketch>, unitSystem: UnitSystemId) => void;
@@ -271,14 +278,53 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const { showToast } = useGeometryStore.getState();
     const { document, unitSystem } = useDocumentStore.getState();
     const { sketches } = useSketchStore.getState();
+    const knownPath = get().sessions.find((session) => session.id === get().activeId)?.filePath ?? null;
 
     const payload: SavedDocument = { formatVersion: FORMAT_VERSION, document, sketches, unitSystem };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
 
     try {
-      const saved = await saveBlob(blob, `${document.name}.${EXTENSION}`, [EXTENSION]);
-      if (saved) showToast(`Saved ${document.name}.${EXTENSION}`);
-      return saved;
+      if (knownPath && isTauri()) {
+        await writeBinaryAtPath(knownPath, blob);
+        showToast(`Saved ${document.name}.${EXTENSION}`);
+        return true;
+      }
+
+      const path = await saveBlobAs(blob, `${document.name}.${EXTENSION}`, [EXTENSION]);
+      if (path === null) return false;
+      if (path) {
+        const { activeId } = get();
+        set((state) => ({
+          sessions: state.sessions.map((session) => (session.id === activeId ? { ...session, filePath: path } : session)),
+        }));
+      }
+      showToast(`Saved ${document.name}.${EXTENSION}`);
+      return true;
+    } catch (error) {
+      showToast(`Save failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
+      return false;
+    }
+  },
+
+  saveActiveAs: async () => {
+    const { showToast } = useGeometryStore.getState();
+    const { document, unitSystem } = useDocumentStore.getState();
+    const { sketches } = useSketchStore.getState();
+
+    const payload: SavedDocument = { formatVersion: FORMAT_VERSION, document, sketches, unitSystem };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+
+    try {
+      const path = await saveBlobAs(blob, `${document.name}.${EXTENSION}`, [EXTENSION]);
+      if (path === null) return false;
+      if (path) {
+        const { activeId } = get();
+        set((state) => ({
+          sessions: state.sessions.map((session) => (session.id === activeId ? { ...session, filePath: path } : session)),
+        }));
+      }
+      showToast(`Saved ${document.name}.${EXTENSION}`);
+      return true;
     } catch (error) {
       showToast(`Save failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
       return false;

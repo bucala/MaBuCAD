@@ -38,8 +38,10 @@ import {
   type TappedStandardId,
 } from "@/data/holeStandards";
 import { groupTappedBySize, resolveClearanceDiameter, resolveTapDrill } from "@/data/holeResolution";
+import { extractCircles, extractLoops, regionEntityIds, type CircleLoop, type Loop } from "@/kernel/profile";
 import { FEATURE_CATALOG } from "@/state/featureCatalog";
 import { useDocumentStore } from "@/state/documentStore";
+import { useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 import type { EndCondition, FeatureKind, FeatureParameters } from "@/types/document";
 
@@ -49,6 +51,12 @@ import styles from "./PropertyManager.module.css";
  * "Profile Sketch" section below — a Loft/Boundary's multiple sketches, or a non-sketch
  * parent like Fillet's solid, are out of scope. */
 const SINGLE_SKETCH_KINDS: FeatureKind[] = ["extrude", "cut-extrude", "revolve", "cut-revolve", "rib"];
+
+/** Feature kinds `kernel/profile.ts`'s `profileRegions` actually builds from — Rib takes
+ * its sketch's first line directly (see `rebuild.ts`'s own note), so it has no notion of
+ * "regions" to narrow down and is excluded from the "Profile Regions" picker below even
+ * though it shares the single-sketch picker above. */
+const PROFILE_REGION_KINDS: FeatureKind[] = ["extrude", "cut-extrude", "revolve", "cut-revolve"];
 
 const HOLE_TYPES: { id: NonNullable<FeatureParameters["holeType"]>; label: string; icon: LucideIcon }[] = [
   { id: "simple", label: "Simple — a plain cylindrical hole, no fastener standard", icon: Circle },
@@ -119,6 +127,7 @@ export function PropertyManager() {
   const renameFeature = useDocumentStore((state) => state.renameFeature);
   const updateParameters = useDocumentStore((state) => state.updateParameters);
   const setFeatureParent = useDocumentStore((state) => state.setFeatureParent);
+  const sketches = useSketchStore((state) => state.sketches);
   const toggleSuppressed = useDocumentStore((state) => state.toggleSuppressed);
   const deleteFeature = useDocumentStore((state) => state.deleteFeature);
   const edgePickModeFeatureId = useViewportStore((state) => state.edgePickModeFeatureId);
@@ -164,6 +173,35 @@ export function PropertyManager() {
   // can have its profile sketch fixed up afterward, without deleting and recreating it.
   const takesSingleSketch = SINGLE_SKETCH_KINDS.includes(feature.kind);
   const sketchFeatures = document.features.filter((candidate) => candidate.kind === "sketch");
+
+  // Every closed region of the profile sketch, loops and circles alike, in the same order
+  // `profileRegions` itself would rank them (largest first) — purely for display; the
+  // filter this picker writes doesn't depend on the order.
+  const profileSketch = feature.parents[0] ? sketches[feature.parents[0]] : undefined;
+  const profileRegionsList: (Loop | CircleLoop)[] = profileSketch
+    ? [...extractLoops(profileSketch), ...extractCircles(profileSketch)]
+    : [];
+  const showProfileRegionPicker = PROFILE_REGION_KINDS.includes(feature.kind) && profileRegionsList.length > 1;
+  const explicitProfileIds = feature.parameters.profileEntityIds;
+  // Absent/empty means "the whole sketch" — every region reads as checked until the user
+  // actually excludes one, rather than requiring every region ticked by hand up front.
+  const isRegionChecked = (region: Loop | CircleLoop) =>
+    !explicitProfileIds ||
+    explicitProfileIds.length === 0 ||
+    regionEntityIds(region).some((id) => explicitProfileIds.includes(id));
+  const toggleProfileRegion = (region: Loop | CircleLoop) => {
+    const nextChecked = new Map(profileRegionsList.map((candidate) => [candidate, isRegionChecked(candidate)]));
+    nextChecked.set(region, !isRegionChecked(region));
+    const stillChecked = [...nextChecked.values()].filter(Boolean).length;
+    if (stillChecked === 0) return; // always keep at least one region selected
+
+    const allChecked = stillChecked === profileRegionsList.length;
+    const ids = allChecked
+      ? []
+      : profileRegionsList.filter((candidate) => nextChecked.get(candidate)).flatMap(regionEntityIds);
+    updateParameters(feature.id, { profileEntityIds: ids });
+  };
+
   const isHole = feature.kind === "hole";
   const isEdgeSelectable = feature.kind === "fillet" || feature.kind === "chamfer";
   const isPickingEdges = edgePickModeFeatureId === feature.id;
@@ -278,6 +316,30 @@ export function PropertyManager() {
           </label>
         )}
 
+        {showProfileRegionPicker && (
+          <div className={styles.section}>
+            <span className={styles.sectionTitle}>Profile Regions</span>
+            <p className={styles.sectionHint}>
+              This sketch has {profileRegionsList.length} closed contours. Uncheck any this feature
+              should skip — the rest build the same way they always would: a contour nested inside
+              another becomes a hole in it, and separate, non-overlapping contours each become
+              their own body, fused together.
+            </p>
+            {profileRegionsList.map((region, index) => (
+              <label key={regionEntityIds(region).join(",")} className={styles.regionRow}>
+                <input
+                  type="checkbox"
+                  checked={isRegionChecked(region)}
+                  onChange={() => toggleProfileRegion(region)}
+                />
+                {"radius" in region
+                  ? `Circle ${index + 1} — ⌀${(region.radius * 2).toFixed(1)} mm`
+                  : `Contour ${index + 1} — ${region.segments.length} edges`}
+              </label>
+            ))}
+          </div>
+        )}
+
         {isEdgeSelectable && (
           <div className={styles.section}>
             <span className={styles.sectionTitle}>Edges</span>
@@ -327,6 +389,13 @@ export function PropertyManager() {
                 </button>
               ))}
             </div>
+            {/* The icon row alone gives no clue that Clearance/Tapped/Taper Tapped each
+                reveal their own Standard/Size/Thread fields below — spelling out which one
+                is active in plain text, not just a hover tooltip, is what actually makes
+                that discoverable. */}
+            <p className={styles.sectionHint}>
+              {HOLE_TYPES.find(({ id }) => id === (feature.parameters.holeType ?? "simple"))?.label}
+            </p>
 
             {feature.parameters.holeType === "clearance" && (
               <>
@@ -555,6 +624,9 @@ export function PropertyManager() {
                 </button>
               ))}
             </div>
+            <p className={styles.sectionHint}>
+              {SEAT_TYPES.find(({ id }) => id === (feature.parameters.seatType ?? "none"))?.label}
+            </p>
 
             {feature.parameters.seatType && feature.parameters.seatType !== "none" && (
               <>

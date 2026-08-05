@@ -96,8 +96,11 @@ export type GeometricConstraintKind =
    * for the one entity kind that isn't a single straight line or a single circle. */
   | "point-on-spline"
   /** A point's own position is pinned — used directly for a standalone point, and as the
-   * dispatch target when "Fix" is applied to a circle/arc (its centre point), so the
-   * shape's location is pinned but its radius stays free to resize. */
+   * dispatch target when "Fix" is applied to a circle/arc (its centre point). For a
+   * circle/arc specifically, `geometricResiduals`'s "fix" case also pins the entity's own
+   * radius at whatever it was when the constraint was added, so the whole shape stays put:
+   * an arc's start/end points remain free to slide along its (now fixed) rim, extending or
+   * shortening the arc's sweep, but can no longer drag its radius open or shut. */
   | "fix"
   /** "Fix" applied to a line: pins the infinite line it lies on (direction + offset) at
    * its position when the constraint was added, but — unlike pinning both endpoints —

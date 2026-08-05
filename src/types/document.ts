@@ -73,13 +73,17 @@ export interface FeatureParameters {
   holeFit?: "close" | "normal" | "loose";
   /** Resolved thread callout for a tapped or taper-tapped hole, e.g. "M6x1 (6H)" — display only. */
   threadDesignation?: string;
-  /** Tapped/taper-tapped only, display metadata (this app doesn't model handedness or a
-   * real thread profile at all — see `radius`'s own note above). */
+  /** Tapped/taper-tapped only. The kernel still cuts a plain cylinder — no real thread
+   * profile is machined into the B-Rep, so this has no effect on STEP/STL export — but
+   * `components/viewport/model/HoleThreadOverlay.tsx` reads it to wind its cosmetic thread
+   * helix the matching direction, the same "display only" convention SolidWorks' own
+   * cosmetic threads use. */
   threadDirection?: "right" | "left";
-  /** Tapped/taper-tapped only, display metadata: whether the thread runs the hole's full
-   * depth rather than a shorter engagement length. Not yet read by the kernel — the same
-   * "not modelled yet, but tracked so a future thread-visualisation feature has it" status
-   * `threadDirection` has. */
+  /** Tapped/taper-tapped only: whether the cosmetic thread (`HoleThreadOverlay.tsx`) is
+   * drawn the full depth it computes, or a shorter engagement length — there is no real
+   * modelled thread length to draw the exact figure from, so `false` just draws visibly
+   * shorter rather than a second exact-but-fabricated measurement. Still display only; the
+   * kernel doesn't read this either. */
   fullDepthThread?: boolean;
   /**
    * A hole's optional counterbore/spotface/countersink recess (`SeatType` from
@@ -142,6 +146,15 @@ export interface FeatureParameters {
    * unselective Fillet/Chamfer behaviour.
    */
   edgePoints?: [number, number, number][];
+  /**
+   * Restricts an Extrude/Cut-Extrude/Revolve/Cut-Revolve's profile to just the closed
+   * regions of its sketch that own at least one of these entity ids, instead of every
+   * closed region the sketch has (`kernel/profile.ts`'s `profileRegions`'s default). Empty
+   * or absent means "the whole sketch", this app's original single-profile behaviour —
+   * set from `PropertyManager.tsx`'s "Profile Regions" picker once a sketch has more than
+   * one closed contour to choose from.
+   */
+  profileEntityIds?: string[];
 }
 
 export interface Feature {

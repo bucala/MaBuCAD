@@ -427,12 +427,12 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | Project shell | Tauri + React + Vite scaffolding, Fluent 2 UI chrome | ✅ |
 | Viewport | CAD navigation, reference planes, origin, viewcube (full-cycle up/down/left/right rotation), axis-cross legend | ✅ |
 | Document model | Feature tree, rollback, suppress, undo/redo, rename, drag-reorder | ✅ |
-| Sketcher | Full entity set, 10 relations (Fix extends to lines/circles/arcs), dimensioning (incl. point-to-line, auto-detected parallel-distance), conflicting-constraint highlighting, damped-Newton solver | ✅ |
-| Core solids | Extrude/Cut-Extrude, Revolve/Cut-Revolve | ✅ |
+| Sketcher | Full entity set, 10 relations (Fix extends to lines/circles/arcs, pins radius too), dimensioning (incl. point-to-line, auto-detected parallel-distance), conflicting-constraint highlighting, damped-Newton solver | ✅ |
+| Core solids | Extrude/Cut-Extrude, Revolve/Cut-Revolve, both building one fused body per disjoint sketch contour with a per-contour profile picker, not just one region | ✅ |
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
-| Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Fillet, Offset, Mirror, Linear/Circular Pattern | ✅ |
+| Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Fillet, Offset, Mirror, Linear/Circular Pattern, Convert to Construction | ✅ |
 | Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence | ✅ |
-| Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point | ✅ |
+| Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point, cosmetic thread indicator on tapped holes | ✅ |
 | Dress-up | Fillet, Chamfer, Shell, Draft, Rib — with edge-selective Fillet/Chamfer | ✅ |
 | Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft | ✅ |
 | Pattern/Mirror (feature-level) | Linear Pattern, Circular Pattern, Mirror | ✅ |
