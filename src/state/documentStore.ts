@@ -3,9 +3,16 @@ import { create } from "zustand";
 import type {
   CadDocument,
   DocumentKind,
+  DrawingDatumData,
+  DrawingDimensionData,
+  DrawingGdtData,
   DrawingNoteData,
+  DrawingOrdinateChainData,
   DrawingSheetData,
+  DrawingSurfaceFinishData,
+  DrawingTableData,
   DrawingViewData,
+  DrawingWeldData,
   Feature,
   FeatureKind,
   FeatureParameters,
@@ -186,6 +193,48 @@ interface DocumentStore {
   addDrawingNote: (note: Omit<DrawingNoteData, "id">) => string;
   updateDrawingNote: (id: string, patch: Partial<Omit<DrawingNoteData, "id">>) => void;
   deleteDrawingNote: (id: string) => void;
+
+  /** `annotation.smart-dimension`'s own data — see `DrawingDimensionData`'s doc comment. */
+  addDrawingDimension: (dimension: Omit<DrawingDimensionData, "id">) => string;
+  updateDrawingDimension: (id: string, patch: Partial<Omit<DrawingDimensionData, "id">>) => void;
+  deleteDrawingDimension: (id: string) => void;
+
+  /** `annotation.ordinate`'s own data. `addDrawingOrdinateChain` starts a new chain with its
+   * first point already in it; `addOrdinatePoint` appends a further point to an existing
+   * chain — the two-step "pick a datum, then any number of further points" flow
+   * `drawingToolStore.ts`'s own `ordinateChainId` doc comment describes. */
+  addDrawingOrdinateChain: (
+    chain: Omit<DrawingOrdinateChainData, "id" | "points"> & {
+      points: Omit<DrawingOrdinateChainData["points"][number], "id">[];
+    },
+  ) => string;
+  addOrdinatePoint: (chainId: string, point: Omit<DrawingOrdinateChainData["points"][number], "id">) => void;
+  deleteDrawingOrdinateChain: (id: string) => void;
+
+  /** `annotation.datum`'s own data. */
+  addDrawingDatum: (datum: Omit<DrawingDatumData, "id">) => string;
+  updateDrawingDatum: (id: string, patch: Partial<Omit<DrawingDatumData, "id">>) => void;
+  deleteDrawingDatum: (id: string) => void;
+
+  /** `annotation.gdt`'s own data. */
+  addDrawingGdt: (frame: Omit<DrawingGdtData, "id">) => string;
+  updateDrawingGdt: (id: string, patch: Partial<Omit<DrawingGdtData, "id">>) => void;
+  deleteDrawingGdt: (id: string) => void;
+
+  /** `annotation.surface-finish`'s own data. */
+  addDrawingSurfaceFinish: (finish: Omit<DrawingSurfaceFinishData, "id">) => string;
+  updateDrawingSurfaceFinish: (id: string, patch: Partial<Omit<DrawingSurfaceFinishData, "id">>) => void;
+  deleteDrawingSurfaceFinish: (id: string) => void;
+
+  /** `annotation.weld`'s own data. */
+  addDrawingWeld: (weld: Omit<DrawingWeldData, "id">) => string;
+  updateDrawingWeld: (id: string, patch: Partial<Omit<DrawingWeldData, "id">>) => void;
+  deleteDrawingWeld: (id: string) => void;
+
+  /** `table.bom`/`table.hole`'s own data. */
+  addDrawingTable: (table: Omit<DrawingTableData, "id">) => string;
+  updateDrawingTable: (id: string, patch: Partial<Omit<DrawingTableData, "id">>) => void;
+  deleteDrawingTable: (id: string) => void;
 
   /**
    * Replaces the whole document — Open, loading a saved file. Bypasses `commit()`
@@ -532,6 +581,271 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         return {
           ...document,
           drawing: { ...document.drawing, notes: (document.drawing.notes ?? []).filter((note) => note.id !== id) },
+        };
+      }),
+
+    addDrawingDimension: (dimension) => {
+      const id = nextId("dim");
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            dimensions: [...(document.drawing.dimensions ?? []), { ...dimension, id }],
+          },
+        };
+      });
+      return id;
+    },
+
+    updateDrawingDimension: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            dimensions: (document.drawing.dimensions ?? []).map((dimension) =>
+              dimension.id === id ? { ...dimension, ...patch } : dimension,
+            ),
+          },
+        };
+      }),
+
+    deleteDrawingDimension: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            dimensions: (document.drawing.dimensions ?? []).filter((dimension) => dimension.id !== id),
+          },
+        };
+      }),
+
+    addDrawingOrdinateChain: (chain) => {
+      const id = nextId("ord");
+      const points = chain.points.map((point) => ({ ...point, id: nextId("ordpt") }));
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            ordinateChains: [...(document.drawing.ordinateChains ?? []), { ...chain, points, id }],
+          },
+        };
+      });
+      return id;
+    },
+
+    addOrdinatePoint: (chainId, point) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        const id = nextId("ordpt");
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            ordinateChains: (document.drawing.ordinateChains ?? []).map((chain) =>
+              chain.id === chainId ? { ...chain, points: [...chain.points, { ...point, id }] } : chain,
+            ),
+          },
+        };
+      }),
+
+    deleteDrawingOrdinateChain: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            ordinateChains: (document.drawing.ordinateChains ?? []).filter((chain) => chain.id !== id),
+          },
+        };
+      }),
+
+    addDrawingDatum: (datum) => {
+      const id = nextId("datum");
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, datums: [...(document.drawing.datums ?? []), { ...datum, id }] },
+        };
+      });
+      return id;
+    },
+
+    updateDrawingDatum: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            datums: (document.drawing.datums ?? []).map((datum) => (datum.id === id ? { ...datum, ...patch } : datum)),
+          },
+        };
+      }),
+
+    deleteDrawingDatum: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, datums: (document.drawing.datums ?? []).filter((datum) => datum.id !== id) },
+        };
+      }),
+
+    addDrawingGdt: (frame) => {
+      const id = nextId("gdt");
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, gdtFrames: [...(document.drawing.gdtFrames ?? []), { ...frame, id }] },
+        };
+      });
+      return id;
+    },
+
+    updateDrawingGdt: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            gdtFrames: (document.drawing.gdtFrames ?? []).map((frame) =>
+              frame.id === id ? { ...frame, ...patch } : frame,
+            ),
+          },
+        };
+      }),
+
+    deleteDrawingGdt: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            gdtFrames: (document.drawing.gdtFrames ?? []).filter((frame) => frame.id !== id),
+          },
+        };
+      }),
+
+    addDrawingSurfaceFinish: (finish) => {
+      const id = nextId("finish");
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            surfaceFinishes: [...(document.drawing.surfaceFinishes ?? []), { ...finish, id }],
+          },
+        };
+      });
+      return id;
+    },
+
+    updateDrawingSurfaceFinish: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            surfaceFinishes: (document.drawing.surfaceFinishes ?? []).map((finish) =>
+              finish.id === id ? { ...finish, ...patch } : finish,
+            ),
+          },
+        };
+      }),
+
+    deleteDrawingSurfaceFinish: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            surfaceFinishes: (document.drawing.surfaceFinishes ?? []).filter((finish) => finish.id !== id),
+          },
+        };
+      }),
+
+    addDrawingWeld: (weld) => {
+      const id = nextId("weld");
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, welds: [...(document.drawing.welds ?? []), { ...weld, id }] },
+        };
+      });
+      return id;
+    },
+
+    updateDrawingWeld: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            welds: (document.drawing.welds ?? []).map((weld) => (weld.id === id ? { ...weld, ...patch } : weld)),
+          },
+        };
+      }),
+
+    deleteDrawingWeld: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            welds: (document.drawing.welds ?? []).filter((weld) => weld.id !== id),
+          },
+        };
+      }),
+
+    addDrawingTable: (table) => {
+      const id = nextId("table");
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, tables: [...(document.drawing.tables ?? []), { ...table, id }] },
+        };
+      });
+      return id;
+    },
+
+    updateDrawingTable: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            tables: (document.drawing.tables ?? []).map((table) => (table.id === id ? { ...table, ...patch } : table)),
+          },
+        };
+      }),
+
+    deleteDrawingTable: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: { ...document.drawing, tables: (document.drawing.tables ?? []).filter((table) => table.id !== id) },
         };
       }),
 

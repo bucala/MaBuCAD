@@ -307,6 +307,253 @@
   color: #fff;
 }
 
+.dimension {
+  cursor: default;
+}
+
+.dimensionSelected {
+  cursor: default;
+}
+
+.dimensionSelected .dimensionLine,
+.dimensionSelected .extensionLine {
+  stroke: var(--accent, #0078d4);
+}
+
+.extensionLine {
+  stroke: #1a1a1a;
+  stroke-width: 0.25;
+}
+
+.dimensionLine {
+  stroke: #1a1a1a;
+  stroke-width: 0.3;
+}
+
+.dimensionArrow {
+  fill: #1a1a1a;
+}
+
+.dimensionLabelBg {
+  fill: #fff;
+  cursor: move;
+}
+
+.dimensionLabel {
+  fill: #1a1a1a;
+  font-size: 3.2px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.dimensionLabelSmall {
+  fill: #1a1a1a;
+  font-size: 2.2px;
+  pointer-events: none;
+}
+
+.dimensionBasicBox {
+  fill: #fff;
+  stroke: #1a1a1a;
+  stroke-width: 0.3;
+  cursor: move;
+}
+
+.dimensionSelected .dimensionBasicBox {
+  stroke: var(--accent, #0078d4);
+}
+
+.ordinateDatumDot {
+  fill: #1a1a1a;
+}
+
+.leaderLine {
+  stroke: #1a1a1a;
+  stroke-width: 0.3;
+}
+
+.weldReferenceLine {
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
+  cursor: move;
+}
+
+.dimensionSelected .weldReferenceLine {
+  stroke: var(--accent, #0078d4);
+}
+
+.weldMark {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
+}
+
+.weldMarkFilled {
+  fill: #1a1a1a;
+  stroke: #1a1a1a;
+  stroke-width: 0.25;
+}
+
+.dimensionSelected .weldMark,
+.dimensionSelected .weldMarkFilled {
+  stroke: var(--accent, #0078d4);
+}
+
+.datumTriangle {
+  fill: #1a1a1a;
+}
+
+.datumBox {
+  fill: #fff;
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
+  cursor: move;
+}
+
+.dimensionSelected .datumBox,
+.dimensionSelected .gdtFrame {
+  stroke: var(--accent, #0078d4);
+}
+
+.datumLetter {
+  fill: #1a1a1a;
+  font-size: 4px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.gdtFrame {
+  fill: #fff;
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
+  cursor: move;
+}
+
+.gdtDivider {
+  stroke: #1a1a1a;
+  stroke-width: 0.25;
+}
+
+.gdtText {
+  fill: #1a1a1a;
+  font-size: 3px;
+  pointer-events: none;
+}
+
+.gdtForm {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  background: #fff;
+  border: 1px solid var(--accent, #0078d4);
+  border-radius: 3px;
+  box-shadow: var(--shadow-card);
+}
+
+.gdtFormInput {
+  font-size: 10px;
+  padding: 1px 3px;
+  border: 1px solid var(--stroke-control, #ccc);
+  border-radius: 2px;
+  background: #fff;
+  color: #1a1a1a;
+  font-family: inherit;
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.gdtFormRow {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.gdtFormCheckLabel {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: #1a1a1a;
+  white-space: nowrap;
+}
+
+.gdtFormDone {
+  font-size: 10px;
+  padding: 2px 6px;
+  border: 1px solid var(--accent, #0078d4);
+  border-radius: 2px;
+  background: var(--accent, #0078d4);
+  color: #fff;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.surfaceFinishMark {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.4;
+  cursor: move;
+}
+
+.dimensionSelected .surfaceFinishMark {
+  stroke: var(--accent, #0078d4);
+}
+
+.surfaceFinishAllAround {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.3;
+}
+
+.dimensionSelected .surfaceFinishAllAround {
+  stroke: var(--accent, #0078d4);
+}
+
+.tableTitleBar {
+  fill: #e8e8e8;
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
+  cursor: move;
+}
+
+.tableTitle {
+  fill: #1a1a1a;
+  font-size: 2.6px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.tableBorder {
+  fill: #fff;
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
+}
+
+.tableBorderSelected {
+  fill: #fff;
+  stroke: var(--accent, #0078d4);
+  stroke-width: 0.5;
+}
+
+.tableGridLine {
+  stroke: #1a1a1a;
+  stroke-width: 0.2;
+}
+
+.tableHeaderText {
+  fill: #1a1a1a;
+  font-size: 2.4px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.tableCellText {
+  fill: #1a1a1a;
+  font-size: 2.4px;
+  pointer-events: none;
+}
+
 .emptyState {
   position: absolute;
   inset: 0;

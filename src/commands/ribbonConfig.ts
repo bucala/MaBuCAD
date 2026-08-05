@@ -22,6 +22,7 @@ import {
   FileOutput,
   FilePlus2,
   FileText,
+  Flame,
   FolderOpen,
   Frame,
   Grid2x2,
@@ -325,6 +326,7 @@ export const RIBBON_TABS: RibbonTab[] = [
           { id: "annotation.datum", label: "Datum Feature", icon: Anchor, size: "small", description: "Place a datum feature symbol" },
           { id: "annotation.gdt", label: "Geometric Tolerance", icon: Shapes, size: "small", description: "Place a feature control frame" },
           { id: "annotation.surface-finish", label: "Surface Finish", icon: Waves, size: "small", description: "Place a surface finish symbol" },
+          { id: "annotation.weld", label: "Weld Symbol", icon: Flame, size: "small", description: "Place a weld symbol" },
         ],
       },
       {
