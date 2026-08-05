@@ -64,6 +64,15 @@ export interface TitleBlockField {
   height: number;
   fontSize: number;
   bold?: boolean;
+  /** Absent/`"text"` is a plain editable value cell, the only kind that existed before this
+   * field did. `"projection-symbol"` instead draws ISO 128-30's own truncated-cone-and-
+   * circle glyph — a truncated cone then a circle for ISO-E (1st angle), the reverse order
+   * for ISO-A (3rd angle) — reading the active Drawing's own `projectionMethod` rather than
+   * any per-document text value, and toggles it on click (`DrawingSheet.tsx`'s
+   * `ProjectionSymbolCell`). A key of `"projection"` on this field type is what the seeded
+   * default title block uses, but any key works — the symbol only ever reads/writes the
+   * document's `projectionMethod`, never `titleBlockValues`. */
+  fieldType?: "text" | "projection-symbol";
 }
 
 export interface TitleBlockTemplate {

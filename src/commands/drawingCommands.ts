@@ -1,3 +1,10 @@
+import {
+  DEFAULT_PROJECTION_METHOD,
+  layoutInitialViews,
+  repositionStandardViews,
+  VIEW_GAP,
+  SHEET_MARGIN,
+} from "@/commands/drawingViewLayout";
 import { openFile, readFileAtPath } from "@/io/files";
 import {
   rebuildAndProjectPart,
@@ -5,7 +12,6 @@ import {
   sectionAxisAndOffset,
   sectionViewCamera,
   type OrthoProjection,
-  type ProjectedViews,
 } from "@/kernel/drawingProjection";
 import type { PointEntity, Sketch } from "@/sketch/types";
 import { useDocumentStore } from "@/state/documentStore";
@@ -44,60 +50,15 @@ function isSavedPart(value: unknown): value is SavedDocument {
   );
 }
 
-/** mm between neighbouring views' bounding boxes, and the sheet margin views start from. */
-const VIEW_GAP = 30;
-const SHEET_MARGIN = 40;
+/** The four standard views Insert Model View places by default — the other two axis-aligned
+ * directions (Bottom, Left, Back) and the rest can be added one at a time via Projected
+ * View, the same "start small, add what's actually needed" default the ribbon's own
+ * `PROJECTED_VIEW_PREFERENCE` below already assumes. */
+const DEFAULT_DIRECTIONS: StandardProjectionKind[] = ["front", "top", "right", "iso"];
 
-/**
- * Arranges the four standard views in the classic third-angle layout, in sheet
- * coordinates with Y growing downward (`DrawingSheet.tsx` renders the sheet the same way
- * every other 2D UI in this app already does — see its own doc comment on the per-view Y
- * flip): Top at the top-left, Front directly below it sharing the same left edge so the
- * two align vertically, Right beside Front sharing its top edge, and Isometric filling
- * the remaining corner beside Top.
- */
-function layoutViews(views: ProjectedViews): DrawingViewData[] {
-  const scale = 1;
-  const columnWidth = Math.max(views.front.width, views.top.width) * scale;
-
-  const centerOf = (projection: StandardProjectionKind, columnX: number, rowY: number) => ({
-    x: columnX + (views[projection].width * scale) / 2,
-    y: rowY + (views[projection].height * scale) / 2,
-  });
-
-  const frontColumnX = SHEET_MARGIN;
-  const rightColumnX = SHEET_MARGIN + columnWidth + VIEW_GAP;
-  const topRowY = SHEET_MARGIN;
-  const frontRowY = SHEET_MARGIN + views.top.height * scale + VIEW_GAP;
-
-  const centers: Record<StandardProjectionKind, { x: number; y: number }> = {
-    top: centerOf("top", frontColumnX, topRowY),
-    front: centerOf("front", frontColumnX, frontRowY),
-    right: centerOf("right", rightColumnX, frontRowY),
-    iso: centerOf("iso", rightColumnX, topRowY),
-  };
-
-  const labels: Record<StandardProjectionKind, string> = { front: "FRONT", top: "TOP", right: "RIGHT", iso: "ISO" };
-
-  return (Object.keys(views) as StandardProjectionKind[]).map((projection) => ({
-    id: `view-${projection}`,
-    label: labels[projection],
-    projection,
-    x: centers[projection].x,
-    y: centers[projection].y,
-    scale,
-    visiblePaths: views[projection].visiblePaths,
-    hiddenPaths: views[projection].hiddenPaths,
-    width: views[projection].width,
-    height: views[projection].height,
-    originX: views[projection].originX,
-    originY: views[projection].originY,
-    kind: "standard" as const,
-  }));
-}
-
-/** Picks a saved Part file and generates all four standard views onto the active Drawing's
- * (empty) sheet, replacing whatever was there before. */
+/** Picks a saved Part file and generates the default set of standard views onto the active
+ * Drawing's (empty) sheet, replacing whatever was there before — laid out per the sheet's
+ * own `projectionMethod` (ISO-E by default). */
 export async function runInsertModelView(): Promise<void> {
   const { showToast } = useGeometryStore.getState();
 
@@ -115,14 +76,35 @@ export async function runInsertModelView(): Promise<void> {
       return;
     }
 
+    const existingMethod = useDocumentStore.getState().document.drawing?.projectionMethod;
+    const method = existingMethod ?? DEFAULT_PROJECTION_METHOD;
+    const geometry = Object.fromEntries(
+      DEFAULT_DIRECTIONS.map((direction) => [direction, { ...projected.views[direction], scale: 1 }]),
+    );
+
     useDocumentStore.getState().setDrawingSheet({
       sourcePart: { fileName: picked.name, path: picked.path },
-      views: layoutViews(projected.views),
+      views: layoutInitialViews(geometry, method),
+      projectionMethod: method,
     });
     showToast(`Inserted views of ${picked.name}`);
   } catch (error) {
     showToast(`Insert Model View failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
   }
+}
+
+/** Toggles the sheet's `projectionMethod` (ISO-E ↔ ISO-A) and re-lays out every placed
+ * standard view to match — the title block's own projection-method symbol cell calls this
+ * on click. */
+export function runToggleProjectionMethod(): void {
+  const sheet = useDocumentStore.getState().document.drawing;
+  if (!sheet) return;
+  const next = (sheet.projectionMethod ?? DEFAULT_PROJECTION_METHOD) === "ISO-E" ? "ISO-A" : "ISO-E";
+  useDocumentStore.getState().setDrawingSheet({
+    ...sheet,
+    projectionMethod: next,
+    views: repositionStandardViews(sheet.views, next),
+  });
 }
 
 /**
@@ -190,7 +172,8 @@ export async function runUpdateViews(): Promise<void> {
     const refreshed = sheet.views.map((view) => {
       if (view.kind === "section" || view.kind === "detail") return view;
       // Safe: only a "standard" view reaches here, and those are always created with one
-      // of `StandardProjectionKind`'s four values (see `layoutViews` above).
+      // of `StandardProjectionKind`'s own values (see `layoutInitialViews`/
+      // `repositionStandardViews` in `drawingViewLayout.ts`).
       const next = projected.views[view.projection as StandardProjectionKind];
       return {
         ...view,
@@ -200,6 +183,7 @@ export async function runUpdateViews(): Promise<void> {
         height: next.height,
         originX: next.originX,
         originY: next.originY,
+        threadPaths: next.threadPaths,
       };
     });
 
@@ -251,9 +235,12 @@ export async function runCreateSectionView(
       return;
     }
 
+    const existingSectionCount = document.drawing?.views.filter((view) => view.kind === "section").length ?? 0;
+    const letter = String.fromCharCode(65 + existingSectionCount);
+
     const newView: DrawingViewData = {
       id: crypto.randomUUID(),
-      label: `SECTION ${axis.toUpperCase()}-${axis.toUpperCase()}`,
+      label: `SECTION ${letter}-${letter}`,
       projection: sectionViewCamera(axis, !flipped),
       kind: "section",
       x: sourceView.x + sourceView.width * sourceView.scale + 40,
@@ -266,7 +253,15 @@ export async function runCreateSectionView(
       originX: projected.originX,
       originY: projected.originY,
       hatchPaths: projected.hatchPaths,
-      section: { axis, offset, keepPositiveSide: !flipped },
+      section: {
+        axis,
+        offset,
+        keepPositiveSide: !flipped,
+        sourceViewId: sourceView.id,
+        orientation,
+        localScreenPosition,
+        letter,
+      },
     };
 
     useDocumentStore.getState().addDrawingView(newView);
@@ -311,31 +306,28 @@ export function runCreateDetailView(sourceView: DrawingViewData, cx: number, cy:
   useDrawingToolStore.getState().resetPicking();
 }
 
-/** `drawing.projected`: preference order of the other three standard projections, given
- * whichever one was picked as the source — mirrors Inventor's own "click a base view, get
- * the next logical projection" default. There is no drag-to-direction UI here, since the
- * four fixed layout slots `layoutViews` already uses are the only positions this app's
- * standard views actually occupy. */
+/** `drawing.projected`: preference order of the other directions, given whichever one was
+ * picked as the source — mirrors Inventor's own "click a base view, get the next logical
+ * projection" default. There is no drag-to-direction UI here; the six-view layout's own
+ * fixed slots (`drawingViewLayout.ts`) are the only positions a standard view can occupy. */
 const PROJECTED_VIEW_PREFERENCE: Record<StandardProjectionKind, StandardProjectionKind[]> = {
-  front: ["top", "right", "iso"],
-  top: ["front", "right", "iso"],
-  right: ["front", "top", "iso"],
-  iso: ["front", "top", "right"],
-};
-
-const PROJECTION_LABELS: Record<StandardProjectionKind, string> = {
-  front: "FRONT",
-  top: "TOP",
-  right: "RIGHT",
-  iso: "ISO",
+  front: ["top", "right", "iso", "bottom", "left", "back"],
+  top: ["front", "right", "iso", "bottom", "left", "back"],
+  bottom: ["front", "right", "iso", "top", "left", "back"],
+  right: ["front", "top", "iso", "bottom", "left", "back"],
+  left: ["front", "top", "iso", "bottom", "right", "back"],
+  back: ["front", "top", "iso", "bottom", "left", "right"],
+  iso: ["front", "top", "right", "bottom", "left", "back"],
 };
 
 /**
- * Creates a Projected View: whichever of the four standard projections isn't on the sheet
- * yet, aligned to `sourceView` the same way `layoutViews` aligns the initial four (Top
- * shares Front's own x and sits above it, Right shares Front's own y and sits beside it).
- * Re-reads the source part and re-projects all four views the same way Update Views does,
- * since only the views already placed have cached paths — an unplaced projection has none.
+ * Creates a Projected View: whichever standard projection isn't on the sheet yet
+ * (`PROJECTED_VIEW_PREFERENCE`, filtered to what's missing), then re-derives *every* placed
+ * standard view's position from Front (`repositionStandardViews`) rather than just placing
+ * the new one relative to `sourceView` — keeps the whole associated set internally
+ * consistent even if `sourceView` itself wasn't Front. Re-reads the source part and
+ * re-projects every direction the same way Update Views does, since only the views already
+ * placed have cached paths — an unplaced projection has none.
  */
 export async function runCreateProjectedView(sourceView: DrawingViewData): Promise<void> {
   const { showToast } = useGeometryStore.getState();
@@ -346,11 +338,10 @@ export async function runCreateProjectedView(sourceView: DrawingViewData): Promi
   const existing = new Set(
     sheet.views.filter((view) => view.kind === "standard").map((view) => view.projection),
   );
-  const preference =
-    PROJECTED_VIEW_PREFERENCE[sourceView.projection as StandardProjectionKind] ?? (["front", "top", "right", "iso"] as const);
+  const preference = PROJECTED_VIEW_PREFERENCE[sourceView.projection as StandardProjectionKind];
   const target = preference.find((projection) => !existing.has(projection));
   if (!target) {
-    showToast("All four standard views are already on the sheet");
+    showToast("Every standard view is already on the sheet");
     return;
   }
 
@@ -367,41 +358,16 @@ export async function runCreateProjectedView(sourceView: DrawingViewData): Promi
 
     const targetGeometry = projected.views[target];
     const scale = sourceView.scale;
-    const sourceHalfW = (sourceView.width * scale) / 2;
-    const sourceHalfH = (sourceView.height * scale) / 2;
-    const targetHalfW = (targetGeometry.width * scale) / 2;
-    const targetHalfH = (targetGeometry.height * scale) / 2;
-
-    let x = sourceView.x;
-    let y = sourceView.y;
-    if (target === "top") {
-      x = sourceView.projection === "right" ? sourceView.x - sourceHalfW - VIEW_GAP - targetHalfW : sourceView.x;
-      y = sourceView.y - sourceHalfH - VIEW_GAP - targetHalfH;
-    } else if (target === "front") {
-      if (sourceView.projection === "top") {
-        x = sourceView.x;
-        y = sourceView.y + sourceHalfH + VIEW_GAP + targetHalfH;
-      } else {
-        x = sourceView.x - sourceHalfW - VIEW_GAP - targetHalfW;
-        y = sourceView.y;
-      }
-    } else if (target === "right") {
-      x = sourceView.x + sourceHalfW + VIEW_GAP + targetHalfW;
-      y = sourceView.projection === "top" ? sourceView.y + sourceHalfH + VIEW_GAP + targetHalfH : sourceView.y;
-    } else {
-      // Iso has no shared axis to align to — parked at the same diagonal offset
-      // `layoutViews` reserves for it in the initial four-view layout.
-      x = sourceView.x + sourceHalfW + VIEW_GAP + targetHalfW;
-      y = sourceView.y - sourceHalfH - VIEW_GAP - targetHalfH;
-    }
 
     const newView: DrawingViewData = {
       id: crypto.randomUUID(),
-      label: PROJECTION_LABELS[target],
+      label: target.toUpperCase(),
       projection: target,
       kind: "standard",
-      x,
-      y,
+      // Placeholder position — `repositionStandardViews` below overwrites this (and every
+      // other placed standard view's own position) immediately after insertion.
+      x: sourceView.x,
+      y: sourceView.y,
       scale,
       visiblePaths: targetGeometry.visiblePaths,
       hiddenPaths: targetGeometry.hiddenPaths,
@@ -409,11 +375,17 @@ export async function runCreateProjectedView(sourceView: DrawingViewData): Promi
       height: targetGeometry.height,
       originX: targetGeometry.originX,
       originY: targetGeometry.originY,
+      threadPaths: targetGeometry.threadPaths,
     };
 
     useDocumentStore.getState().addDrawingView(newView);
+    const method = sheet.projectionMethod ?? DEFAULT_PROJECTION_METHOD;
+    const afterAdd = useDocumentStore.getState().document.drawing;
+    if (afterAdd) {
+      useDocumentStore.getState().setDrawingSheet({ ...afterAdd, views: repositionStandardViews(afterAdd.views, method) });
+    }
     useDrawingToolStore.getState().resetPicking();
-    showToast(`${PROJECTION_LABELS[target]} view projected`);
+    showToast(`${target.toUpperCase()} view projected`);
   } catch (error) {
     showToast(`Projected View failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
   }

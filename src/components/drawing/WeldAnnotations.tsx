@@ -128,21 +128,52 @@ export function WeldView({
   selected,
   onSelect,
   onMove,
+  onMoveAnchor,
   onEdit,
 }: {
   weld: DrawingWeldData;
   selected: boolean;
   onSelect: () => void;
   onMove: (labelX: number, labelY: number) => void;
+  onMoveAnchor: (anchorX: number, anchorY: number) => void;
   onEdit: (patch: Partial<DrawingWeldData>) => void;
 }) {
   const zoom = useDrawingToolStore((state) => state.zoom);
   const dragOrigin = useRef<{ pointerX: number; pointerY: number; x: number; y: number } | null>(null);
+  const anchorDragOrigin = useRef<{ pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const [editing, setEditing] = useState(false);
 
   return (
     <g className={selected ? styles.dimensionSelected : styles.dimension}>
       <line x1={weld.anchorX} y1={weld.anchorY} x2={weld.labelX} y2={weld.labelY} className={styles.leaderLine} />
+      {/* The leader's own anchor end, draggable independently of the reference line —
+          visible only while selected, matching `SymbolAnnotations.tsx`'s own `AnchorHandle`. */}
+      {selected && (
+        <circle
+          cx={weld.anchorX}
+          cy={weld.anchorY}
+          r={1.4}
+          className={styles.anchorHandle}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect();
+          }}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            anchorDragOrigin.current = { pointerX: event.clientX, pointerY: event.clientY, x: weld.anchorX, y: weld.anchorY };
+          }}
+          onPointerMove={(event) => {
+            if (!anchorDragOrigin.current) return;
+            const dx = (event.clientX - anchorDragOrigin.current.pointerX) / (SHEET_SCALE * zoom);
+            const dy = (event.clientY - anchorDragOrigin.current.pointerY) / (SHEET_SCALE * zoom);
+            onMoveAnchor(anchorDragOrigin.current.x + dx, anchorDragOrigin.current.y + dy);
+          }}
+          onPointerUp={() => {
+            anchorDragOrigin.current = null;
+          }}
+        />
+      )}
       <g transform={`translate(${weld.labelX} ${weld.labelY})`}>
         {weld.allAround && <circle cx={0} cy={0} r={1.4} className={styles.weldMark} />}
         {weld.fieldWeld && <FieldWeldFlag />}

@@ -43,6 +43,37 @@ function pathEndpoints(d: string): Point[] {
   return points;
 }
 
+/**
+ * Fits a circle to a projected path's own sampled endpoints, if it's circular enough —
+ * every point roughly equidistant from their shared centroid — or `null` if it isn't.
+ * Requires at least one arc (`A`) command in the path, the only way replicad ever actually
+ * emits a circle; without that guard, a plain 2-point line segment would false-positive too
+ * (its two endpoints are trivially "equidistant" from their own midpoint by definition).
+ * Operates in whatever coordinate space `d` is already in — `kernel/drawingProjection.ts`'s
+ * `threadOverlaysFor` calls this on a view's *raw* (pre-placement-scale) cached paths, so
+ * the radius it returns is a real-world mm value comparable directly against a tap drill
+ * table entry.
+ */
+export function fitCircle(d: string): { cx: number; cy: number; r: number } | null {
+  if (!/[Aa]/.test(d)) return null;
+  const points = pathEndpoints(d);
+  const unique: Point[] = [];
+  for (const point of points) {
+    if (!unique.some((existing) => Math.hypot(existing.x - point.x, existing.y - point.y) < 1e-6)) unique.push(point);
+  }
+  if (unique.length < 2) return null;
+
+  const cx = unique.reduce((sum, point) => sum + point.x, 0) / unique.length;
+  const cy = unique.reduce((sum, point) => sum + point.y, 0) / unique.length;
+  const radii = unique.map((point) => Math.hypot(point.x - cx, point.y - cy));
+  const meanRadius = radii.reduce((sum, r) => sum + r, 0) / radii.length;
+  if (meanRadius < 1e-6) return null;
+  const maxDeviation = Math.max(...radii.map((r) => Math.abs(r - meanRadius)));
+  if (maxDeviation > meanRadius * 0.02) return null;
+
+  return { cx, cy, r: meanRadius };
+}
+
 /** A vertex of a placed view's own projected geometry, already converted into sheet-mm —
  * the unit every other placed element (views, notes) on the sheet is positioned in. */
 export interface DrawingVertex extends Point {

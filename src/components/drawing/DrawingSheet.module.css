@@ -136,6 +136,27 @@
   fill: #1a1a1a;
 }
 
+.titleBlockProjectionCell {
+  cursor: pointer;
+}
+
+.titleBlockProjectionCell:hover .projectionGlyph,
+.titleBlockProjectionCell:hover .projectionAxis {
+  stroke: var(--accent, #0078d4);
+}
+
+.projectionGlyph {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.3;
+}
+
+.projectionAxis {
+  stroke: #1a1a1a;
+  stroke-width: 0.15;
+  stroke-dasharray: 2 0.6 0.3 0.6;
+}
+
 .titleBlockInput {
   width: 100%;
   height: 100%;
@@ -170,6 +191,13 @@
   stroke: #1a1a1a;
   stroke-width: 0.25;
   stroke-dasharray: 2 1.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.threadEdge {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.2;
   vector-effect: non-scaling-stroke;
 }
 
@@ -268,6 +296,33 @@
   stroke-dasharray: 3 2;
 }
 
+.sectionMark {
+  pointer-events: none;
+}
+
+.sectionMarkLine {
+  stroke: #1a1a1a;
+  stroke-width: 0.5;
+  stroke-dasharray: 6 1.2 1.2 1.2;
+}
+
+.sectionMarkArrow {
+  fill: #1a1a1a;
+}
+
+.sectionMarkLabel {
+  fill: #1a1a1a;
+  font-size: 4px;
+  font-weight: 600;
+}
+
+.detailCalloutCircle {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.3;
+  stroke-dasharray: 1.5 1;
+}
+
 .detailCentreHit {
   fill: transparent;
   cursor: move;
@@ -339,6 +394,14 @@
   cursor: move;
 }
 
+/* Every leadered/on-sheet annotation's own callout text (dimension values, GD&T frame
+   text, datum letters, weld numbers, surface-finish roughness) shares this one two-tier
+   scale — 3.2px for a symbol's primary text, 2.2px (`.dimensionLabelSmall`) for a
+   secondary/qualifying value next to it — rather than each symbol type picking its own
+   close-but-different size the way `.datumLetter`/`.gdtText` used to (4px/3px). Distinct
+   from the title block's own 1.7px corner labels and the table classes' 2.4-2.6px grid
+   text, both of which size to a fixed boxed cell layout rather than floating annotation
+   text and so aren't part of this particular scale. */
 .dimensionLabel {
   fill: #1a1a1a;
   font-size: 3.2px;
@@ -365,6 +428,13 @@
 
 .ordinateDatumDot {
   fill: #1a1a1a;
+}
+
+.anchorHandle {
+  fill: var(--accent, #0078d4);
+  stroke: #fff;
+  stroke-width: 0.3;
+  cursor: move;
 }
 
 .leaderLine {
@@ -417,7 +487,7 @@
 
 .datumLetter {
   fill: #1a1a1a;
-  font-size: 4px;
+  font-size: 3.2px;
   font-weight: 600;
   pointer-events: none;
 }
@@ -436,7 +506,7 @@
 
 .gdtText {
   fill: #1a1a1a;
-  font-size: 3px;
+  font-size: 3.2px;
   pointer-events: none;
 }
 
