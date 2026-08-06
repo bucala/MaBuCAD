@@ -7,6 +7,52 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-06 — Model View orientation picker, directional Projected View, edge/axis leader snapping (v0.19.0)
+
+A twenty-third round, following up on the previous one's Drawing rework with a set of
+concrete usability fixes: Insert Model View no longer dumps four views (Iso included) onto
+the sheet unasked, Projected View gets a real directional-arrow picker instead of
+auto-guessing, leader anchors can snap anywhere along an edge (not just its endpoints) or
+onto a hole's own centre, the active-view highlight no longer overlaps the view's own
+geometry, and the Weld edit form's controls no longer overlap each other.
+
+### Changed — Insert Model View is an orientation choice, not four views at once
+- Picking a Part file now opens an orientation picker (`ModelViewOrientationDialog.tsx`) —
+  Front/Top/Bottom/Left/Right/Back/Isometric — instead of immediately placing Front, Top,
+  Right and Isometric together. Whichever direction is chosen becomes the drawing's own
+  Front, both in label and as the layout anchor every later Projected View associates
+  against. Every direction is still projected up front (the same all-seven computation
+  `rebuildAndProjectPart` already did), so picking is instant with no further wait.
+
+### Changed — Projected View shows real directional arrows
+- Clicking a placed standard view under `drawing.projected` now shows up to four cardinal
+  arrows (`ProjectedViewOverlay.tsx`) plus a separate Isometric button, one per further
+  standard direction actually reachable from that view — clicking one creates exactly that
+  view, rather than the tool silently guessing "whichever standard view is missing" in a
+  fixed preference order (`drawingViewLayout.ts`'s new `projectableDirections`).
+- A view placed this way is now permanently locked to sliding along its own single axis
+  relative to Front (`drawingViewLayout.ts`'s new `axisLockFor`) — a Top/Bottom view can
+  only move vertically, a Left/Right/Back view only horizontally, with no way to free it
+  from that constraint. Front and Isometric remain freely draggable, matching how neither
+  has a shared axis to lock to.
+
+### Added — Leader anchors snap to edges and circle centres, not just corners
+- `kernel/drawingGeometry.ts`'s `nearestVertex` used to only snap to a projected path's own
+  recovered endpoints (a corner, or a line/arc's start/end) — a leader dragged to the middle
+  of a long edge, or onto a hole's own centre, found nothing within tolerance and fell back
+  to the raw click position. It now also considers the closest point anywhere along an
+  edge's own straight run, and a circular edge's own fitted centre, competing on equal
+  footing with the existing corner search.
+
+### Fixed
+- The Weld edit form's controls overlapped and truncated each other — six inputs (symbol
+  select, size, length, pitch, contour) crammed onto one flex row per side, each shrinking
+  past readability. Split into two rows per side (label+symbol, then the four qualifiers)
+  and the final checkboxes/tail/Done row into two as well.
+- The active-view frame (double-click a view to activate it) hugged the view's own geometry
+  exactly, visually merging with it. Now sits a fixed margin outside the view's own bounding
+  box.
+
 ## 2026-08-06 — Active-view annotation binding, real Fillet/Chamfer edge picking, Edge selection priority (v0.18.0)
 
 A twenty-second round: a real "which view does this annotation belong to" concept for

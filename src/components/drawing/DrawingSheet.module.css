@@ -563,6 +563,18 @@
   align-items: center;
 }
 
+/* Wraps a related set of `.gdtFormRow`s onto their own lines within `.gdtForm` — e.g. the
+   Weld edit form's own "label + symbol" row and its "size/length/pitch/contour" row for one
+   side, kept visually grouped without cramming every control from both rows onto one line
+   (which left every one of them truncated, `.gdtFormInput`'s own `flex: 1 1 0; min-width: 0`
+   having no floor to stop shrinking at). Purely a layout grouping, no border/background of
+   its own. */
+.gdtFormGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .gdtFormCheckLabel {
   display: flex;
   align-items: center;

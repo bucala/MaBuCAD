@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import type { ProjectedViews } from "@/kernel/drawingProjection";
+
 /**
  * Which interactive tool the Drawing sheet is in — the same "arm a tool, then pick/drag on
  * the canvas" shape `sketchStore.ts`'s `tool`/`pendingConstraintKind` already uses for the
@@ -45,6 +47,13 @@ interface DrawingToolStore {
   setSectionLocalPosition: (value: number) => void;
   toggleSectionFlip: () => void;
 
+  /** Projected View tool: which existing standard view the directional-arrow overlay
+   * (`ProjectedViewOverlay.tsx`) is currently showing arrows around, `null` until picked.
+   * `drawingViewLayout.ts`'s `projectableDirections` is what turns this into the actual set
+   * of arrows offered. */
+  projectedSourceViewId: string | null;
+  pickProjectedSource: (viewId: string) => void;
+
   /** Detail tool: source view + the crop circle, in that view's own local space. */
   detailSourceViewId: string | null;
   detailCentreX: number;
@@ -76,6 +85,18 @@ interface DrawingToolStore {
    * field above. */
   resetPicking: () => void;
 
+  /**
+   * Insert Model View's own orientation choice, open between picking a Part file and
+   * placing the one view the user actually wants — `runInsertModelView` projects every
+   * standard direction up front (the same all-seven-directions computation
+   * `rebuildAndProjectPart` was already doing per file), stashes them here, and
+   * `ModelViewOrientationDialog.tsx` shows all seven as pickable cards. `runPlaceModelView`
+   * reads the direction the user clicked out of `views` and clears this back to `null`.
+   * `null` means the dialog isn't showing. */
+  modelViewPicker: { fileName: string; path: string | null; views: ProjectedViews } | null;
+  openModelViewPicker: (fileName: string, path: string | null, views: ProjectedViews) => void;
+  closeModelViewPicker: () => void;
+
   /** Sheet-level zoom/pan, applied as a CSS transform on the rendered `<svg>` in
    * `DrawingSheet.tsx` (`translate(panX, panY) scale(zoom)`, in on-screen CSS px) rather
    * than touching the SVG's own `viewBox`/mm coordinates, so every existing drag handler
@@ -105,6 +126,7 @@ export const useDrawingToolStore = create<DrawingToolStore>((set) => ({
       tool,
       sectionSourceViewId: null,
       detailSourceViewId: null,
+      projectedSourceViewId: null,
       dimensionFirstPoint: null,
       ordinateDatum: null,
       ordinateChainId: null,
@@ -120,6 +142,9 @@ export const useDrawingToolStore = create<DrawingToolStore>((set) => ({
   setSectionOrientation: (orientation) => set({ sectionOrientation: orientation }),
   setSectionLocalPosition: (value) => set({ sectionLocalPosition: value }),
   toggleSectionFlip: () => set((state) => ({ sectionFlipped: !state.sectionFlipped })),
+
+  projectedSourceViewId: null,
+  pickProjectedSource: (viewId) => set({ projectedSourceViewId: viewId }),
 
   detailSourceViewId: null,
   detailCentreX: 0,
@@ -142,11 +167,16 @@ export const useDrawingToolStore = create<DrawingToolStore>((set) => ({
       tool: "select",
       sectionSourceViewId: null,
       detailSourceViewId: null,
+      projectedSourceViewId: null,
       dimensionFirstPoint: null,
       ordinateDatum: null,
       ordinateChainId: null,
       ordinateAxis: null,
     }),
+
+  modelViewPicker: null,
+  openModelViewPicker: (fileName, path, views) => set({ modelViewPicker: { fileName, path, views } }),
+  closeModelViewPicker: () => set({ modelViewPicker: null }),
 
   zoom: 1,
   panX: 0,

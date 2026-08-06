@@ -66,6 +66,68 @@ function stepFor(projection: StandardProjectionKind, method: ProjectionMethod): 
   return (method === "ISO-E" ? ISO_E_STEPS : ISO_A_STEPS)[projection];
 }
 
+/** Every standard direction that participates in the cardinal (non-Iso) grid — used to
+ * enumerate candidates rather than hand-listing them at each call site. */
+const CARDINAL_DIRECTIONS: StandardProjectionKind[] = ["front", "top", "bottom", "left", "right", "back"];
+
+/** Which single axis a placed standard view's own drag is locked to, relative to Front —
+ * `DrawingSheet.tsx`'s own `PlacedView` drag handler reads this so a Projected View stays
+ * "positionally associated in that direction" permanently, the way ISO 128's own six-view
+ * set is meant to (there is deliberately no way to free/un-anchor it — see this function's
+ * callers). `"free"` for Front itself (the anchor everything else is measured from) and Iso
+ * (whose projection isn't world-axis-aligned, so it has no shared axis to lock to — see
+ * `computeStandardViewPositions`'s own note on this). Top/Bottom share Front's X (so they
+ * can only move in Y); Left/Right/Back share Front's Y (so they can only move in X). */
+export function axisLockFor(projection: StandardProjectionKind, method: ProjectionMethod): "x" | "y" | "free" {
+  if (projection === "front" || projection === "iso") return "free";
+  const step = stepFor(projection, method);
+  if (step.stepX === 0) return "x";
+  if (step.stepY === 0) return "y";
+  return "free";
+}
+
+/** One candidate a Projected View's own directional-arrow overlay can offer from a given
+ * source view — which further standard direction it would create, and which screen-relative
+ * arrow to draw it behind (`DrawingSheet.tsx`'s own `SHEET_SCALE`-space arrow placement). */
+export interface ProjectableCandidate {
+  direction: StandardProjectionKind;
+  arrow: "up" | "down" | "left" | "right";
+}
+
+/**
+ * Every standard direction reachable from `source` by exactly one cardinal step relative to
+ * Front, that isn't already on the sheet — `ProjectedViewOverlay.tsx`'s own source of truth
+ * for which arrows to draw and what each one creates. A candidate whose relationship to
+ * `source` isn't a clean single-axis offset (e.g. Iso from any cardinal source, or a
+ * direction on the *opposite* side of Front from `source`) is left out — there is no
+ * sensible single arrow to draw it behind. Iso itself is offered separately by the overlay
+ * (see its own doc comment) rather than through this cardinal set, since it never resolves
+ * to one of the four arrows.
+ */
+export function projectableDirections(
+  source: StandardProjectionKind,
+  existing: ReadonlySet<StandardProjectionKind>,
+  method: ProjectionMethod,
+): ProjectableCandidate[] {
+  const sourceStep = stepFor(source, method);
+  const byArrow = new Map<ProjectableCandidate["arrow"], ProjectableCandidate & { distance: number }>();
+
+  for (const candidate of CARDINAL_DIRECTIONS) {
+    if (candidate === source || existing.has(candidate)) continue;
+    const step = stepFor(candidate, method);
+    const dx = step.stepX - sourceStep.stepX;
+    const dy = step.stepY - sourceStep.stepY;
+    if (dx !== 0 && dy !== 0) continue;
+    if (dx === 0 && dy === 0) continue;
+    const arrow: ProjectableCandidate["arrow"] = dx !== 0 ? (dx > 0 ? "right" : "left") : dy > 0 ? "down" : "up";
+    const distance = Math.abs(dx) + Math.abs(dy);
+    const current = byArrow.get(arrow);
+    if (!current || distance < current.distance) byArrow.set(arrow, { direction: candidate, arrow, distance });
+  }
+
+  return Array.from(byArrow.values()).map(({ direction, arrow }) => ({ direction, arrow }));
+}
+
 export const PROJECTION_LABELS: Record<StandardProjectionKind, string> = {
   front: "FRONT",
   top: "TOP",

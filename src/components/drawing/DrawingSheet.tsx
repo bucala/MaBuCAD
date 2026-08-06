@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { FileUp, Frame, Maximize, RotateCw, Settings2, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 
 import { runCommand } from "@/commands/commandRegistry";
-import { runCreateProjectedView, runToggleProjectionMethod } from "@/commands/drawingCommands";
-import { DEFAULT_PROJECTION_METHOD } from "@/commands/drawingViewLayout";
+import { runToggleProjectionMethod } from "@/commands/drawingCommands";
+import { axisLockFor, DEFAULT_PROJECTION_METHOD } from "@/commands/drawingViewLayout";
 import { useTranslation } from "@/i18n/useTranslation";
 import { nearestVertex, viewScaleFor } from "@/kernel/drawingGeometry";
 import { sectionArrowSign, type OrthoProjection } from "@/kernel/drawingProjection";
@@ -12,11 +12,13 @@ import { useDrawingToolStore } from "@/state/drawingToolStore";
 import { DEFAULT_SHEET_FORMAT_ID, useTemplateStore } from "@/state/templateStore";
 import { paperDimensions } from "@/types/drawingTemplates";
 import type { BorderTemplate, SheetFormat, TitleBlockField, TitleBlockTemplate } from "@/types/drawingTemplates";
-import type { DrawingNoteData, DrawingViewData } from "@/types/document";
+import type { DrawingNoteData, DrawingViewData, StandardProjectionKind } from "@/types/document";
 
 import { DetailOverlay } from "./DetailOverlay";
 import { DimensionView, OrdinateChainView } from "./DimensionAnnotations";
 import styles from "./DrawingSheet.module.css";
+import { ModelViewOrientationDialog } from "./ModelViewOrientationDialog";
+import { ProjectedViewOverlay } from "./ProjectedViewOverlay";
 import { SectionOverlay } from "./SectionOverlay";
 import { DatumView, GdtView, SurfaceFinishView } from "./SymbolAnnotations";
 import { TableView } from "./TableAnnotations";
@@ -52,6 +54,12 @@ const PASSTHROUGH_TOOLS = new Set(["note", "datum", "gdt", "surface-finish", "we
 /** px per sheet-mm the outer sheet `<svg>` is rendered at — every drag handler in this
  * file (views, notes) converts screen-pixel deltas back to sheet-mm by dividing by this. */
 const SHEET_SCALE = 2.5;
+
+/** How far the active-view frame (`PlacedView`'s own `viewFrameActive` rect) sits outside
+ * the view's own bounding box, sheet mm — clear of the view's own geometry and of a
+ * leadered annotation's label placed just past the view edge (`handleBackgroundClick`'s own
+ * default label offset is 10mm from its anchor), rather than hugging the geometry itself. */
+const ACTIVE_FRAME_MARGIN = 15;
 
 /** Views only Front/Top/Right can take a Section cut from — Iso's projection axes aren't
  * world-axis-aligned (see `kernel/drawingProjection.ts`'s `sectionAxisAndOffset`), and a
@@ -114,7 +122,7 @@ function View({ view }: { view: DrawingViewData }) {
             no additional axis flip, which would just mirror it a second time. A Detail view
             reuses its source's own paths verbatim, so it needs the exact same shift, just
             keyed by the source's own height rather than its own (`detailOf.sourceHeight`).
-            `kernel/drawingGeometry.ts`'s `viewVertices()` mirrors this exact transform for
+            `kernel/drawingGeometry.ts`'s `nearestVertex()` mirrors this exact transform for
             picking — keep the two in lockstep. */}
         <g clipPath={clipId ? `url(#${clipId})` : undefined}>
           <g transform={`translate(0, ${flipTranslateY})`}>
@@ -170,6 +178,7 @@ function PlacedView({
   active,
   pickable,
   passthrough,
+  axisLock,
   onSelect,
   onMove,
   onPick,
@@ -180,6 +189,12 @@ function PlacedView({
   active: boolean;
   pickable: boolean;
   passthrough: boolean;
+  /** Which single axis this view's own drag is constrained to, sheet mm — a standard
+   * Projected View "is positionally associated in that direction and can only be moved
+   * along it": permanently, with no UI escape hatch, matching
+   * `drawingViewLayout.ts`'s `axisLockFor` own doc comment on why there's no un-anchoring
+   * this. `"free"` for Front and Iso (see that function). */
+  axisLock: "x" | "y" | "free";
   onSelect: () => void;
   onMove: (x: number, y: number) => void;
   onPick: (localX: number, localY: number) => void;
@@ -234,14 +249,24 @@ function PlacedView({
             if (!dragOrigin.current) return;
             const dx = (event.clientX - dragOrigin.current.x) / (SHEET_SCALE * zoom);
             const dy = (event.clientY - dragOrigin.current.y) / (SHEET_SCALE * zoom);
-            onMove(dragOrigin.current.vx + dx, dragOrigin.current.vy + dy);
+            const nextX = axisLock === "x" ? dragOrigin.current.vx : dragOrigin.current.vx + dx;
+            const nextY = axisLock === "y" ? dragOrigin.current.vy : dragOrigin.current.vy + dy;
+            onMove(nextX, nextY);
           }}
           onPointerUp={() => {
             dragOrigin.current = null;
           }}
         />
       )}
-      {active && !passthrough && <rect x={x} y={y} width={width} height={height} className={styles.viewFrameActive} />}
+      {active && !passthrough && (
+        <rect
+          x={x - ACTIVE_FRAME_MARGIN}
+          y={y - ACTIVE_FRAME_MARGIN}
+          width={width + ACTIVE_FRAME_MARGIN * 2}
+          height={height + ACTIVE_FRAME_MARGIN * 2}
+          className={styles.viewFrameActive}
+        />
+      )}
     </g>
   );
 }
@@ -753,8 +778,10 @@ export function DrawingSheet() {
   const setTool = useDrawingToolStore((state) => state.setTool);
   const sectionSourceViewId = useDrawingToolStore((state) => state.sectionSourceViewId);
   const detailSourceViewId = useDrawingToolStore((state) => state.detailSourceViewId);
+  const projectedSourceViewId = useDrawingToolStore((state) => state.projectedSourceViewId);
   const pickSectionSource = useDrawingToolStore((state) => state.pickSectionSource);
   const pickDetailSource = useDrawingToolStore((state) => state.pickDetailSource);
+  const pickProjectedSource = useDrawingToolStore((state) => state.pickProjectedSource);
   const dimensionFirstPoint = useDrawingToolStore((state) => state.dimensionFirstPoint);
   const pickDimensionFirstPoint = useDrawingToolStore((state) => state.pickDimensionFirstPoint);
   const ordinateDatum = useDrawingToolStore((state) => state.ordinateDatum);
@@ -1214,9 +1241,10 @@ export function DrawingSheet() {
               pickable={
                 (tool === "section" && !sectionSourceViewId && isSectionable(view)) ||
                 (tool === "detail" && !detailSourceViewId) ||
-                (tool === "projected" && view.kind === "standard")
+                (tool === "projected" && !projectedSourceViewId && view.kind === "standard")
               }
               passthrough={PASSTHROUGH_TOOLS.has(tool)}
+              axisLock={view.kind === "standard" ? axisLockFor(view.projection as StandardProjectionKind, projectionMethod) : "free"}
               onSelect={() => {
                 setSelectedViewId(view.id);
                 setSelectedNoteId(null);
@@ -1227,10 +1255,7 @@ export function DrawingSheet() {
               onPick={(localX, localY) => {
                 if (tool === "section") pickSectionSource(view.id, localX);
                 else if (tool === "detail") pickDetailSource(view.id, localX, localY);
-                else if (tool === "projected") {
-                  void runCreateProjectedView(view);
-                  setTool("select");
-                }
+                else if (tool === "projected") pickProjectedSource(view.id);
               }}
             />
           ))}
@@ -1362,6 +1387,7 @@ export function DrawingSheet() {
 
           {tool === "section" && <SectionOverlay />}
           {tool === "detail" && <DetailOverlay />}
+          {tool === "projected" && projectedSourceViewId && <ProjectedViewOverlay />}
 
           {titleBlock && border && (
             <g
@@ -1387,6 +1413,7 @@ export function DrawingSheet() {
       </div>
 
       <TemplateManagerDialog />
+      <ModelViewOrientationDialog />
     </div>
   );
 }

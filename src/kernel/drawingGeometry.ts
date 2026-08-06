@@ -80,38 +80,30 @@ export interface DrawingVertex extends Point {
   viewId: string;
 }
 
-/**
- * `view`'s own projected vertices, in sheet-mm.
- *
- * Mirrors the exact transform `DrawingSheet.tsx`'s `View` component renders with — a path's
- * raw coordinate `(px, py)` (replicad's own SVG-mirrored range `[-height, 0]`, see `View`'s
- * own doc comment) is shifted to `(px, py + view.height)` by the view's own
- * `translate(0, height)`, then that viewBox-space point scales and translates into the
- * sheet the same way the view's outer `<svg x y width height>` does. Any drift between this
- * and that render transform would make picked points land visibly off the geometry they're
- * meant to snap to, so the two must be kept in lockstep.
- */
-export function viewVertices(view: DrawingViewData): DrawingVertex[] {
-  const width = view.width * view.scale;
-  const height = view.height * view.scale;
-  const originX = view.x - width / 2;
-  const originY = view.y - height / 2;
-
-  const toSheet = (point: Point): DrawingVertex => ({
-    x: originX + point.x * view.scale,
-    y: originY + (point.y + view.height) * view.scale,
-    viewId: view.id,
-  });
-
-  const paths = [...view.visiblePaths, ...view.hiddenPaths];
-  return paths.flatMap((d) => pathEndpoints(d).map(toSheet));
+/** Closest point on the straight segment `[a, b]` to `point`, clamped to the segment
+ * itself rather than the infinite line through it — a leader anchor snapped mid-edge should
+ * land somewhere between the edge's own two endpoints, never past either one. */
+function nearestPointOnSegment(a: Point, b: Point, point: Point): Point {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const lengthSq = abx * abx + aby * aby;
+  if (lengthSq < 1e-9) return a;
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * abx + (point.y - a.y) * aby) / lengthSq));
+  return { x: a.x + abx * t, y: a.y + aby * t };
 }
 
 /**
- * The closest vertex, across every view on the sheet, to `point` (sheet-mm) — `null` if
- * nothing is within `tolerance` mm. Dimensioning/datum/GD&T tools all pick against real
- * geometry rather than an arbitrary sheet position, the same "click has to land near
- * something real" convention the sketch tools already enforce for their own picks.
+ * The closest snappable point, across every view on the sheet, to `point` (sheet-mm) —
+ * `null` if nothing is within `tolerance` mm. A leader-based annotation (datum/GD&T/surface
+ * finish/weld) or a dimension/ordinate pick can land on three kinds of real geometry, not
+ * just a path's own recovered endpoints (a corner, or a line/arc's own start/end): anywhere
+ * along an edge's own straight run (`nearestPointOnSegment`, since each recovered path is
+ * already a short polyline of its own sampled points — true for a straight edge's 2
+ * endpoints and a curve's several), and a circular edge's own centre (`fitCircle`) — the
+ * "os" (axis/centre) a hole's own leader most naturally attaches to. All three compete on
+ * equal footing; whichever is genuinely closest to the click wins, so an anchor dragged
+ * right onto a corner still prefers that corner over a mid-edge point one pixel further
+ * away.
  */
 export function nearestVertex(
   views: DrawingViewData[],
@@ -120,14 +112,40 @@ export function nearestVertex(
 ): DrawingVertex | null {
   let best: DrawingVertex | null = null;
   let bestDistance = tolerance;
+  const consider = (candidate: Point, viewId: string) => {
+    const distance = Math.hypot(candidate.x - point.x, candidate.y - point.y);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = { ...candidate, viewId };
+    }
+  };
 
   for (const view of views) {
-    for (const vertex of viewVertices(view)) {
-      const distance = Math.hypot(vertex.x - point.x, vertex.y - point.y);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = vertex;
+    const width = view.width * view.scale;
+    const height = view.height * view.scale;
+    const originX = view.x - width / 2;
+    const originY = view.y - height / 2;
+    // Mirrors the exact transform `DrawingSheet.tsx`'s `View` component renders with — a
+    // path's raw coordinate `(px, py)` (replicad's own SVG-mirrored range `[-height, 0]`,
+    // see `View`'s own doc comment) is shifted to `(px, py + view.height)` by the view's own
+    // `translate(0, height)`, then that viewBox-space point scales and translates into the
+    // sheet the same way the view's outer `<svg x y width height>` does. Any drift between
+    // this and that render transform would make picked points land visibly off the geometry
+    // they're meant to snap to, so the two must be kept in lockstep.
+    const toSheet = (raw: Point): Point => ({
+      x: originX + raw.x * view.scale,
+      y: originY + (raw.y + view.height) * view.scale,
+    });
+
+    for (const d of [...view.visiblePaths, ...view.hiddenPaths]) {
+      const rawPoints = pathEndpoints(d);
+      const sheetPoints = rawPoints.map(toSheet);
+      for (const vertex of sheetPoints) consider(vertex, view.id);
+      for (let i = 0; i < sheetPoints.length - 1; i++) {
+        consider(nearestPointOnSegment(sheetPoints[i], sheetPoints[i + 1], point), view.id);
       }
+      const circle = fitCircle(d);
+      if (circle) consider(toSheet({ x: circle.cx, y: circle.cy }), view.id);
     }
   }
 
