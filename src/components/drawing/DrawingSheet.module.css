@@ -221,6 +221,19 @@
   cursor: move;
 }
 
+/* The double-click-activated view's own persistent frame — solid and green, so it reads as
+   "this view is a binding context for new annotations" at a glance, distinct from the
+   dashed accent-blue rect a plain click/drag selection already uses (`.viewHandleSelected`).
+   Drawn as its own non-interactive overlay rect (`pointer-events: none`) rather than folded
+   into `.viewHandle`/`.viewHandleSelected`, since a view can be active AND selected/dragged
+   at the same time. */
+.viewFrameActive {
+  fill: none;
+  stroke: #1a9c4a;
+  stroke-width: 0.8;
+  pointer-events: none;
+}
+
 .pickable {
   fill: transparent;
   cursor: crosshair;
@@ -321,6 +334,17 @@
   stroke: #1a1a1a;
   stroke-width: 0.3;
   stroke-dasharray: 1.5 1;
+}
+
+/* ISO 128's own continuous freehand thin line — the Detail view's own torn-out boundary
+   (`tornCirclePath`), a solid (not dashed) stroke since a break line marks a real edge the
+   material was "cut" along, not a construction/reference line like `.detailCalloutCircle`
+   on the source view. Same weight as `.visibleEdge` so it reads as part of the drawing's
+   own line-weight scale rather than a heavier or lighter outlier. */
+.detailTornBoundary {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
 }
 
 .detailCentreHit {

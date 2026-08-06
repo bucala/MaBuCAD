@@ -188,6 +188,12 @@ interface DocumentStore {
    * the caller needing the rest of `drawing` in hand — a no-op if the active document
    * isn't a Drawing or has no view with that id. */
   updateDrawingView: (id: string, patch: Partial<Omit<DrawingViewData, "id">>) => void;
+  /** Repositions a view AND every annotation bound to it (`parentViewId === id`) by the
+   * same delta — `DrawingSheet.tsx`'s own view-drag handler uses this instead of plain
+   * `updateDrawingView` so a bound dimension/datum/GD&T/surface-finish/weld/ordinate-chain
+   * actually moves with its view, matching `DrawingViewData`'s own "bound annotations" doc
+   * comment. A no-op patch to unbound annotations, same as today. */
+  moveDrawingView: (id: string, x: number, y: number) => void;
   deleteDrawingView: (id: string) => void;
   addDrawingView: (view: DrawingViewData) => void;
   addDrawingNote: (note: Omit<DrawingNoteData, "id">) => string;
@@ -532,6 +538,68 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           drawing: {
             ...document.drawing,
             views: document.drawing.views.map((view) => (view.id === id ? { ...view, ...patch } : view)),
+          },
+        };
+      }),
+
+    moveDrawingView: (id, x, y) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        const view = document.drawing.views.find((v) => v.id === id);
+        if (!view) return document;
+        const dx = x - view.x;
+        const dy = y - view.y;
+        const drawing = document.drawing;
+        const shiftBound = <T extends { id: string; parentViewId?: string }>(
+          items: T[] | undefined,
+          shift: (item: T) => T,
+        ) => (items ?? []).map((item) => (item.parentViewId === id ? shift(item) : item));
+        return {
+          ...document,
+          drawing: {
+            ...drawing,
+            views: drawing.views.map((v) => (v.id === id ? { ...v, x, y } : v)),
+            dimensions: shiftBound(drawing.dimensions, (d) => ({
+              ...d,
+              x1: d.x1 + dx,
+              y1: d.y1 + dy,
+              x2: d.x2 + dx,
+              y2: d.y2 + dy,
+            })),
+            ordinateChains: shiftBound(drawing.ordinateChains, (chain) => ({
+              ...chain,
+              datumX: chain.datumX + dx,
+              datumY: chain.datumY + dy,
+              points: chain.points.map((point) => ({ ...point, x: point.x + dx, y: point.y + dy })),
+            })),
+            datums: shiftBound(drawing.datums, (datum) => ({
+              ...datum,
+              anchorX: datum.anchorX + dx,
+              anchorY: datum.anchorY + dy,
+              labelX: datum.labelX + dx,
+              labelY: datum.labelY + dy,
+            })),
+            gdtFrames: shiftBound(drawing.gdtFrames, (frame) => ({
+              ...frame,
+              anchorX: frame.anchorX + dx,
+              anchorY: frame.anchorY + dy,
+              labelX: frame.labelX + dx,
+              labelY: frame.labelY + dy,
+            })),
+            surfaceFinishes: shiftBound(drawing.surfaceFinishes, (finish) => ({
+              ...finish,
+              anchorX: finish.anchorX + dx,
+              anchorY: finish.anchorY + dy,
+              labelX: finish.labelX + dx,
+              labelY: finish.labelY + dy,
+            })),
+            welds: shiftBound(drawing.welds, (weld) => ({
+              ...weld,
+              anchorX: weld.anchorX + dx,
+              anchorY: weld.anchorY + dy,
+              labelX: weld.labelX + dx,
+              labelY: weld.labelY + dy,
+            })),
           },
         };
       }),

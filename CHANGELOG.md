@@ -7,6 +7,52 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-08-06 — Active-view annotation binding, real Fillet/Chamfer edge picking, Edge selection priority (v0.18.0)
+
+A twenty-second round: a real "which view does this annotation belong to" concept for
+Drawing sheets, a fix for Fillet/Chamfer instantly rounding/chamfering the entire body
+before anything was ever picked, and a genuine Edge selection-priority mode alongside a
+right-click filter menu.
+
+### Added — Active-view annotation binding
+- Double-click a placed view's frame to activate it (solid green outline, distinct from the
+  dashed accent-blue selection rect) — every dimension/ordinate-chain/datum/GD&T/surface-
+  finish/weld annotation created afterward in *free* sheet space (nothing nearby to snap to)
+  is now bound to that view (`DrawingViewData`'s own "bound annotations" doc comment). With
+  no view active, a freely-placed annotation stays unbound, exactly like before this existed.
+- An annotation whose leader anchor snaps to a specific view's own geometry (edge/vertex)
+  binds to *that* view automatically, regardless of which view (if any) is currently
+  active — dragging an existing annotation's anchor onto a different view's geometry rebinds
+  it the same way.
+- A bound annotation now actually moves with its view: dragging a view shifts every
+  annotation bound to it by the same delta (`documentStore.ts`'s new `moveDrawingView`),
+  instead of leaving them stranded at their old sheet position the way every annotation
+  always has until now.
+- Double-click empty sheet space clears whichever view was active.
+
+### Fixed — Fillet/Chamfer applying to the whole body immediately
+- Clicking the Fillet or Chamfer ribbon button used to round/chamfer *every* edge of the
+  part the instant the feature was created, before the user ever picked anything — the
+  kernel's own "no edge filter picked yet" fallback is "every edge", which is the right
+  fallback for an already-edited feature reopened later, but a bad *default* for a
+  brand-new one. Fillet/Chamfer now start pass-through (no effect at all) and drop straight
+  into edge-pick mode; the first edge picked is when the feature actually starts
+  rounding/chamfering anything, and deselecting back down to zero edges after that still
+  falls back to "every edge" exactly like before (`FeatureParameters.edgesPending`).
+
+### Added — Edge selection priority
+- The status bar's selection-filter icon (previously a Body/Face-only binary toggle) now
+  cycles Body → Face → **Edge** priority on left-click, and offers a right-click dropdown
+  (à la Inventor's own Select menu) to pick any of the three directly. Edge priority
+  resolves and highlights the nearest kernel edge to a click, the same `nearestEdgeGroupId`
+  resolution Fillet/Chamfer's own edge picking and Inspect ▸ Measure already used internally,
+  now exposed as a general-purpose selection mode with its own status-bar readout.
+
+### Added — Detail view torn boundary
+- A placed Detail view's own crop circle now draws a visible ISO 128 "continuous freehand
+  thin line" break boundary (a deterministic hand-torn-looking jagged circle), instead of
+  being an invisible clip path with no boundary line of its own at all.
+
 ## 2026-08-05 — ISO E/A projection, associated views, section/detail callouts, threads (v0.17.0)
 
 A twenty-first round overhauling how the Drawing tab builds and documents its view layout,

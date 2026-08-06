@@ -354,7 +354,9 @@ export function PropertyManager() {
             </button>
             <p className={styles.sectionHint}>
               {pickedEdgeCount === 0
-                ? "No edges selected — applies to every edge of the body."
+                ? feature.parameters.edgesPending
+                  ? "No edges picked yet — nothing is rounded/chamfered until you pick at least one."
+                  : "No edges selected — applies to every edge of the body."
                 : `${pickedEdgeCount} edge${pickedEdgeCount === 1 ? "" : "s"} selected.`}
               {isPickingEdges &&
                 " Click edges on the model in the viewport; click a picked edge again to remove it."}

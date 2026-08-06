@@ -103,13 +103,13 @@ export const FEATURE_CATALOG: Record<FeatureKind, FeatureDefinition> = {
   fillet: {
     namePrefix: "Fillet",
     icon: CircleDashed,
-    description: "Rounds every edge of the body by a constant radius",
+    description: "Rounds the picked edges by a constant radius — every edge if none are picked",
     defaultParameters: { radius: 2 },
   },
   chamfer: {
     namePrefix: "Chamfer",
     icon: Percent,
-    description: "Bevels every edge of the body by a constant, symmetric distance",
+    description: "Bevels the picked edges by a constant, symmetric distance — every edge if none are picked",
     defaultParameters: { distance: 1 },
   },
   shell: {

@@ -1,4 +1,5 @@
-import { Box, Eye, Grid3x3, Magnet, Sparkles, Square } from "lucide-react";
+import { useState } from "react";
+import { Box, Eye, Grid3x3, Magnet, Sparkles, Spline, Square } from "lucide-react";
 
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -6,11 +7,24 @@ import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { selectSketchStatus, useSketchStore } from "@/state/sketchStore";
-import type { DisplayMode } from "@/state/viewportStore";
+import type { DisplayMode, SelectionFilterMode } from "@/state/viewportStore";
 import { useViewportStore } from "@/state/viewportStore";
 import type { SketchStatus } from "@/types/ui";
 
+import { SelectionFilterMenu } from "./SelectionFilterMenu";
 import styles from "./StatusBar.module.css";
+
+const SELECTION_FILTER_CYCLE: readonly SelectionFilterMode[] = ["body", "face", "edge"];
+const SELECTION_FILTER_LABEL: Record<SelectionFilterMode, string> = {
+  body: "Body priority",
+  face: "Face priority",
+  edge: "Edge priority",
+};
+const SELECTION_FILTER_ICON: Record<SelectionFilterMode, typeof Box> = {
+  body: Box,
+  face: Square,
+  edge: Spline,
+};
 
 const SKETCH_STATUS_LABEL: Record<SketchStatus, string> = {
   "fully-defined": "Fully Defined",
@@ -69,10 +83,13 @@ export function StatusBar() {
   const selectionFilterMode = useViewportStore((state) => state.selectionFilterMode);
   const setSelectionFilterMode = useViewportStore((state) => state.setSelectionFilterMode);
   const selectedFaceId = useViewportStore((state) => state.selectedFaceId);
+  const selectedEdgeGroupId = useViewportStore((state) => state.selectedEdgeGroupId);
   const versionVisible = useSettingsStore((state) => state.versionVisible);
   const smartConstraintEnabled = useSettingsStore((state) => state.smartConstraintEnabled);
   const toggleSmartConstraint = useSettingsStore((state) => state.toggleSmartConstraint);
+  const [filterMenuPosition, setFilterMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const { t } = useTranslation();
+  const SelectionFilterIcon = SELECTION_FILTER_ICON[selectionFilterMode];
 
   return (
     <footer className={styles.statusbar}>
@@ -150,29 +167,42 @@ export function StatusBar() {
         <button
           type="button"
           className={styles.iconButton}
-          aria-pressed={selectionFilterMode === "face"}
-          title={
-            selectionFilterMode === "face"
-              ? "Selection filter: Face priority (click to switch to Body)"
-              : "Selection filter: Body priority (click to switch to Face)"
-          }
-          aria-label={
-            selectionFilterMode === "face" ? "Selection filter: Face priority" : "Selection filter: Body priority"
-          }
-          onClick={() => setSelectionFilterMode(selectionFilterMode === "face" ? "body" : "face")}
+          aria-pressed={selectionFilterMode !== "body"}
+          title={`Selection filter: ${SELECTION_FILTER_LABEL[selectionFilterMode]} (click to cycle, right-click to pick)`}
+          aria-label={`Selection filter: ${SELECTION_FILTER_LABEL[selectionFilterMode]}`}
+          onClick={() => {
+            const next = SELECTION_FILTER_CYCLE[(SELECTION_FILTER_CYCLE.indexOf(selectionFilterMode) + 1) % SELECTION_FILTER_CYCLE.length];
+            setSelectionFilterMode(next);
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setFilterMenuPosition({ x: event.clientX, y: event.clientY });
+          }}
         >
-          {selectionFilterMode === "face" ? (
-            <Square size={13} strokeWidth={1.75} />
-          ) : (
-            <Box size={13} strokeWidth={1.75} />
-          )}
+          <SelectionFilterIcon size={13} strokeWidth={1.75} />
         </button>
+      )}
+
+      {filterMenuPosition && (
+        <SelectionFilterMenu
+          position={filterMenuPosition}
+          mode={selectionFilterMode}
+          onPick={setSelectionFilterMode}
+          onClose={() => setFilterMenuPosition(null)}
+        />
       )}
 
       {!isSketchMode && selectionFilterMode === "face" && selectedFaceId !== null && (
         <>
           <div className={styles.divider} aria-hidden="true" />
           <div className={styles.item}>Face {selectedFaceId + 1} selected</div>
+        </>
+      )}
+
+      {!isSketchMode && selectionFilterMode === "edge" && selectedEdgeGroupId !== null && (
+        <>
+          <div className={styles.divider} aria-hidden="true" />
+          <div className={styles.item}>Edge {selectedEdgeGroupId + 1} selected</div>
         </>
       )}
 
