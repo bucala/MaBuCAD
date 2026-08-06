@@ -557,7 +557,18 @@ export function runCommand(commandId: string): boolean {
 
   const kind = FEATURE_COMMANDS[commandId];
   if (kind) {
-    useDocumentStore.getState().addFeature(kind);
+    // Fillet/Chamfer act on picked edges, not "the whole body" — unlike Shell/Draft (which
+    // really are whole-body by nature), rounding/bevelling literally every edge the instant
+    // the ribbon button is clicked is rarely what anyone wants. So these two start with an
+    // explicit empty pick + `edgesPending` (a pure pass-through until the first edge is
+    // picked — see `FeatureParameters.edgesPending`'s own doc comment) and drop straight
+    // into edge-pick mode, rather than the default catalog radius/distance immediately
+    // applying to every edge the way Shell/Draft's own whole-body parameters still do.
+    const parameters = kind === "fillet" || kind === "chamfer" ? { edgePoints: [], edgesPending: true } : undefined;
+    const id = useDocumentStore.getState().addFeature(kind, parameters);
+    if (kind === "fillet" || kind === "chamfer") {
+      useViewportStore.getState().setEdgePickMode(id);
+    }
     return true;
   }
 

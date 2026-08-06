@@ -346,20 +346,31 @@ function pickedEdgeFilter(
     finder.either(edgePoints.map((point) => (f: EdgeFinder) => f.withinDistance(EDGE_PICK_TOLERANCE, point)));
 }
 
+/** True only in the brief window between a Fillet/Chamfer being created and the user
+ * picking their first edge — see `FeatureParameters.edgesPending`'s own doc comment. */
+function isAwaitingFirstEdgePick(feature: Feature): boolean {
+  return !!feature.parameters.edgesPending && (feature.parameters.edgePoints?.length ?? 0) === 0;
+}
+
 /**
- * A fillet applies to every edge of the body by default; selecting edges in the viewport
- * (`viewportStore.ts`'s `edgePickModeFeatureId`) narrows it to just those, via
- * `pickedEdgeFilter`.
+ * A fillet applies to every edge of the body once edges have actually been picked/confirmed
+ * (or on a pre-existing feature that was always unselective); selecting edges in the
+ * viewport (`viewportStore.ts`'s `edgePickModeFeatureId`) narrows it to just those, via
+ * `pickedEdgeFilter`. A freshly-created feature still waiting on its first pick
+ * (`isAwaitingFirstEdgePick`) is a pure pass-through instead — no edges rounded yet.
  */
 function buildFilletedSolid(solid: Solid, feature: Feature): Solid {
+  if (isAwaitingFirstEdgePick(feature)) return solid;
   const radius = Math.max(feature.parameters.radius ?? 2, 0.05);
   const target = solid as unknown as { fillet: (radiusConfig: number, filter?: (f: EdgeFinder) => EdgeFinder) => Solid };
   return target.fillet(radius, pickedEdgeFilter(feature.parameters.edgePoints));
 }
 
 /** A plain-number chamfer distance is symmetric; see `buildFilletedSolid`'s own note on
- * narrowing which edges it applies to via picked points. */
+ * narrowing which edges it applies to via picked points, and on the pending-first-pick
+ * pass-through. */
 function buildChamferedSolid(solid: Solid, feature: Feature): Solid {
+  if (isAwaitingFirstEdgePick(feature)) return solid;
   const distance = Math.max(feature.parameters.distance ?? 1, 0.05);
   const target = solid as unknown as {
     chamfer: (radiusConfig: number, filter?: (f: EdgeFinder) => EdgeFinder) => Solid;

@@ -147,6 +147,20 @@ export interface FeatureParameters {
    */
   edgePoints?: [number, number, number][];
   /**
+   * Fillet/Chamfer only: true for the brief window between the feature being created (by
+   * clicking the ribbon button) and the user picking their first edge — `kernel/rebuild.ts`
+   * treats a feature with this set and no `edgePoints` yet as a pure pass-through (no edges
+   * rounded/chamfered at all), rather than falling back to "every edge" the way an absent
+   * `edgePoints` on an *already-edited* feature still does. `commandRegistry.ts`'s
+   * `"feature.fillet"`/`"feature.chamfer"` handlers are the only place this gets set to
+   * true; the edge-pick handler in `SolidModel.tsx` clears it the moment the first edge is
+   * picked, so deselecting back down to zero edges *after* that point still means "every
+   * edge" as before — this flag only gates that one initial moment, not the field's whole
+   * meaning. Absent (including on any document saved before this field existed) behaves
+   * exactly like before: no gate, empty/absent `edgePoints` is every edge.
+   */
+  edgesPending?: boolean;
+  /**
    * Restricts an Extrude/Cut-Extrude/Revolve/Cut-Revolve's profile to just the closed
    * regions of its sketch that own at least one of these entity ids, instead of every
    * closed region the sketch has (`kernel/profile.ts`'s `profileRegions`'s default). Empty
@@ -209,6 +223,21 @@ export type DrawingProjectionKind = StandardProjectionKind;
  * already-cached paths (`detailOf`). */
 export type DrawingViewKind = "standard" | "section" | "detail";
 
+/**
+ * A leadered/measured annotation (dimension, ordinate chain, datum, GD&T frame, surface
+ * finish, weld) can carry `parentViewId`, pointing at one of `DrawingSheetData.views` —
+ * `DrawingSheet.tsx`'s own "bound annotations" feature. An annotation gets bound two ways:
+ * automatically, the instant its anchor snaps to a specific placed view's own geometry
+ * (`kernel/drawingGeometry.ts`'s `nearestVertex` already reports which view a snapped
+ * vertex belongs to); or, for an annotation placed in free space with nothing to snap to,
+ * by whichever view is currently "active" (double-click a view's frame to activate it,
+ * double-click empty sheet to clear) at the moment it's created. A bound annotation moves
+ * with its view — `documentStore.ts`'s `moveDrawingView` shifts every annotation whose
+ * `parentViewId` matches by the same delta the view itself moved by, rather than the plain
+ * `updateDrawingView` every other view-position write still uses. An unbound annotation
+ * (no active view, no snap) stays exactly where every annotation always has: independent,
+ * fixed-position sheet coordinates.
+ */
 export interface DrawingViewData {
   id: string;
   label: string;
@@ -297,6 +326,9 @@ export interface DrawingNoteData {
  */
 export interface DrawingDimensionData {
   id: string;
+  /** Which placed view this dimension is bound to, if any — see `DrawingViewData`'s own
+   * "bound annotations" doc comment for how this gets set and what it does. */
+  parentViewId?: string;
   /** "linear" is a free aligned distance; "horizontal"/"vertical" project onto one axis
    * only — auto-picked from how the two points relate when the dimension was created
    * (see `commands/drawingCommands.ts`'s `runPickDimensionPoint`). */
@@ -343,6 +375,9 @@ export interface DrawingDimensionData {
  * (adding a fourth ordinate to an existing chain doesn't need touching the first three). */
 export interface DrawingOrdinateChainData {
   id: string;
+  /** Which placed view this chain is bound to, if any — see `DrawingViewData`'s own
+   * "bound annotations" doc comment. */
+  parentViewId?: string;
   axis: "x" | "y";
   datumX: number;
   datumY: number;
@@ -355,6 +390,9 @@ export interface DrawingOrdinateChainData {
  * references — GD&T's own "named reference surface/point" convention (ASME Y14.5). */
 export interface DrawingDatumData {
   id: string;
+  /** Which placed view this datum is bound to, if any — see `DrawingViewData`'s own
+   * "bound annotations" doc comment. */
+  parentViewId?: string;
   letter: string;
   /** Leader tip, sheet mm — snapped to the referenced feature's own geometry. */
   anchorX: number;
@@ -400,6 +438,9 @@ export interface GdtDatumReference {
  * references, with a leader to the feature it constrains. */
 export interface DrawingGdtData {
   id: string;
+  /** Which placed view this frame is bound to, if any — see `DrawingViewData`'s own
+   * "bound annotations" doc comment. */
+  parentViewId?: string;
   symbol: GdtSymbol;
   /** Tolerance value in mm, as typed (e.g. "0.05") — kept as free text since a real callout
    * can carry extra qualifiers a bare number can't (this app's own `diameter`/`modifier`
@@ -440,6 +481,9 @@ export type SurfaceLaySymbol = "=" | "⊥" | "X" | "M" | "C" | "R" | "P";
  * own data. `roughness` is free text (e.g. "Ra 1.6", "3.2", or blank for "any process"). */
 export interface DrawingSurfaceFinishData {
   id: string;
+  /** Which placed view this symbol is bound to, if any — see `DrawingViewData`'s own
+   * "bound annotations" doc comment. */
+  parentViewId?: string;
   roughness: string;
   /** Absent/"basic" matches every symbol placed before this field existed. */
   symbolType?: SurfaceFinishSymbolType;
@@ -505,6 +549,9 @@ export interface WeldSideData {
  */
 export interface DrawingWeldData {
   id: string;
+  /** Which placed view this weld symbol is bound to, if any — see `DrawingViewData`'s own
+   * "bound annotations" doc comment. */
+  parentViewId?: string;
   /** Leader tip — the joint being called out, sheet mm, snapped to a placed view's own
    * projected geometry the same way every other leadered annotation here snaps. */
   anchorX: number;

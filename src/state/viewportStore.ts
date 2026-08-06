@@ -18,13 +18,14 @@ export type RotateStepDirection = "up" | "down" | "left" | "right" | "roll-cw" |
 /**
  * Selection-priority filter for clicking the solid, à la Inventor's Select dropdown.
  * "body" (the default, and the only behaviour that existed before this) treats a click
- * anywhere on the solid as picking the whole body/feature. "face" instead resolves the
- * exact kernel Face the click landed on (via `MeshData.faceGroups` — see its own doc
- * comment in `kernel/rebuild.ts`) and highlights just that face. Point/edge priority are
- * not implemented yet; edge-picking already exists but only inside Fillet/Chamfer's own
- * pick mode (`edgePickModeFeatureId`), not as a general selection filter.
- */
-export type SelectionFilterMode = "body" | "face";
+ * anywhere on the solid as picking the whole body/feature. "face" resolves the exact
+ * kernel Face the click landed on (via `MeshData.faceGroups` — see its own doc comment in
+ * `kernel/rebuild.ts`) and highlights just that face. "edge" resolves the nearest kernel
+ * Edge to the click point (`MeshData.edgeGroups`, the same `nearestEdgeGroupId` resolution
+ * Fillet/Chamfer's own pick mode and Inspect ▸ Measure's edge pick already use) and
+ * highlights that edge's own curve. Point priority isn't implemented — this app has no
+ * standalone vertex entity to pick, only the edges that meet at one. */
+export type SelectionFilterMode = "body" | "face" | "edge";
 
 interface ViewportStore {
   displayMode: DisplayMode;
@@ -92,6 +93,10 @@ interface ViewportStore {
    * the committed mesh reference changes, not just when the filter mode itself changes.
    */
   selectedFaceId: number | null;
+  /** The kernel Edge id (`EdgeGroup.id`) currently highlighted under "edge" priority, or
+   * `null` — same stale-on-rebuild caveat and same-mesh-change clearing as `selectedFaceId`
+   * above. */
+  selectedEdgeGroupId: number | null;
   /** Incremented, never read for its own value — same "request counter" shape as
    * `zoomFitRequest`, watched by `PrintCapture.tsx` inside the `Canvas` (the only place
    * that can reach the WebGL renderer to grab a snapshot of what's actually on screen). */
@@ -114,6 +119,7 @@ interface ViewportStore {
   requestRotateStep: (direction: RotateStepDirection) => void;
   setSelectionFilterMode: (mode: SelectionFilterMode) => void;
   setSelectedFaceId: (id: number | null) => void;
+  setSelectedEdgeGroupId: (id: number | null) => void;
   requestPrint: () => void;
   setPrintSnapshot: (dataUrl: string | null) => void;
 }
@@ -131,6 +137,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
   rotateStepRequest: null,
   selectionFilterMode: "body",
   selectedFaceId: null,
+  selectedEdgeGroupId: null,
   printRequest: 0,
   printSnapshot: null,
 
@@ -165,10 +172,12 @@ export const useViewportStore = create<ViewportStore>((set) => ({
       rotateStepRequest: { direction, nonce: (state.rotateStepRequest?.nonce ?? 0) + 1 },
     })),
 
-  // Switching away from "face" drops whatever was highlighted — there's nothing to show it
-  // for once the filter no longer resolves individual faces.
-  setSelectionFilterMode: (mode) => set({ selectionFilterMode: mode, selectedFaceId: null }),
+  // Switching filter mode drops whatever face/edge was highlighted under the previous
+  // one — there's nothing to show it for once the filter no longer resolves that kind of
+  // entity.
+  setSelectionFilterMode: (mode) => set({ selectionFilterMode: mode, selectedFaceId: null, selectedEdgeGroupId: null }),
   setSelectedFaceId: (id) => set({ selectedFaceId: id }),
+  setSelectedEdgeGroupId: (id) => set({ selectedEdgeGroupId: id }),
 
   requestPrint: () => set((state) => ({ printRequest: state.printRequest + 1 })),
   setPrintSnapshot: (dataUrl) => set({ printSnapshot: dataUrl }),

@@ -22,8 +22,10 @@ import { HoleThreadOverlay } from "./HoleThreadOverlay";
 /** How close (world units) a new pick needs to land to an already-picked point to toggle it
  * off instead of adding a duplicate — clicking the same edge again deselects it. */
 const EDGE_PICK_TOGGLE_DISTANCE = 2;
-/** Highlight colour for the "face" selection filter — distinct from the amber edge-pick
- * highlight and the red hole-placement marker so the three never read as the same thing. */
+/** Highlight colour for the "face"/"edge" selection filters — the same cyan for both, since
+ * they're the same "this is what the current selection-priority filter picked" concept just
+ * applied to a different entity kind, distinct from the amber edge-pick highlight and the
+ * red hole-placement marker so neither of those two ever reads as the same thing. */
 const FACE_HIGHLIGHT_COLOR = "#3fd0ff";
 /** Highlight colour for a picked Fillet/Chamfer edge's own contour — distinct from the
  * amber "still pickable" edge colour, the cyan face highlight, and the hole-placement
@@ -109,6 +111,8 @@ export function SolidModel() {
   const selectionFilterMode = useViewportStore((state) => state.selectionFilterMode);
   const selectedFaceId = useViewportStore((state) => state.selectedFaceId);
   const setSelectedFaceId = useViewportStore((state) => state.setSelectedFaceId);
+  const selectedEdgeGroupId = useViewportStore((state) => state.selectedEdgeGroupId);
+  const setSelectedEdgeGroupId = useViewportStore((state) => state.setSelectedEdgeGroupId);
   const inspectTool = useInspectStore((state) => state.activeTool);
   const measurePicks = useInspectStore((state) => state.measurePicks);
   const pickForMeasure = useInspectStore((state) => state.pickForMeasure);
@@ -127,8 +131,9 @@ export function SolidModel() {
   // geometry actually changes.
   useEffect(() => {
     setSelectedFaceId(null);
+    setSelectedEdgeGroupId(null);
     resetMeshDerivedState();
-  }, [committedMesh, setSelectedFaceId, resetMeshDerivedState]);
+  }, [committedMesh, setSelectedFaceId, setSelectedEdgeGroupId, resetMeshDerivedState]);
 
   /**
    * Inspect > Sensors' actual "monitor and alert" behaviour — evaluated here, not in
@@ -255,7 +260,11 @@ export function SolidModel() {
       ([x, y, z]) => Math.hypot(x - point[0], y - point[1], z - point[2]) < EDGE_PICK_TOGGLE_DISTANCE,
     );
     const next = nearbyIndex >= 0 ? existing.filter((_, index) => index !== nearbyIndex) : [...existing, point];
-    updateParameters(pickingFeature.id, { edgePoints: next });
+    // The very first real pick clears `edgesPending` for good — see its own doc comment.
+    // Toggling that first edge back off afterward correctly falls through to "every edge"
+    // like any other Fillet/Chamfer with an empty pick list, not back to "nothing yet".
+    const clearsPending = nearbyIndex < 0 && pickingFeature.parameters.edgesPending;
+    updateParameters(pickingFeature.id, { edgePoints: next, ...(clearsPending ? { edgesPending: false } : {}) });
   };
 
   /**
@@ -295,6 +304,21 @@ export function SolidModel() {
       (candidate) => triangleStart >= candidate.start && triangleStart < candidate.start + candidate.count,
     );
     setSelectedFaceId(group?.id ?? null);
+  };
+
+  /**
+   * "Edge" selection-priority's own click — same point-based resolution as
+   * `handleMeasureEdgeClick` below (there is no kernel edge id on a `ThreeEvent` from the
+   * shaded mesh, only the raycaster's hit point, so the nearest `EdgeGroup` wins), feeding
+   * `selectedEdgeGroupId`'s single highlight instead of Measure's accumulating pick list.
+   */
+  const handleEdgeSelectClick = (event: ThreeEvent<MouseEvent>) => {
+    if (selectionFilterMode !== "edge" || !mesh || !isPick(event)) return;
+    event.stopPropagation();
+
+    const inverseRotation = new Quaternion().setFromEuler(new Euler(...mesh.rotation)).invert();
+    const local = event.point.clone().applyQuaternion(inverseRotation);
+    setSelectedEdgeGroupId(nearestEdgeGroupId(mesh, [local.x, local.y, local.z]));
   };
 
   /**
@@ -388,6 +412,22 @@ export function SolidModel() {
     buffer.computeBoundingSphere();
     return buffer;
   }, [mesh, selectedFaceId]);
+
+  /** The single edge highlighted under "edge" selection priority — same "own overlay
+   * geometry over the matched `EdgeGroup`'s own vertex range" shape `pickedEdgeHighlightGeometry`
+   * below uses for Fillet/Chamfer's own (multi-edge) picks. */
+  const edgeSelectHighlightGeometry = useMemo(() => {
+    if (!mesh || selectedEdgeGroupId === null) return null;
+    const group = mesh.edgeGroups.find((candidate) => candidate.id === selectedEdgeGroupId);
+    if (!group) return null;
+
+    const buffer = new BufferGeometry();
+    const start = group.start * 3;
+    const end = start + group.count * 3;
+    buffer.setAttribute("position", new BufferAttribute(mesh.edges.subarray(start, end), 3));
+    buffer.computeBoundingSphere();
+    return buffer;
+  }, [mesh, selectedEdgeGroupId]);
 
   const edgeGeometry = useMemo(() => {
     if (!mesh || mesh.edges.length === 0) return null;
@@ -600,6 +640,12 @@ export function SolidModel() {
     };
   }, [faceHighlightGeometry]);
 
+  useEffect(() => {
+    return () => {
+      edgeSelectHighlightGeometry?.dispose();
+    };
+  }, [edgeSelectHighlightGeometry]);
+
   if (!mesh || !geometry || isBodyHidden) return null;
 
   // Wireframe drops the shaded material but keeps the mesh itself in the tree — an
@@ -628,7 +674,9 @@ export function SolidModel() {
                   ? handleAppearanceFaceClick
                   : selectionFilterMode === "face"
                     ? handleFaceSelectClick
-                    : undefined
+                    : selectionFilterMode === "edge"
+                      ? handleEdgeSelectClick
+                      : undefined
         }
       >
         {showShadedMaterial ? (
@@ -678,6 +726,12 @@ export function SolidModel() {
             polygonOffsetFactor={-1}
           />
         </mesh>
+      )}
+
+      {edgeSelectHighlightGeometry && (
+        <lineSegments geometry={edgeSelectHighlightGeometry} raycast={() => null}>
+          <lineBasicMaterial color={FACE_HIGHLIGHT_COLOR} depthTest={false} linewidth={2} />
+        </lineSegments>
       )}
 
       {edgeGeometry && showEdges && (

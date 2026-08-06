@@ -60,6 +60,27 @@ function isSectionable(view: DrawingViewData): boolean {
   return view.kind !== "detail" && view.projection !== "iso";
 }
 
+/**
+ * A hand-torn-looking closed circle, ISO 128's own "continuous freehand thin line" break
+ * convention — the boundary a Detail view's own crop is drawn with, since it was lifted out
+ * of the surrounding material the same way a broken-out section's own boundary is. Jitter is
+ * a deterministic function of the segment index rather than `Math.random()`, so the same
+ * view renders the identical wobble every time instead of visibly reshuffling on each React
+ * re-render.
+ */
+function tornCirclePath(cx: number, cy: number, r: number): string {
+  const segments = 28;
+  const jitter = r * 0.04;
+  const points: string[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const wobble = Math.sin(i * 2.7) * jitter + Math.sin(i * 5.3) * jitter * 0.5;
+    const radius = r + wobble;
+    points.push(`${cx + Math.cos(angle) * radius},${cy + Math.sin(angle) * radius}`);
+  }
+  return `M ${points[0]} L ${points.slice(1).join(" L ")} Z`;
+}
+
 /** One placed view's actual projected geometry: visible edges solid, hidden edges dashed,
  * labelled underneath. A Detail view crops this same rendering to a circle via `detailOf`
  * — see its own doc comment in `types/document.ts` for the coordinate space it's in. */
@@ -116,6 +137,10 @@ function View({ view }: { view: DrawingViewData }) {
             ))}
           </g>
         </g>
+        {/* Drawn outside the clip so the torn edge itself stays visible rather than being
+            cropped away by the very circle it traces — see `tornCirclePath`'s own doc
+            comment for why this is jagged rather than a plain `<circle>`. */}
+        {detail && <path d={tornCirclePath(detail.cx, detail.cy, detail.radius)} className={styles.detailTornBoundary} />}
       </svg>
       {/* Rendered in the *sheet's* own coordinate system, not the nested viewBox above —
           a Detail view's viewBox only spans its own small crop radius, which would make
@@ -142,19 +167,23 @@ function View({ view }: { view: DrawingViewData }) {
 function PlacedView({
   view,
   selected,
+  active,
   pickable,
   passthrough,
   onSelect,
   onMove,
   onPick,
+  onToggleActive,
 }: {
   view: DrawingViewData;
   selected: boolean;
+  active: boolean;
   pickable: boolean;
   passthrough: boolean;
   onSelect: () => void;
   onMove: (x: number, y: number) => void;
   onPick: (localX: number, localY: number) => void;
+  onToggleActive: () => void;
 }) {
   const width = view.width * view.scale;
   const height = view.height * view.scale;
@@ -192,6 +221,10 @@ function PlacedView({
             event.stopPropagation();
             onSelect();
           }}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            onToggleActive();
+          }}
           onPointerDown={(event) => {
             onSelect();
             event.currentTarget.setPointerCapture(event.pointerId);
@@ -208,6 +241,7 @@ function PlacedView({
           }}
         />
       )}
+      {active && !passthrough && <rect x={x} y={y} width={width} height={height} className={styles.viewFrameActive} />}
     </g>
   );
 }
@@ -685,7 +719,7 @@ function TitleBlockView({
 export function DrawingSheet() {
   const drawing = useDocumentStore((state) => state.document.drawing);
   const setDrawingSheet = useDocumentStore((state) => state.setDrawingSheet);
-  const updateDrawingView = useDocumentStore((state) => state.updateDrawingView);
+  const moveDrawingView = useDocumentStore((state) => state.moveDrawingView);
   const deleteDrawingView = useDocumentStore((state) => state.deleteDrawingView);
   const addDrawingNote = useDocumentStore((state) => state.addDrawingNote);
   const updateDrawingNote = useDocumentStore((state) => state.updateDrawingNote);
@@ -736,6 +770,11 @@ export function DrawingSheet() {
   const resetZoomPan = useDrawingToolStore((state) => state.resetZoomPan);
 
   const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+  /** Double-click a view's frame to activate it as the binding context new leadered
+   * annotations pick up automatically when they aren't snapped to any specific view's own
+   * geometry — see `DrawingViewData`'s "bound annotations" doc comment. Double-click empty
+   * sheet, or delete the active view itself, clears it back to `null`. */
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   /** The one dead-button annotation kind (dimension/ordinate chain/datum/GD&T/surface
@@ -762,6 +801,16 @@ export function DrawingSheet() {
   const sourcePart = drawing?.sourcePart ?? null;
   const titleBlockValues = drawing?.titleBlockValues ?? {};
   const projectionMethod = drawing?.projectionMethod ?? DEFAULT_PROJECTION_METHOD;
+
+  /** Snaps a dragged leader anchor to the nearest view vertex within tolerance and, if one's
+   * found, rebinds the annotation to that vertex's own view — the "!!" auto-bind-on-
+   * reattach rule from `DrawingViewData`'s "bound annotations" doc comment. Missing the
+   * snap (dropped over empty space) just moves the anchor and leaves any existing binding
+   * alone, rather than unbinding on a merely-imprecise drag. */
+  const anchorMovePatch = (x: number, y: number): { anchorX: number; anchorY: number; parentViewId?: string } => {
+    const vertex = nearestVertex(views, { x, y }, PICK_TOLERANCE);
+    return vertex ? { anchorX: vertex.x, anchorY: vertex.y, parentViewId: vertex.viewId } : { anchorX: x, anchorY: y };
+  };
 
   const selectAnnotation = (
     kind: "dimension" | "ordinate" | "datum" | "gdt" | "surfaceFinish" | "weld" | "table",
@@ -817,6 +866,7 @@ export function DrawingSheet() {
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       if (selectedViewId) {
         deleteDrawingView(selectedViewId);
+        if (selectedViewId === activeViewId) setActiveViewId(null);
         setSelectedViewId(null);
       } else if (selectedNoteId) {
         deleteDrawingNote(selectedNoteId);
@@ -827,7 +877,7 @@ export function DrawingSheet() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedViewId, selectedNoteId, editingNoteId, selectedAnnotation, deleteDrawingView, deleteDrawingNote]);
+  }, [selectedViewId, activeViewId, selectedNoteId, editingNoteId, selectedAnnotation, deleteDrawingView, deleteDrawingNote]);
 
   const setSheetFormat = (formatId: string) => {
     if (!drawing) return;
@@ -873,9 +923,22 @@ export function DrawingSheet() {
       // No nearby geometry: still place the symbol at the raw click, leadered to itself —
       // a symbol with no valid feature to reference isn't a case worth blocking on.
       const label = { x: anchor.x + 10, y: anchor.y - 10 };
+      // Snapped to a specific view's own geometry: bound to that view, full stop — a leader
+      // attached to a real edge/vertex always means "this belongs to that view", regardless
+      // of whatever else is active. Otherwise, free-floating in empty space, it picks up
+      // whichever view is currently active (if any) — see `DrawingViewData`'s "bound
+      // annotations" doc comment.
+      const parentViewId = vertex?.viewId ?? activeViewId ?? undefined;
       if (tool === "datum") {
         const nextLetter = String.fromCharCode(65 + (datums.length % 26));
-        const id = addDrawingDatum({ letter: nextLetter, anchorX: anchor.x, anchorY: anchor.y, labelX: label.x, labelY: label.y });
+        const id = addDrawingDatum({
+          letter: nextLetter,
+          anchorX: anchor.x,
+          anchorY: anchor.y,
+          labelX: label.x,
+          labelY: label.y,
+          parentViewId,
+        });
         selectAnnotation("datum", id);
       } else if (tool === "gdt") {
         const id = addDrawingGdt({
@@ -886,10 +949,18 @@ export function DrawingSheet() {
           anchorY: anchor.y,
           labelX: label.x,
           labelY: label.y,
+          parentViewId,
         });
         selectAnnotation("gdt", id);
       } else if (tool === "surface-finish") {
-        const id = addDrawingSurfaceFinish({ roughness: "Ra 1.6", anchorX: anchor.x, anchorY: anchor.y, labelX: label.x, labelY: label.y });
+        const id = addDrawingSurfaceFinish({
+          roughness: "Ra 1.6",
+          anchorX: anchor.x,
+          anchorY: anchor.y,
+          labelX: label.x,
+          labelY: label.y,
+          parentViewId,
+        });
         selectAnnotation("surfaceFinish", id);
       } else {
         const id = addDrawingWeld({
@@ -901,6 +972,7 @@ export function DrawingSheet() {
           otherSide: null,
           allAround: false,
           fieldWeld: false,
+          parentViewId,
         });
         selectAnnotation("weld", id);
       }
@@ -930,6 +1002,7 @@ export function DrawingSheet() {
         value,
         offsetX: 0,
         offsetY: -8,
+        parentViewId: vertex.viewId,
       });
       // `setTool` re-arming its own current tool clears `dimensionFirstPoint` (see
       // `drawingToolStore.ts`) without leaving "select" — stays armed for the next
@@ -958,6 +1031,7 @@ export function DrawingSheet() {
           datumX: ordinateDatum.x,
           datumY: ordinateDatum.y,
           points: [{ x: vertex.x, y: vertex.y, value }],
+          parentViewId: vertex.viewId,
         });
         startOrdinateChain(chainId, axis);
         return;
@@ -1025,7 +1099,10 @@ export function DrawingSheet() {
             type="button"
             className={styles.toolbarButton}
             onClick={() => {
-              if (selectedViewId) deleteDrawingView(selectedViewId);
+              if (selectedViewId) {
+                deleteDrawingView(selectedViewId);
+                if (selectedViewId === activeViewId) setActiveViewId(null);
+              }
               if (selectedNoteId) deleteDrawingNote(selectedNoteId);
               if (selectedAnnotation) deleteSelectedAnnotation();
               setSelectedViewId(null);
@@ -1102,6 +1179,13 @@ export function DrawingSheet() {
           height={sheetHeight * SHEET_SCALE}
           viewBox={`0 0 ${sheetWidth} ${sheetHeight}`}
           onClick={handleBackgroundClick}
+          onDoubleClick={(event) => {
+            // A view's own frame already stops this from bubbling up (see `PlacedView`'s
+            // `onDoubleClick`), so reaching here means empty sheet — deactivates whatever
+            // view was active. Skipped for the Ctrl/Cmd zoom-reset gesture so the two don't
+            // fight over the same double-click.
+            if (!event.ctrlKey && !event.metaKey) setActiveViewId(null);
+          }}
           style={{
             cursor: PICKING_TOOLS.has(tool) ? "crosshair" : "default",
             transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
@@ -1126,6 +1210,7 @@ export function DrawingSheet() {
               key={view.id}
               view={view}
               selected={view.id === selectedViewId}
+              active={view.id === activeViewId}
               pickable={
                 (tool === "section" && !sectionSourceViewId && isSectionable(view)) ||
                 (tool === "detail" && !detailSourceViewId) ||
@@ -1137,7 +1222,8 @@ export function DrawingSheet() {
                 setSelectedNoteId(null);
                 setSelectedAnnotation(null);
               }}
-              onMove={(x, y) => updateDrawingView(view.id, { x, y })}
+              onToggleActive={() => setActiveViewId((current) => (current === view.id ? null : view.id))}
+              onMove={(x, y) => moveDrawingView(view.id, x, y)}
               onPick={(localX, localY) => {
                 if (tool === "section") pickSectionSource(view.id, localX);
                 else if (tool === "detail") pickDetailSource(view.id, localX, localY);
@@ -1223,7 +1309,7 @@ export function DrawingSheet() {
               selected={selectedAnnotation?.kind === "datum" && selectedAnnotation.id === datum.id}
               onSelect={() => selectAnnotation("datum", datum.id)}
               onMove={(labelX, labelY) => updateDrawingDatum(datum.id, { labelX, labelY })}
-              onMoveAnchor={(anchorX, anchorY) => updateDrawingDatum(datum.id, { anchorX, anchorY })}
+              onMoveAnchor={(x, y) => updateDrawingDatum(datum.id, anchorMovePatch(x, y))}
               onRename={(letter) => updateDrawingDatum(datum.id, { letter })}
             />
           ))}
@@ -1235,7 +1321,7 @@ export function DrawingSheet() {
               selected={selectedAnnotation?.kind === "gdt" && selectedAnnotation.id === gdt.id}
               onSelect={() => selectAnnotation("gdt", gdt.id)}
               onMove={(labelX, labelY) => updateDrawingGdt(gdt.id, { labelX, labelY })}
-              onMoveAnchor={(anchorX, anchorY) => updateDrawingGdt(gdt.id, { anchorX, anchorY })}
+              onMoveAnchor={(x, y) => updateDrawingGdt(gdt.id, anchorMovePatch(x, y))}
               onEdit={(patch) => updateDrawingGdt(gdt.id, patch)}
             />
           ))}
@@ -1247,7 +1333,7 @@ export function DrawingSheet() {
               selected={selectedAnnotation?.kind === "surfaceFinish" && selectedAnnotation.id === finish.id}
               onSelect={() => selectAnnotation("surfaceFinish", finish.id)}
               onMove={(labelX, labelY) => updateDrawingSurfaceFinish(finish.id, { labelX, labelY })}
-              onMoveAnchor={(anchorX, anchorY) => updateDrawingSurfaceFinish(finish.id, { anchorX, anchorY })}
+              onMoveAnchor={(x, y) => updateDrawingSurfaceFinish(finish.id, anchorMovePatch(x, y))}
               onEdit={(patch) => updateDrawingSurfaceFinish(finish.id, patch)}
             />
           ))}
@@ -1259,7 +1345,7 @@ export function DrawingSheet() {
               selected={selectedAnnotation?.kind === "weld" && selectedAnnotation.id === weld.id}
               onSelect={() => selectAnnotation("weld", weld.id)}
               onMove={(labelX, labelY) => updateDrawingWeld(weld.id, { labelX, labelY })}
-              onMoveAnchor={(anchorX, anchorY) => updateDrawingWeld(weld.id, { anchorX, anchorY })}
+              onMoveAnchor={(x, y) => updateDrawingWeld(weld.id, anchorMovePatch(x, y))}
               onEdit={(patch) => updateDrawingWeld(weld.id, patch)}
             />
           ))}
