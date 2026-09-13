@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import {
   ArrowDownToLine,
   ArrowUp,
@@ -39,6 +39,7 @@ import {
 } from "@/data/holeStandards";
 import { groupTappedBySize, resolveClearanceDiameter, resolveTapDrill } from "@/data/holeResolution";
 import { extractCircles, extractLoops, regionEntityIds, type CircleLoop, type Loop } from "@/kernel/profile";
+import { fillTemplate, useTranslation } from "@/i18n/useTranslation";
 import { FEATURE_CATALOG } from "@/state/featureCatalog";
 import { useDocumentStore } from "@/state/documentStore";
 import { useSketchStore } from "@/state/sketchStore";
@@ -136,6 +137,7 @@ export function PropertyManager() {
   const feature = document.features.find((candidate) =>
     selectedFeatureIds.includes(candidate.id),
   );
+  const { t } = useTranslation();
 
   // Edge-pick mode is meaningless once its feature is no longer the one showing here —
   // leaving it on would silently keep sending viewport clicks to a feature the user can no
@@ -146,21 +148,39 @@ export function PropertyManager() {
     }
   }, [feature?.id, edgePickModeFeatureId, setEdgePickMode]);
 
+  // Every closed region of the profile sketch, loops and circles alike, in the same order
+  // `profileRegions` itself would rank them (largest first) — purely for display; the
+  // filter this picker writes doesn't depend on the order.
+  const profileSketch = feature && feature.parents[0] ? sketches[feature.parents[0]] : undefined;
+  // Memoized: extraction is a graph traversal over every entity of the sketch, and this
+  // component re-renders on any sketch-store write — including each pointermove of a live
+  // point drag, which would otherwise re-run the whole traversal per move for nothing.
+  // Computed *before* the empty-state early return (an empty list when there is no
+  // feature or no sketch) so the hook count is identical on every render — a conditional
+  // hook is a rules-of-hooks violation that crashes React the moment the selection
+  // toggles between "no active command" and a feature.
+  const profileRegionsList: (Loop | CircleLoop)[] = useMemo(
+    () => (profileSketch ? [...extractLoops(profileSketch), ...extractCircles(profileSketch)] : []),
+    [profileSketch],
+  );
+
   if (!feature) {
     return (
       <div className={styles.manager}>
         <div className={styles.header}>
-          <h2 className={styles.title}>Properties</h2>
+          <h2 className={styles.title}>{t("propertyManager.properties", "Properties")}</h2>
         </div>
 
         <div className={styles.emptyState}>
           <span className={styles.emptyIcon} aria-hidden="true">
             <SlidersHorizontal size={22} strokeWidth={1.5} />
           </span>
-          <div className={styles.emptyTitle}>No active command</div>
+          <div className={styles.emptyTitle}>{t("propertyManager.emptyTitle", "No active command")}</div>
           <p className={styles.emptyBody}>
-            Start a tool from the ribbon, or select a feature in the tree, and its options
-            appear here.
+            {t(
+              "propertyManager.emptyBody",
+              "Start a tool from the ribbon, or select a feature in the tree, and its options appear here.",
+            )}
           </p>
         </div>
       </div>
@@ -174,13 +194,6 @@ export function PropertyManager() {
   const takesSingleSketch = SINGLE_SKETCH_KINDS.includes(feature.kind);
   const sketchFeatures = document.features.filter((candidate) => candidate.kind === "sketch");
 
-  // Every closed region of the profile sketch, loops and circles alike, in the same order
-  // `profileRegions` itself would rank them (largest first) — purely for display; the
-  // filter this picker writes doesn't depend on the order.
-  const profileSketch = feature.parents[0] ? sketches[feature.parents[0]] : undefined;
-  const profileRegionsList: (Loop | CircleLoop)[] = profileSketch
-    ? [...extractLoops(profileSketch), ...extractCircles(profileSketch)]
-    : [];
   const showProfileRegionPicker = PROFILE_REGION_KINDS.includes(feature.kind) && profileRegionsList.length > 1;
   const explicitProfileIds = feature.parameters.profileEntityIds;
   // Absent/empty means "the whole sketch" — every region reads as checked until the user
@@ -206,6 +219,8 @@ export function PropertyManager() {
   const isEdgeSelectable = feature.kind === "fillet" || feature.kind === "chamfer";
   const isPickingEdges = edgePickModeFeatureId === feature.id;
   const pickedEdgeCount = feature.parameters.edgePoints?.length ?? 0;
+  const activeHoleType = HOLE_TYPES.find(({ id }) => id === (feature.parameters.holeType ?? "simple"));
+  const activeSeatType = SEAT_TYPES.find(({ id }) => id === (feature.parameters.seatType ?? "none"));
   // A hole's own Hole Wizard section below owns `radius` — as a direct input for a simple
   // hole, or resolved from a standard's table for clearance/tapped — so the generic field
   // list must not also render it.
@@ -284,10 +299,12 @@ export function PropertyManager() {
       </div>
 
       <div className={styles.body}>
-        <p className={styles.kindDescription}>{definition.description}</p>
+        <p className={styles.kindDescription}>
+          {t(`featureCatalog.${feature.kind}`, definition.description)}
+        </p>
 
         <label className={styles.field}>
-          <span className={styles.fieldLabel}>Name</span>
+          <span className={styles.fieldLabel}>{t("propertyManager.name", "Name")}</span>
           <input
             className={styles.input}
             value={feature.name}
@@ -298,14 +315,14 @@ export function PropertyManager() {
 
         {takesSingleSketch && (
           <label className={styles.field}>
-            <span className={styles.fieldLabel}>Profile Sketch</span>
+            <span className={styles.fieldLabel}>{t("propertyManager.profileSketch", "Profile Sketch")}</span>
             <select
               className={styles.input}
               value={feature.parents[0] ?? ""}
               onChange={(event) => setFeatureParent(feature.id, 0, event.target.value)}
             >
               <option value="" disabled>
-                Select a sketch…
+                {t("propertyManager.selectSketch", "Select a sketch…")}
               </option>
               {sketchFeatures.map((sketch) => (
                 <option key={sketch.id} value={sketch.id}>
@@ -318,12 +335,15 @@ export function PropertyManager() {
 
         {showProfileRegionPicker && (
           <div className={styles.section}>
-            <span className={styles.sectionTitle}>Profile Regions</span>
+            <span className={styles.sectionTitle}>{t("propertyManager.profileRegions", "Profile Regions")}</span>
             <p className={styles.sectionHint}>
-              This sketch has {profileRegionsList.length} closed contours. Uncheck any this feature
-              should skip — the rest build the same way they always would: a contour nested inside
-              another becomes a hole in it, and separate, non-overlapping contours each become
-              their own body, fused together.
+              {fillTemplate(
+                t(
+                  "propertyManager.profileRegionsHint",
+                  "This sketch has {{count}} closed contours. Uncheck any this feature should skip — the rest build the same way they always would: a contour nested inside another becomes a hole in it, and separate, non-overlapping contours each become their own body, fused together.",
+                ),
+                { count: profileRegionsList.length },
+              )}
             </p>
             {profileRegionsList.map((region, index) => (
               <label key={regionEntityIds(region).join(",")} className={styles.regionRow}>
@@ -333,8 +353,14 @@ export function PropertyManager() {
                   onChange={() => toggleProfileRegion(region)}
                 />
                 {"radius" in region
-                  ? `Circle ${index + 1} — ⌀${(region.radius * 2).toFixed(1)} mm`
-                  : `Contour ${index + 1} — ${region.segments.length} edges`}
+                  ? fillTemplate(t("propertyManager.circleRegion", "Circle {{index}} — ⌀{{diameter}} mm"), {
+                      index: index + 1,
+                      diameter: (region.radius * 2).toFixed(1),
+                    })
+                  : fillTemplate(t("propertyManager.contourRegion", "Contour {{index}} — {{edges}} edges"), {
+                      index: index + 1,
+                      edges: region.segments.length,
+                    })}
               </label>
             ))}
           </div>
@@ -342,7 +368,7 @@ export function PropertyManager() {
 
         {isEdgeSelectable && (
           <div className={styles.section}>
-            <span className={styles.sectionTitle}>Edges</span>
+            <span className={styles.sectionTitle}>{t("propertyManager.edges", "Edges")}</span>
             <button
               type="button"
               className={styles.actionButton}
@@ -350,16 +376,29 @@ export function PropertyManager() {
               onClick={() => setEdgePickMode(isPickingEdges ? null : feature.id)}
             >
               <MousePointerClick size={14} strokeWidth={1.75} />
-              {isPickingEdges ? "Done Selecting" : "Select Edges"}
+              {isPickingEdges
+                ? t("propertyManager.doneSelecting", "Done Selecting")
+                : t("propertyManager.selectEdges", "Select Edges")}
             </button>
             <p className={styles.sectionHint}>
               {pickedEdgeCount === 0
                 ? feature.parameters.edgesPending
-                  ? "No edges picked yet — nothing is rounded/chamfered until you pick at least one."
-                  : "No edges selected — applies to every edge of the body."
-                : `${pickedEdgeCount} edge${pickedEdgeCount === 1 ? "" : "s"} selected.`}
+                  ? t(
+                      "propertyManager.noEdgesPicked",
+                      "No edges picked yet — nothing is rounded/chamfered until you pick at least one.",
+                    )
+                  : t(
+                      "propertyManager.noEdgesAll",
+                      "No edges selected — applies to every edge of the body.",
+                    )
+                : fillTemplate(t("propertyManager.edgeCount", "{{count}} edge(s) selected."), {
+                    count: pickedEdgeCount,
+                  })}
               {isPickingEdges &&
-                " Click edges on the model in the viewport; click a picked edge again to remove it."}
+                t(
+                  "propertyManager.edgePickingHint",
+                  " Click edges on the model in the viewport; click a picked edge again to remove it.",
+                )}
             </p>
             {pickedEdgeCount > 0 && (
               <button
@@ -367,7 +406,7 @@ export function PropertyManager() {
                 className={styles.actionButton}
                 onClick={() => updateParameters(feature.id, { edgePoints: [] })}
               >
-                Clear Selection
+                {t("propertyManager.clearSelection", "Clear Selection")}
               </button>
             )}
           </div>
@@ -375,15 +414,15 @@ export function PropertyManager() {
 
         {isHole && (
           <div className={styles.section}>
-            <span className={styles.sectionTitle}>Hole Wizard</span>
-            <div className={styles.iconRow} role="group" aria-label="Hole type">
+            <span className={styles.sectionTitle}>{t("feature.hole-wizard", "Hole Wizard")}</span>
+            <div className={styles.iconRow} role="group" aria-label={t("propertyManager.holeTypeAria", "Hole type")}>
               {HOLE_TYPES.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   type="button"
                   className={styles.iconButton}
-                  title={label}
-                  aria-label={label}
+                  title={t(`propertyManager.holeType.${id}`, label)}
+                  aria-label={t(`propertyManager.holeType.${id}`, label)}
                   aria-pressed={(feature.parameters.holeType ?? "simple") === id}
                   onClick={() => handleHoleTypeChange(id)}
                 >
@@ -396,13 +435,13 @@ export function PropertyManager() {
                 is active in plain text, not just a hover tooltip, is what actually makes
                 that discoverable. */}
             <p className={styles.sectionHint}>
-              {HOLE_TYPES.find(({ id }) => id === (feature.parameters.holeType ?? "simple"))?.label}
+              {activeHoleType && t(`propertyManager.holeType.${activeHoleType.id}`, activeHoleType.label)}
             </p>
 
             {feature.parameters.holeType === "clearance" && (
               <>
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Standard</span>
+                  <span className={styles.fieldLabel}>{t("propertyManager.standard", "Standard")}</span>
                   <select
                     className={styles.input}
                     value={feature.parameters.holeStandard}
@@ -424,7 +463,7 @@ export function PropertyManager() {
                 </label>
 
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Size</span>
+                  <span className={styles.fieldLabel}>{t("propertyManager.size", "Size")}</span>
                   <select
                     className={styles.input}
                     value={feature.parameters.holeSize}
@@ -447,7 +486,7 @@ export function PropertyManager() {
                 </label>
 
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Fit</span>
+                  <span className={styles.fieldLabel}>{t("propertyManager.fit", "Fit")}</span>
                   <select
                     className={styles.input}
                     value={feature.parameters.holeFit ?? "normal"}
@@ -459,15 +498,16 @@ export function PropertyManager() {
                       )
                     }
                   >
-                    <option value="close">Close</option>
-                    <option value="normal">Normal</option>
-                    <option value="loose">Loose</option>
+                    <option value="close">{t("propertyManager.fit.close", "Close")}</option>
+                    <option value="normal">{t("propertyManager.fit.normal", "Normal")}</option>
+                    <option value="loose">{t("propertyManager.fit.loose", "Loose")}</option>
                   </select>
                 </label>
 
                 <p className={styles.sectionHint}>
-                  Ø{feature.parameters.radius ? (feature.parameters.radius * 2).toFixed(2) : "?"} mm shaft
-                  clearance.
+                  {fillTemplate(t("propertyManager.shaftClearance", "Ø{{diameter}} mm shaft clearance."), {
+                    diameter: feature.parameters.radius ? (feature.parameters.radius * 2).toFixed(2) : "?",
+                  })}
                 </p>
               </>
             )}
@@ -476,7 +516,7 @@ export function PropertyManager() {
               <>
                 {feature.parameters.holeType === "tapped" && (
                   <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Standard</span>
+                    <span className={styles.fieldLabel}>{t("propertyManager.standard", "Standard")}</span>
                     <select
                       className={styles.input}
                       value={feature.parameters.holeStandard}
@@ -508,7 +548,7 @@ export function PropertyManager() {
                   return (
                     <>
                       <label className={styles.field}>
-                        <span className={styles.fieldLabel}>Size</span>
+                        <span className={styles.fieldLabel}>{t("propertyManager.size", "Size")}</span>
                         <select
                           className={styles.input}
                           value={currentGroup.sizeLabel}
@@ -526,7 +566,9 @@ export function PropertyManager() {
                       </label>
 
                       <label className={styles.field}>
-                        <span className={styles.fieldLabel}>Thread designation</span>
+                        <span className={styles.fieldLabel}>
+                          {t("propertyManager.threadDesignation", "Thread designation")}
+                        </span>
                         <select
                           className={styles.input}
                           value={currentDesignation}
@@ -544,13 +586,13 @@ export function PropertyManager() {
                 })()}
 
                 <div className={styles.field}>
-                  <span className={styles.fieldLabel}>Direction</span>
-                  <div className={styles.iconRow} role="group" aria-label="Thread direction">
+                  <span className={styles.fieldLabel}>{t("propertyManager.direction", "Direction")}</span>
+                  <div className={styles.iconRow} role="group" aria-label={t("propertyManager.threadDirectionAria", "Thread direction")}>
                     <button
                       type="button"
                       className={styles.iconButton}
-                      title="Right-hand thread"
-                      aria-label="Right-hand thread"
+                      title={t("propertyManager.rightHandThread", "Right-hand thread")}
+                      aria-label={t("propertyManager.rightHandThread", "Right-hand thread")}
                       aria-pressed={(feature.parameters.threadDirection ?? "right") === "right"}
                       onClick={() => updateParameters(feature.id, { threadDirection: "right" })}
                     >
@@ -559,8 +601,8 @@ export function PropertyManager() {
                     <button
                       type="button"
                       className={styles.iconButton}
-                      title="Left-hand thread"
-                      aria-label="Left-hand thread"
+                      title={t("propertyManager.leftHandThread", "Left-hand thread")}
+                      aria-label={t("propertyManager.leftHandThread", "Left-hand thread")}
                       aria-pressed={feature.parameters.threadDirection === "left"}
                       onClick={() => updateParameters(feature.id, { threadDirection: "left" })}
                     >
@@ -572,29 +614,37 @@ export function PropertyManager() {
                 <button
                   type="button"
                   className={styles.actionButton}
-                  title="Full Depth — thread runs the hole's whole depth rather than a shorter engagement length (display only for now, not yet reflected in the model)"
+                  title={t(
+                    "propertyManager.fullDepthHint",
+                    "Full Depth — thread runs the hole's whole depth rather than a shorter engagement length (display only for now, not yet reflected in the model)",
+                  )}
                   aria-pressed={feature.parameters.fullDepthThread ?? false}
                   onClick={() =>
                     updateParameters(feature.id, { fullDepthThread: !feature.parameters.fullDepthThread })
                   }
                 >
                   <ArrowDownToLine size={14} strokeWidth={1.75} />
-                  Full Depth
+                  {t("propertyManager.fullDepth", "Full Depth")}
                 </button>
 
                 <p className={styles.sectionHint}>
                   {feature.parameters.threadDesignation ?? "—"}
-                  {feature.parameters.threadDirection === "left" ? " (LH)" : " (RH)"} — tap drill Ø
-                  {feature.parameters.radius ? (feature.parameters.radius * 2).toFixed(2) : "?"} mm.
+                  {feature.parameters.threadDirection === "left" ? " (LH)" : " (RH)"}
+                  {fillTemplate(t("propertyManager.tapDrillSuffix", " — tap drill Ø{{diameter}} mm."), {
+                    diameter: feature.parameters.radius ? (feature.parameters.radius * 2).toFixed(2) : "?",
+                  })}
                   {feature.parameters.holeType === "taper-tapped" &&
-                    " Straight hole — the NPT pipe taper itself isn't modelled."}
+                    t(
+                      "propertyManager.straightHoleNote",
+                      " Straight hole — the NPT pipe taper itself isn't modelled.",
+                    )}
                 </p>
               </>
             )}
 
             {(feature.parameters.holeType ?? "simple") === "simple" && (
               <label className={styles.field}>
-                <span className={styles.fieldLabel}>Radius (mm)</span>
+                <span className={styles.fieldLabel}>{t("propertyManager.radius", "Radius (mm)")}</span>
                 <input
                   className={styles.input}
                   type="number"
@@ -607,18 +657,21 @@ export function PropertyManager() {
             )}
 
             <p className={styles.sectionHint}>
-              One hole is cut per point placed in the hole's sketch, all at this size.
+              {t(
+                "propertyManager.holePerPoint",
+                "One hole is cut per point placed in the hole's sketch, all at this size.",
+              )}
             </p>
 
-            <span className={styles.sectionTitle}>Seat</span>
-            <div className={styles.iconRow} role="group" aria-label="Seat type">
+            <span className={styles.sectionTitle}>{t("propertyManager.seat", "Seat")}</span>
+            <div className={styles.iconRow} role="group" aria-label={t("propertyManager.seatTypeAria", "Seat type")}>
               {SEAT_TYPES.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   type="button"
                   className={styles.iconButton}
-                  title={label}
-                  aria-label={label}
+                  title={t(`propertyManager.seatType.${id}`, label)}
+                  aria-label={t(`propertyManager.seatType.${id}`, label)}
                   aria-pressed={(feature.parameters.seatType ?? "none") === id}
                   onClick={() => applySeat(id, SEAT_STANDARDS[id === "none" ? "counterbore" : id].sizes[0].size)}
                 >
@@ -627,13 +680,13 @@ export function PropertyManager() {
               ))}
             </div>
             <p className={styles.sectionHint}>
-              {SEAT_TYPES.find(({ id }) => id === (feature.parameters.seatType ?? "none"))?.label}
+              {activeSeatType && t(`propertyManager.seatType.${activeSeatType.id}`, activeSeatType.label)}
             </p>
 
             {feature.parameters.seatType && feature.parameters.seatType !== "none" && (
               <>
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Seat size</span>
+                  <span className={styles.fieldLabel}>{t("propertyManager.seatSize", "Seat size")}</span>
                   <select
                     className={styles.input}
                     value={
@@ -651,11 +704,23 @@ export function PropertyManager() {
                   </select>
                 </label>
                 <p className={styles.sectionHint}>
-                  {SEAT_STANDARDS[feature.parameters.seatType].label} — Ø
-                  {feature.parameters.seatDiameter?.toFixed(2) ?? "?"} mm
-                  {feature.parameters.seatType === "countersink"
-                    ? ` at ${feature.parameters.seatDepthOrAngle ?? 90}° included angle.`
-                    : `, ${feature.parameters.seatDepthOrAngle?.toFixed(2) ?? "?"} mm deep.`}
+                  {fillTemplate(
+                    t(
+                      feature.parameters.seatType === "countersink"
+                        ? "propertyManager.seatSummaryAngle"
+                        : "propertyManager.seatSummaryDepth",
+                      feature.parameters.seatType === "countersink"
+                        ? "{{standard}} — Ø{{diameter}} mm at {{angle}}° included angle."
+                        : "{{standard}} — Ø{{diameter}} mm, {{depth}} mm deep.",
+                    ),
+                    {
+                      standard: SEAT_STANDARDS[feature.parameters.seatType].label,
+                      diameter: feature.parameters.seatDiameter?.toFixed(2) ?? "?",
+                      ...(feature.parameters.seatType === "countersink"
+                        ? { angle: feature.parameters.seatDepthOrAngle ?? 90 }
+                        : { depth: feature.parameters.seatDepthOrAngle?.toFixed(2) ?? "?" }),
+                    },
+                  )}
                 </p>
               </>
             )}
@@ -664,15 +729,15 @@ export function PropertyManager() {
 
         {feature.parameters.endCondition !== undefined && (
           <div className={styles.section}>
-            <span className={styles.sectionTitle}>Direction</span>
-            <div className={styles.iconRow} role="group" aria-label="End condition">
+            <span className={styles.sectionTitle}>{t("propertyManager.direction", "Direction")}</span>
+            <div className={styles.iconRow} role="group" aria-label={t("propertyManager.endConditionAria", "End condition")}>
               {END_CONDITIONS.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   type="button"
                   className={styles.iconButton}
-                  title={label}
-                  aria-label={label}
+                  title={t(`propertyManager.endCondition.${id}`, label)}
+                  aria-label={t(`propertyManager.endCondition.${id}`, label)}
                   aria-pressed={feature.parameters.endCondition === id}
                   onClick={() => updateParameters(feature.id, { endCondition: id })}
                 >
@@ -683,15 +748,15 @@ export function PropertyManager() {
 
             {isHole && feature.parameters.endCondition === "blind" && (
               <>
-                <span className={styles.fieldLabel}>Drill Point</span>
-                <div className={styles.iconRow} role="group" aria-label="Drill point">
+                <span className={styles.fieldLabel}>{t("propertyManager.drillPoint", "Drill Point")}</span>
+                <div className={styles.iconRow} role="group" aria-label={t("propertyManager.drillPoint", "Drill point")}>
                   {DRILL_POINTS.map(({ id, label, icon: Icon }) => (
                     <button
                       key={id}
                       type="button"
                       className={styles.iconButton}
-                      title={label}
-                      aria-label={label}
+                      title={t(`propertyManager.drillPoint.${id}`, label)}
+                      aria-label={t(`propertyManager.drillPoint.${id}`, label)}
                       aria-pressed={(feature.parameters.drillPoint ?? "flat") === id}
                       onClick={() => updateParameters(feature.id, { drillPoint: id })}
                     >
@@ -706,14 +771,14 @@ export function PropertyManager() {
               <button
                 type="button"
                 className={styles.actionButton}
-                title="Reverse direction"
+                title={t("propertyManager.reverseDirection", "Reverse direction")}
                 aria-pressed={feature.parameters.reversed}
                 onClick={() =>
                   updateParameters(feature.id, { reversed: !feature.parameters.reversed })
                 }
               >
                 <FlipVertical size={14} strokeWidth={1.75} />
-                Reverse direction
+                {t("propertyManager.reverseDirection", "Reverse direction")}
               </button>
             )}
           </div>
@@ -721,15 +786,15 @@ export function PropertyManager() {
 
         {feature.parameters.operation !== undefined && (
           <div className={styles.section}>
-            <span className={styles.sectionTitle}>Body</span>
-            <div className={styles.iconRow} role="group" aria-label="Boolean operation">
+            <span className={styles.sectionTitle}>{t("propertyManager.body", "Body")}</span>
+            <div className={styles.iconRow} role="group" aria-label={t("propertyManager.booleanAria", "Boolean operation")}>
               {OPERATIONS.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   type="button"
                   className={styles.iconButton}
-                  title={label}
-                  aria-label={label}
+                  title={t(`propertyManager.operation.${id}`, label)}
+                  aria-label={t(`propertyManager.operation.${id}`, label)}
                   aria-pressed={feature.parameters.operation === id}
                   onClick={() => updateParameters(feature.id, { operation: id })}
                 >
@@ -739,8 +804,11 @@ export function PropertyManager() {
               <button
                 type="button"
                 className={styles.iconButton}
-                title="New Body — not available yet: the kernel keeps one combined body per document"
-                aria-label="New Body (unavailable)"
+                title={t(
+                  "propertyManager.newBody",
+                  "New Body — not available yet: the kernel keeps one combined body per document",
+                )}
+                aria-label={t("propertyManager.newBodyAria", "New Body (unavailable)")}
                 disabled
               >
                 <Boxes size={15} strokeWidth={1.75} />
@@ -753,10 +821,10 @@ export function PropertyManager() {
           <label className={styles.field}>
             <span className={styles.fieldLabel}>
               {feature.kind === "mirror"
-                ? "Mirror plane"
+                ? t("propertyManager.mirrorPlane", "Mirror plane")
                 : feature.kind === "shell" || feature.kind === "draft"
-                  ? "Face (points this way)"
-                  : "Direction"}
+                  ? t("propertyManager.openFace", "Face (points this way)")
+                  : t("propertyManager.direction", "Direction")}
             </span>
             <select
               className={styles.input}
@@ -775,15 +843,17 @@ export function PropertyManager() {
         )}
         {(feature.kind === "shell" || feature.kind === "draft") && (
           <p className={styles.sectionHint}>
-            No face-picking UI yet — acts on whichever face(s) point exactly along this axis
-            (e.g. Z for the top face of a simple extruded block).
+            {t(
+              "propertyManager.facePickingPending",
+              "No face-picking UI yet — acts on whichever face(s) point exactly along this axis (e.g. Z for the top face of a simple extruded block).",
+            )}
           </p>
         )}
 
         {fields.map((field) => (
           <label key={field.key} className={styles.field}>
             <span className={styles.fieldLabel}>
-              {field.label}
+              {t(`propertyManager.parameter.${field.key}`, field.label)}
               {field.unit ? ` (${field.unit})` : ""}
             </span>
             <input
@@ -806,7 +876,9 @@ export function PropertyManager() {
               aria-pressed={feature.suppressed}
               onClick={() => toggleSuppressed(feature.id)}
             >
-              {feature.suppressed ? "Unsuppress" : "Suppress"}
+              {feature.suppressed
+                ? t("propertyManager.unsuppress", "Unsuppress")
+                : t("propertyManager.suppress", "Suppress")}
             </button>
             <button
               type="button"
@@ -814,7 +886,7 @@ export function PropertyManager() {
               onClick={() => deleteFeature(feature.id)}
             >
               <Trash2 size={13} />
-              Delete
+              {t("propertyManager.delete", "Delete")}
             </button>
           </div>
         )}

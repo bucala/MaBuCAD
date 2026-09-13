@@ -20,3 +20,14 @@ export function useTranslation() {
 
   return { t, language };
 }
+
+/** Fills `{{placeholder}}` tokens in a translated string. A dictionary value is a static
+ * string, so the few dynamic sentences (counts, names, dimensions) carry placeholders the
+ * render site fills — same convention the document tabs' close tooltip already used.
+ * Unknown tokens pass through untouched, so a missing value shows as `{{count}}` in the
+ * UI — loud and debuggable — rather than silently swallowing part of a sentence. */
+export function fillTemplate(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) =>
+    Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match,
+  );
+}

@@ -2,12 +2,14 @@ import { useEffect, useMemo } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
 import { useThree } from "@react-three/fiber";
 import { BufferAttribute, BufferGeometry, Color, Euler, LineSegments, Quaternion } from "three";
+import { useShallow } from "zustand/react/shallow";
 
 import { placeHoleAtPick } from "@/commands/commandRegistry";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { buildFaceColorAttribute, faceAngleToAxis } from "@/kernel/faceColoring";
 import { computeMassProperties } from "@/kernel/measure";
 import type { MeshData } from "@/kernel/rebuild";
+import type { Sketch } from "@/sketch/types";
 import { selectBuiltFeatures, useDocumentStore } from "@/state/documentStore";
 import { GEOMETRY_FEATURE_KINDS, useGeometryStore } from "@/state/geometryStore";
 import { useInspectStore } from "@/state/inspectStore";
@@ -101,11 +103,29 @@ export function SolidModel() {
   const modelColorOverride = useSettingsStore((state) => state.modelColor);
   const modelEdgeColorOverride = useSettingsStore((state) => state.modelEdgeColor);
   const cadDocument = useDocumentStore((state) => state.document);
-  const sketches = useSketchStore((state) => state.sketches);
   const features = cadDocument.features;
   const rollbackIndex = cadDocument.rollbackIndex;
   const edgePickModeFeatureId = useViewportStore((state) => state.edgePickModeFeatureId);
   const pickingFeature = features.find((feature) => feature.id === edgePickModeFeatureId);
+  /**
+   * Only the sketches that hole features above the rollback bar actually read their centre
+   * points from, selected shallowly — the whole `sketches` record is republished by every
+   * sketch-store write (each pointermove of a live point drag included), which used to
+   * re-render this whole component and re-key `HoleThreadOverlay`'s own memo per move,
+   * rebuilding every cosmetic thread helix for nothing. A shallow-selected record keeps its
+   * identity across writes that don't touch these specific sketches.
+   */
+  const holeSketches = useSketchStore(
+    useShallow((state) => {
+      const out: Record<string, Sketch> = {};
+      for (const feature of features.slice(0, rollbackIndex)) {
+        if (feature.kind !== "hole" || feature.suppressed) continue;
+        const parent = feature.parents[0];
+        if (state.sketches[parent]) out[parent] = state.sketches[parent];
+      }
+      return out;
+    }),
+  );
   const holePlacementActive = useViewportStore((state) => state.holePlacementActive);
   const setHolePlacementActive = useViewportStore((state) => state.setHolePlacementActive);
   const selectionFilterMode = useViewportStore((state) => state.selectionFilterMode);
@@ -164,7 +184,6 @@ export function SolidModel() {
     // Deliberately keyed on the mesh, not the sensor list — adding/editing a sensor is
     // its own action and shows its own current value in the panel immediately; this only
     // needs to re-run when the numbers a sensor watches could actually have changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [committedMesh]);
 
   // Escape backs out of Hole Wizard placement the same way it backs out of any other
@@ -183,14 +202,38 @@ export function SolidModel() {
   // `geometryStore.ts`'s own note on `previewMesh` for why an already-applied Fillet/Chamfer
   // can't be picked against its own result. Falls back to the normal committed mesh until the
   // preview's own (async) rebuild finishes, so the viewport doesn't flash empty.
+  //
+  // The effect's inputs are selected shallowly rather than keyed on the whole document and
+  // sketch records: the features above the rollback bar *excluding* the picked feature
+  // (its own `edgePoints` are the one thing mid-pick edits change, and they contribute
+  // nothing to a preview that suppresses the feature) plus the sketches those features
+  // read. Keying on the whole records meant every document or sketch-store write — each
+  // edge pick included — re-triggered a full async kernel rebuild of an unchanged body.
+  const previewFeatures = useDocumentStore(
+    useShallow((state) =>
+      state.document.features
+        .slice(0, state.document.rollbackIndex)
+        .filter((candidate) => candidate.id !== edgePickModeFeatureId),
+    ),
+  );
+  const previewSketches = useSketchStore(
+    useShallow((state) => {
+      const out: Record<string, Sketch> = {};
+      for (const feature of previewFeatures) {
+        for (const parent of feature.parents) {
+          if (state.sketches[parent]) out[parent] = state.sketches[parent];
+        }
+      }
+      return out;
+    }),
+  );
   useEffect(() => {
     if (!edgePickModeFeatureId) {
       clearPreview();
       return;
     }
-    const built = cadDocument.features.slice(0, cadDocument.rollbackIndex);
-    void rebuildPreview(built, sketches, edgePickModeFeatureId);
-  }, [edgePickModeFeatureId, cadDocument, sketches, rebuildPreview, clearPreview]);
+    void rebuildPreview(previewFeatures, previewSketches, edgePickModeFeatureId);
+  }, [edgePickModeFeatureId, previewFeatures, previewSketches, rebuildPreview, clearPreview]);
 
   const mesh = pickingFeature ? (previewMesh ?? committedMesh) : committedMesh;
 
@@ -406,8 +449,10 @@ export function SolidModel() {
     if (!group) return null;
 
     const buffer = new BufferGeometry();
+    // No `normal` attribute: every highlight material below is `meshBasicMaterial`, which
+    // doesn't read normals — uploading the full normal buffer per highlight would double
+    // the cost of each pick for nothing.
     buffer.setAttribute("position", new BufferAttribute(mesh.positions, 3));
-    buffer.setAttribute("normal", new BufferAttribute(mesh.normals, 3));
     buffer.setIndex(new BufferAttribute(mesh.indices.subarray(group.start, group.start + group.count), 1));
     buffer.computeBoundingSphere();
     return buffer;
@@ -494,8 +539,8 @@ export function SolidModel() {
     }
 
     const buffer = new BufferGeometry();
+    // Same "no normals" reasoning as `faceHighlightGeometry` — basic material, no lighting.
     buffer.setAttribute("position", new BufferAttribute(mesh.positions, 3));
-    buffer.setAttribute("normal", new BufferAttribute(mesh.normals, 3));
     buffer.setIndex(new BufferAttribute(combined, 1));
     buffer.computeBoundingSphere();
     return buffer;
@@ -531,8 +576,8 @@ export function SolidModel() {
     if (!group) return null;
 
     const buffer = new BufferGeometry();
+    // Same "no normals" reasoning as `faceHighlightGeometry` — basic material, no lighting.
     buffer.setAttribute("position", new BufferAttribute(mesh.positions, 3));
-    buffer.setAttribute("normal", new BufferAttribute(mesh.normals, 3));
     buffer.setIndex(new BufferAttribute(mesh.indices.subarray(group.start, group.start + group.count), 1));
     buffer.computeBoundingSphere();
     return buffer;
@@ -613,38 +658,20 @@ export function SolidModel() {
     invalidate,
   ]);
 
-  // Geometry is owned by this component; release the GPU buffers when it is replaced.
-  useEffect(() => {
-    return () => {
-      geometry?.dispose();
-      edgeGeometry?.dispose();
-      faceHighlightGeometry?.dispose();
-      pickedEdgeHighlightGeometry?.dispose();
-      measureFaceHighlightGeometry?.dispose();
-      measureEdgeHighlightGeometry?.dispose();
-      sectionFaceHighlightGeometry?.dispose();
-    };
-  }, [
-    geometry,
-    edgeGeometry,
-    faceHighlightGeometry,
-    pickedEdgeHighlightGeometry,
-    measureFaceHighlightGeometry,
-    measureEdgeHighlightGeometry,
-    sectionFaceHighlightGeometry,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      faceHighlightGeometry?.dispose();
-    };
-  }, [faceHighlightGeometry]);
-
-  useEffect(() => {
-    return () => {
-      edgeSelectHighlightGeometry?.dispose();
-    };
-  }, [edgeSelectHighlightGeometry]);
+  // Geometry is owned by this component; each BufferGeometry is released exactly when its
+  // own value is replaced or the component unmounts — one dedicated effect per geometry
+  // rather than a combined effect keyed on all of them. A combined cleanup fires on *any*
+  // dep change, so one overlay swap (a new Measure pick) would dispose geometries that
+  // were still mounted and in use, forcing them — and with them the body mesh itself — to
+  // re-upload their GPU buffers on the next invalidated frame.
+  useEffect(() => () => geometry?.dispose(), [geometry]);
+  useEffect(() => () => edgeGeometry?.dispose(), [edgeGeometry]);
+  useEffect(() => () => faceHighlightGeometry?.dispose(), [faceHighlightGeometry]);
+  useEffect(() => () => pickedEdgeHighlightGeometry?.dispose(), [pickedEdgeHighlightGeometry]);
+  useEffect(() => () => measureFaceHighlightGeometry?.dispose(), [measureFaceHighlightGeometry]);
+  useEffect(() => () => measureEdgeHighlightGeometry?.dispose(), [measureEdgeHighlightGeometry]);
+  useEffect(() => () => sectionFaceHighlightGeometry?.dispose(), [sectionFaceHighlightGeometry]);
+  useEffect(() => () => edgeSelectHighlightGeometry?.dispose(), [edgeSelectHighlightGeometry]);
 
   if (!mesh || !geometry || isBodyHidden) return null;
 
@@ -698,7 +725,7 @@ export function SolidModel() {
       <HoleThreadOverlay
         features={features}
         rollbackIndex={rollbackIndex}
-        sketches={sketches}
+        sketches={holeSketches}
         color={isDark ? "#8fb6e8" : "#3f6aab"}
       />
 

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 
 import { DimensionValueField, parseLocaleNumber } from "@/components/shared/DimensionValueField";
+import { fillTemplate, useTranslation } from "@/i18n/useTranslation";
 import type { GeometricConstraintKind } from "@/sketch/types";
 import type { PatternOptions } from "@/sketch/sketchModel";
 import { useGeometryStore } from "@/state/geometryStore";
@@ -42,16 +43,18 @@ import {
 
 import styles from "./SketchPanel.module.css";
 
-const TOOLS: { id: SketchTool; label: string; icon: LucideIcon }[] = [
-  { id: "select", label: "Select", icon: MousePointer2 },
-  { id: "rectangle", label: "Rectangle", icon: Square },
-  { id: "circle", label: "Circle", icon: Circle },
-  { id: "arc", label: "Arc", icon: CircleDashed },
-  { id: "spline", label: "Spline", icon: Spline },
-  { id: "construction-line", label: "Construction", icon: Route },
-  { id: "point", label: "Point", icon: CircleDot },
-  { id: "trim", label: "Trim", icon: Scissors },
-  { id: "fillet", label: "Fillet", icon: Radius },
+// Tool and relation labels reuse the ribbon command keys so the dock and the ribbon can
+// never drift apart terminologically — the panel only invents keys for its own chrome.
+const TOOLS: { id: SketchTool; key: string; label: string; icon: LucideIcon }[] = [
+  { id: "select", key: "sketch.select", label: "Select", icon: MousePointer2 },
+  { id: "rectangle", key: "sketch.rectangle", label: "Rectangle", icon: Square },
+  { id: "circle", key: "sketch.circle", label: "Circle", icon: Circle },
+  { id: "arc", key: "sketch.arc", label: "Arc", icon: CircleDashed },
+  { id: "spline", key: "sketch.spline", label: "Spline", icon: Spline },
+  { id: "construction-line", key: "sketch.construction", label: "Construction", icon: Route },
+  { id: "point", key: "sketch.point", label: "Point", icon: CircleDot },
+  { id: "trim", key: "sketch.trim", label: "Trim", icon: Scissors },
+  { id: "fillet", key: "feature.fillet", label: "Fillet", icon: Radius },
 ];
 
 /**
@@ -61,10 +64,10 @@ const TOOLS: { id: SketchTool; label: string; icon: LucideIcon }[] = [
  * Line, which doesn't get a dedicated button of its own to avoid crowding the grid further).
  */
 const LINE_CYCLE = ["line", "construction-line", "axis-line"] as const satisfies readonly SketchTool[];
-const LINE_CYCLE_META: Record<(typeof LINE_CYCLE)[number], { label: string; icon: LucideIcon }> = {
-  line: { label: "Line", icon: Minus },
-  "construction-line": { label: "Construction", icon: Route },
-  "axis-line": { label: "Axis Line", icon: Axis3D },
+const LINE_CYCLE_META: Record<(typeof LINE_CYCLE)[number], { key: string; label: string; icon: LucideIcon }> = {
+  line: { key: "sketch.line", label: "Line", icon: Minus },
+  "construction-line": { key: "sketch.construction", label: "Construction", icon: Route },
+  "axis-line": { key: "sketchPanel.axisLine", label: "Axis Line", icon: Axis3D },
 };
 
 const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideIcon; hint: string }[] = [
@@ -111,6 +114,7 @@ export function SketchPanel() {
   };
   const diagnostics = useSketchStore((state) => state.diagnostics);
   const isClosed = useSketchStore(selectProfileClosed);
+  const { t } = useTranslation();
 
   const filletRadius = useSketchStore((state) => state.filletRadius);
   const setFilletRadius = useSketchStore((state) => state.setFilletRadius);
@@ -138,16 +142,14 @@ export function SketchPanel() {
 
   const handleMirror = () => {
     if (!mirrorSelection()) {
-      useGeometryStore
-        .getState()
-        .showToast("Select the entities to mirror plus one construction line to use as the axis.", 3500);
+      useGeometryStore.getState().showToast(t("sketchPanel.mirrorToast", "Select the entities to mirror plus one construction line to use as the axis."), 3500);
     }
   };
 
   const handleOffset = () => {
     const distance = parseLocaleNumber(offsetText);
     if (!Number.isFinite(distance) || distance === 0 || !offsetSelection(distance)) {
-      useGeometryStore.getState().showToast("Select one or more lines, circles or arcs to offset first.", 3500);
+      useGeometryStore.getState().showToast(t("sketchPanel.offsetToast", "Select one or more lines, circles or arcs to offset first."), 3500);
     }
   };
 
@@ -158,7 +160,7 @@ export function SketchPanel() {
         ? { mode: "linear", count, dx: parseLocaleNumber(patternDxText), dy: parseLocaleNumber(patternDyText) }
         : { mode: "circular", count, angleDegrees: parseLocaleNumber(patternAngleText) };
     if (!patternSelection(options)) {
-      useGeometryStore.getState().showToast("Select one or more entities to pattern first.", 3500);
+      useGeometryStore.getState().showToast(t("sketchPanel.patternToast", "Select one or more entities to pattern first."), 3500);
     }
   };
 
@@ -167,37 +169,37 @@ export function SketchPanel() {
   return (
     <div className={styles.panel}>
       <div className={styles.header}>
-        <h2 className={styles.title}>Sketch</h2>
+        <h2 className={styles.title}>{t("sketch", "Sketch")}</h2>
         <button type="button" className={styles.exitButton} onClick={exitSketch}>
-          Exit Sketch
+          {t("sketch.exit", "Exit Sketch")}
         </button>
       </div>
 
       <div className={styles.body}>
         <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>Tools</h3>
+          <h3 className={styles.sectionTitle}>{t("sketchPanel.tools", "Tools")}</h3>
           <div className={styles.toolGrid}>
             <button
               type="button"
               className={styles.toolButton}
               aria-pressed={isLineCycleTool(tool)}
-              title="Click to cycle: Line -> Construction -> Axis Line"
+              title={t("sketchPanel.lineCycle", "Click to cycle: Line -> Construction -> Axis Line")}
               onClick={cycleLineTool}
             >
               <LineIcon size={14} strokeWidth={1.75} />
-              {lineCycleMeta.label}
+              {t(lineCycleMeta.key, lineCycleMeta.label)}
             </button>
-            {TOOLS.map(({ id, label, icon: Icon }) => (
+            {TOOLS.map(({ id, key, label, icon: Icon }) => (
               <button
                 key={id}
                 type="button"
                 className={styles.toolButton}
                 aria-pressed={tool === id}
-                title={label}
+                title={t(key, label)}
                 onClick={() => setTool(id)}
               >
                 <Icon size={14} strokeWidth={1.75} />
-                {label}
+                {t(key, label)}
               </button>
             ))}
           </div>
@@ -206,13 +208,13 @@ export function SketchPanel() {
               <div className={styles.modifyRow}>
                 <span className={styles.modifyLabel}>
                   <Radius size={14} strokeWidth={1.75} />
-                  Radius
+                  {t("sketchPanel.radius", "Radius")}
                 </span>
                 <input
                   className={styles.modifyInput}
                   type="text"
                   inputMode="decimal"
-                  aria-label="Fillet radius"
+                  aria-label={t("sketchPanel.filletRadiusAria", "Fillet radius")}
                   value={filletRadiusText}
                   onChange={(event) => {
                     const text = event.target.value;
@@ -224,75 +226,78 @@ export function SketchPanel() {
               </div>
               <p className={styles.hint}>
                 {pendingFilletLineId
-                  ? "Click the second line to complete the corner."
-                  : "Click two lines that share a corner to round it."}
+                  ? t("sketchPanel.filletPending", "Click the second line to complete the corner.")
+                  : t("sketchPanel.filletIdle", "Click two lines that share a corner to round it.")}
               </p>
             </>
           )}
         </section>
 
         <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>Add Relation</h3>
+          <h3 className={styles.sectionTitle}>{t("sketchPanel.addRelation", "Add Relation")}</h3>
           <div className={styles.toolGrid}>
             {CONSTRAINTS.map(({ kind, label, icon: Icon, hint }) => (
               <button
                 key={kind}
                 type="button"
                 className={styles.toolButton}
-                title={hint}
+                title={t(`relation.hint.${kind}`, hint)}
                 aria-pressed={pendingConstraintKind === kind}
                 onClick={() => armConstraint(kind)}
               >
                 <Icon size={14} strokeWidth={1.75} />
-                {label}
+                {t(`relation.${kind}`, label)}
               </button>
             ))}
           </div>
           <p className={styles.hint}>
             {pendingConstraintKind
-              ? "Click the elements it applies to in the graphics area."
+              ? t("sketchPanel.pendingHint", "Click the elements it applies to in the graphics area.")
               : selection.length === 0
-                ? "Select geometry first, or click a relation above, then pick its elements."
-                : `${selection.length} selected`}
+                ? t("sketchPanel.selectFirstHint", "Select geometry first, or click a relation above, then pick its elements.")
+                : fillTemplate(t("sketchPanel.selectedCount", "{{count}} selected"), { count: selection.length })}
           </p>
         </section>
 
         <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>Modify</h3>
+          <h3 className={styles.sectionTitle}>{t("sketchPanel.modify", "Modify")}</h3>
           <div className={styles.toolGrid}>
             <button
               type="button"
               className={styles.toolButton}
-              title="Select the entities to mirror plus one construction line as the axis, then click Mirror"
+              title={t(
+                "sketchPanel.mirrorHint",
+                "Select the entities to mirror plus one construction line as the axis, then click Mirror",
+              )}
               onClick={handleMirror}
             >
               <FlipHorizontal2 size={14} strokeWidth={1.75} />
-              Mirror
+              {t("sketch.mirror", "Mirror")}
             </button>
           </div>
 
           <div className={styles.modifyRow}>
             <span className={styles.modifyLabel}>
               <CopyPlus size={14} strokeWidth={1.75} />
-              Offset
+              {t("sketchPanel.offset", "Offset")}
             </span>
             <input
               className={styles.modifyInput}
               type="text"
               inputMode="decimal"
-              aria-label="Offset distance"
+              aria-label={t("sketchPanel.offsetDistanceAria", "Offset distance")}
               value={offsetText}
               onChange={(event) => setOffsetText(event.target.value)}
             />
             <button type="button" className={styles.modifyApply} onClick={handleOffset}>
-              Apply
+              {t("sketchPanel.apply", "Apply")}
             </button>
           </div>
 
           <div className={styles.modifyGroup}>
             <span className={styles.modifyLabel}>
               <LayoutGrid size={14} strokeWidth={1.75} />
-              Pattern
+              {t("sketchPanel.pattern", "Pattern")}
             </span>
             <div className={styles.toolGrid}>
               <button
@@ -301,7 +306,7 @@ export function SketchPanel() {
                 aria-pressed={patternMode === "linear"}
                 onClick={() => setPatternMode("linear")}
               >
-                Linear
+                {t("sketchPanel.linear", "Linear")}
               </button>
               <button
                 type="button"
@@ -309,16 +314,16 @@ export function SketchPanel() {
                 aria-pressed={patternMode === "circular"}
                 onClick={() => setPatternMode("circular")}
               >
-                Circular
+                {t("sketchPanel.circular", "Circular")}
               </button>
             </div>
             <div className={styles.modifyRow}>
-              <span className={styles.modifyLabel}>Count</span>
+              <span className={styles.modifyLabel}>{t("sketchPanel.count", "Count")}</span>
               <input
                 className={styles.modifyInput}
                 type="text"
                 inputMode="numeric"
-                aria-label="Pattern instance count"
+                aria-label={t("sketchPanel.countAria", "Pattern instance count")}
                 value={patternCountText}
                 onChange={(event) => setPatternCountText(event.target.value)}
               />
@@ -326,23 +331,23 @@ export function SketchPanel() {
             {patternMode === "linear" ? (
               <>
                 <div className={styles.modifyRow}>
-                  <span className={styles.modifyLabel}>X spacing</span>
+                  <span className={styles.modifyLabel}>{t("sketchPanel.xSpacing", "X spacing")}</span>
                   <input
                     className={styles.modifyInput}
                     type="text"
                     inputMode="decimal"
-                    aria-label="Pattern X spacing"
+                    aria-label={t("sketchPanel.xSpacingAria", "Pattern X spacing")}
                     value={patternDxText}
                     onChange={(event) => setPatternDxText(event.target.value)}
                   />
                 </div>
                 <div className={styles.modifyRow}>
-                  <span className={styles.modifyLabel}>Y spacing</span>
+                  <span className={styles.modifyLabel}>{t("sketchPanel.ySpacing", "Y spacing")}</span>
                   <input
                     className={styles.modifyInput}
                     type="text"
                     inputMode="decimal"
-                    aria-label="Pattern Y spacing"
+                    aria-label={t("sketchPanel.ySpacingAria", "Pattern Y spacing")}
                     value={patternDyText}
                     onChange={(event) => setPatternDyText(event.target.value)}
                   />
@@ -350,71 +355,75 @@ export function SketchPanel() {
               </>
             ) : (
               <div className={styles.modifyRow}>
-                <span className={styles.modifyLabel}>Angle</span>
+                <span className={styles.modifyLabel}>{t("sketchPanel.angle", "Angle")}</span>
                 <input
                   className={styles.modifyInput}
                   type="text"
                   inputMode="decimal"
-                  aria-label="Pattern angle"
+                  aria-label={t("sketchPanel.angleAria", "Pattern angle")}
                   value={patternAngleText}
                   onChange={(event) => setPatternAngleText(event.target.value)}
                 />
               </div>
             )}
             <button type="button" className={styles.modifyApplyFull} onClick={handlePattern}>
-              Apply Pattern
+              {t("sketchPanel.applyPattern", "Apply Pattern")}
             </button>
           </div>
 
           <p className={styles.hint}>
-            Mirror needs a construction line selected as the axis, alongside the entities to mirror. Offset and
-            Pattern act on whatever's currently selected — a circular pattern always rotates about the sketch
-            origin.
+            {t(
+              "sketchPanel.modifyHint",
+              "Mirror needs a construction line selected as the axis, alongside the entities to mirror. Offset and Pattern act on whatever's currently selected — a circular pattern always rotates about the sketch origin.",
+            )}
           </p>
         </section>
 
         <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>Dimensions</h3>
+          <h3 className={styles.sectionTitle}>{t("sketchPanel.dimensions", "Dimensions")}</h3>
           <div className={styles.toolGrid}>
             <button
               type="button"
               className={styles.toolButton}
               aria-pressed={tool === "smart-dimension"}
-              title="Click elements in the viewport to dimension them — stays active until you pick another tool"
+              title={t(
+                "sketchPanel.smartHint",
+                "Click elements in the viewport to dimension them — stays active until you pick another tool",
+              )}
               onClick={() => setTool(tool === "smart-dimension" ? "select" : "smart-dimension")}
             >
               <Ruler size={14} strokeWidth={1.75} />
-              Smart
+              {t("sketchPanel.smart", "Smart")}
             </button>
             <button
               type="button"
               className={styles.toolButton}
-              title="Ordinate X and Y from the sketch origin"
+              title={t("sketchPanel.ordinateHint", "Ordinate X and Y from the sketch origin")}
               disabled={selection.length === 0}
               onClick={() => applyOrdinateDimension("both")}
             >
               <Grid3x3 size={14} strokeWidth={1.75} />
-              Ordinate
+              {t("sketchPanel.ordinate", "Ordinate")}
             </button>
             <button
               type="button"
               className={styles.toolButton}
-              title="Ordinate along X from the sketch origin"
+              title={t("sketchPanel.ordinateXHint", "Ordinate along X from the sketch origin")}
               disabled={selection.length === 0}
               onClick={() => applyOrdinateDimension("x")}
             >
               <MoveHorizontal size={14} strokeWidth={1.75} />
-              Ord. X
+              {t("sketchPanel.ordinateX", "Ord. X")}
             </button>
             <button
               type="button"
               className={styles.toolButton}
-              title="Ordinate along Y from the sketch origin"
+              title={t("sketchPanel.ordinateYHint", "Ordinate along Y from the sketch origin")}
               disabled={selection.length === 0}
               onClick={() => applyOrdinateDimension("y")}
             >
               <MoveVertical size={14} strokeWidth={1.75} />
-              Ord. Y
+              {t("sketchPanel.ordinateY", "Ord. Y")}
             </button>
           </div>
 
@@ -422,17 +431,19 @@ export function SketchPanel() {
             <ul className={styles.dimensionList}>
               {sketch.dimensions.map((dimension) => (
                 <li key={dimension.id} className={styles.dimensionRow}>
-                  <span className={styles.dimensionKind}>{DIMENSION_LABEL[dimension.kind]}</span>
+                  <span className={styles.dimensionKind}>
+                    {t(`sketchPanel.dimensionLabel.${dimension.kind}`, DIMENSION_LABEL[dimension.kind])}
+                  </span>
                   <DimensionValueField
                     dimensionId={dimension.id}
                     value={dimension.value}
-                    label={`${DIMENSION_LABEL[dimension.kind]} value`}
+                    label={`${t(`sketchPanel.dimensionLabel.${dimension.kind}`, DIMENSION_LABEL[dimension.kind])} value`}
                     onCommit={setDimensionValue}
                   />
                   <button
                     type="button"
                     className={styles.dimensionDelete}
-                    aria-label="Delete dimension"
+                    aria-label={t("sketchPanel.deleteDimensionAria", "Delete dimension")}
                     onClick={() => deleteDimension(dimension.id)}
                   >
                     ×
@@ -444,21 +455,25 @@ export function SketchPanel() {
         </section>
 
         <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>Status</h3>
+          <h3 className={styles.sectionTitle}>{t("sketchPanel.status", "Status")}</h3>
           <dl className={styles.stats}>
-            <dt>Degrees of freedom</dt>
+            <dt>{t("sketchPanel.dof", "Degrees of freedom")}</dt>
             <dd data-testid="sketch-dof">{diagnostics.dof}</dd>
-            <dt>Entities</dt>
+            <dt>{t("sketchPanel.entities", "Entities")}</dt>
             <dd data-testid="sketch-entity-count">{sketch.entities.length}</dd>
-            <dt>Relations</dt>
+            <dt>{t("sketchPanel.relations", "Relations")}</dt>
             <dd>{sketch.constraints.length}</dd>
-            <dt>Profile</dt>
-            <dd data-testid="profile-closed">{isClosed ? "Closed" : "Open"}</dd>
+            <dt>{t("sketchPanel.profile", "Profile")}</dt>
+            <dd data-testid="profile-closed">
+              {isClosed
+                ? t("sketchPanel.profileClosed", "Closed")
+                : t("sketchPanel.profileOpen", "Open")}
+            </dd>
           </dl>
 
           {selection.length > 0 && (
             <button type="button" className={styles.deleteButton} onClick={deleteSelection}>
-              Delete selection
+              {t("sketchPanel.deleteSelection", "Delete selection")}
             </button>
           )}
         </section>
@@ -478,4 +493,3 @@ const DIMENSION_LABEL: Record<string, string> = {
   "ordinate-x": "Ordinate X",
   "ordinate-y": "Ordinate Y",
 };
-

@@ -69,6 +69,22 @@ const IDLE_DIAGNOSTICS: SketchDiagnostics = {
 const SKETCH_HISTORY_LIMIT = 30;
 
 /**
+ * Minimum spacing between `findConflictingConstraints` scans during a live point drag.
+ * While a sketch is over-defined, that search re-solves the whole system once per
+ * constraint — fine for a discrete edit, but O(constraints × solves) per pointermove when
+ * `dragPoint` ran it on every move. The red conflict highlighting it produces doesn't
+ * meaningfully change within a gesture, so it is deferred to this cadence mid-drag and
+ * flushed the instant the drag ends (`commitDragSnap`).
+ */
+const DRAG_CONFLICT_SCAN_MS = 150;
+
+/** Throttle state for `scheduleConflictScan` — module-level because it belongs to the
+ * gesture, not to the store instance, and must survive across store re-creations in
+ * tests exactly the way it survives across the app's single instance in production. */
+let conflictScanTimer: ReturnType<typeof setTimeout> | null = null;
+let conflictScanPending: Sketch | null = null;
+
+/**
  * A Smart Dimension proposal that hasn't been committed to the sketch yet — the
  * Inventor-style flow this drives: picking one entity proposes this and it follows the
  * cursor (`hoverPosition` below) rather than landing immediately; picking a second,
@@ -238,10 +254,16 @@ interface SketchStore {
    * for any other dimension kind. */
   flipAngleDimension: (dimensionId: string) => void;
 
-  /** Snapshots the active sketch onto the undo stack without changing it — called once
-   * when a point-drag gesture starts, so the whole drag undoes in one step rather than
-   * every intermediate `dragPoint` call during the drag becoming its own step. */
+  /** Arms a point-drag (or dimension-label drag) gesture — the gesture's first *changing*
+   * frame snapshots the pre-gesture sketch as the single undo entry for the whole drag, so
+   * the intermediate `dragPoint`/`setDimensionLabelOffset` calls during the drag don't
+   * each become their own step, and a press that never changes anything pushes nothing at
+   * all. `commitDragSnap` ends a point-drag gesture; `endDrag` ends a label one. */
   beginDrag: () => void;
+  /** Ends an armed drag gesture without applying anything — the dimension-label drag's
+   * pointer-up. A point drag ends through `commitDragSnap` instead, which is guaranteed
+   * to run on the gesture's release (see `SketchCanvas.tsx`'s `installDragRelease`). */
+  endDrag: () => void;
   dragPoint: (pointId: string, position: Point2) => void;
   /** Applies the current `dragSnapSuggestion` (if any) for the point that was just
    * dragged, and clears it — called from `SketchCanvas.tsx`'s pointer-up, once the drag
@@ -273,12 +295,80 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     }));
   };
 
+  /**
+   * The pre-gesture sketch of a pointer-drag currently in progress (`beginDrag` until
+   * `endDrag`/`commitDragSnap`), or null outside a gesture — see `beginDrag`'s doc
+   * comment. Closure state, not store state: transient gesture bookkeeping nothing
+   * renders, the same convention `documentStore.ts`'s own drag gesture follows.
+   */
+  let dragSnapshot: Sketch | null = null;
+  /** Whether a pointer-drag gesture is currently in progress at all — stays true for the
+   * whole gesture, unlike `dragSnapshot`, which the first *changing* frame consumes. */
+  let inDragGesture = false;
+
+  /**
+   * The first *changing* mutation of a drag gesture consumes the gesture's pre-gesture
+   * snapshot as its single history entry; the gesture's remaining frames apply without
+   * one (`inDragGesture` stays true, `dragSnapshot` is already null by then). Arming is
+   * lazy, so a press that never changes anything (a click on a fixed point, a label
+   * grabbed and released without moving) leaves the history untouched — an eagerly
+   * pushed snapshot would leave a duplicate of the current sketch on the stack, making
+   * one undo step appear to do nothing.
+   */
+  const consumeDragSnapshot = () => {
+    if (!dragSnapshot) return;
+    pushHistory(dragSnapshot);
+    dragSnapshot = null;
+  };
+
   /** `findConflictingConstraints` is only worth its own (relatively expensive, O(n) solves)
    * cost when the sketch is actually over-defined — every other call site just wants `[]`. */
   const conflictsFor = (sketch: Sketch, diagnostics: SketchDiagnostics): string[] =>
     sketchStatusFromDiagnostics(diagnostics) === "over-defined" ? [...findConflictingConstraints(sketch)] : [];
 
-  /** Applies an edit, re-solves, and stores both the geometry and the diagnostics. */
+  /**
+   * `dragPoint`'s own `conflictsFor`, throttled: an over-defined sketch's brute-force
+   * search would otherwise run once per pointermove, so mid-drag it is deferred to the
+   * `DRAG_CONFLICT_SCAN_MS` cadence and the previous highlighting is kept until the scan
+   * lands. Not over-defined returns `[]` immediately — the cheap path stays cheap.
+   */
+  const scheduleConflictScan = (sketch: Sketch, diagnostics: SketchDiagnostics): string[] => {
+    if (sketchStatusFromDiagnostics(diagnostics) !== "over-defined") return [];
+    conflictScanPending = sketch;
+    if (conflictScanTimer === null) {
+      conflictScanTimer = setTimeout(() => {
+        conflictScanTimer = null;
+        const pendingSketch = conflictScanPending;
+        conflictScanPending = null;
+        if (!pendingSketch) return;
+        set({ conflictingIds: [...findConflictingConstraints(pendingSketch)] });
+      }, DRAG_CONFLICT_SCAN_MS);
+    }
+    return get().conflictingIds;
+  };
+
+  /** Runs a deferred conflict scan (if one is pending) right now — the drag gesture's
+   * end path (`commitDragSnap`), so the final highlighting matches the final geometry
+   * immediately rather than a throttle tick later. */
+  const flushConflictScan = (): void => {
+    const pendingSketch = conflictScanPending;
+    conflictScanPending = null;
+    if (conflictScanTimer !== null) {
+      clearTimeout(conflictScanTimer);
+      conflictScanTimer = null;
+    }
+    if (!pendingSketch) return;
+    set({ conflictingIds: [...findConflictingConstraints(pendingSketch)] });
+  };
+
+  /**
+   * Applies an edit, re-solves, and stores both the geometry and the diagnostics.
+   *
+   * Gesture-aware: inside an armed drag gesture (`beginDrag` … `endDrag`/`commitDragSnap`)
+   * the first *changing* edit consumes the gesture's pre-gesture snapshot as the single
+   * history entry and the gesture's later edits apply without one; outside a gesture it
+   * records the pre-edit sketch as always.
+   */
   const edit = (mutate: (sketch: Sketch) => Sketch) => {
     const { activeSketchId, sketches } = get();
     if (!activeSketchId) return;
@@ -295,12 +385,17 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     const { sketch, diagnostics } = solveSketch(mutated, current);
     if (sketch === current) return;
 
-    pushHistory(current);
+    if (inDragGesture) {
+      consumeDragSnapshot();
+    } else {
+      pushHistory(current);
+    }
     // `conflictsFor` re-solves with each constraint/dimension removed in turn to see which
     // one clears the conflict — and `solveSketch`'s own "fix" residual anchors to wherever
     // its point *currently* sits at the start of whichever solve is testing it. Feeding it
-    // the already-solved (possibly wildly diverged, chasing an unsatisfiable residual)
-    // `sketch` would silently re-anchor every Fix to that broken position and often mask
+    // the already-solved (settled wherever the solver's monotone best-so-far left it
+    // chasing an unsatisfiable residual) `sketch` would silently re-anchor every Fix to
+    // that drifted position and often mask
     // the very conflict being diagnosed. `mutated` — the edit applied but not yet
     // re-solved — still has the points at their last good position, which is what every
     // one of `conflictsFor`'s internal solves needs to agree on.
@@ -343,6 +438,10 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const sketch = createSketch(featureId, planeId);
       const solved = solveSketch(sketch);
 
+      // Entering a new editing session resets the history below — an armed gesture
+      // belonging to the previous session must not survive into it.
+      inDragGesture = false;
+      dragSnapshot = null;
       set((state) => ({
         activeSketchId: featureId,
         sketches: { ...state.sketches, [featureId]: solved.sketch },
@@ -365,6 +464,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const sketch = get().sketches[featureId];
       if (!sketch) return;
       const diagnostics = solveSketch(sketch).diagnostics;
+      inDragGesture = false;
+      dragSnapshot = null;
       set({
         activeSketchId: featureId,
         diagnostics,
@@ -382,7 +483,9 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       });
     },
 
-    exitSketch: () =>
+    exitSketch: () => {
+      inDragGesture = false;
+      dragSnapshot = null;
       set({
         activeSketchId: null,
         tool: "select",
@@ -397,9 +500,12 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         hoverPosition: null,
         past: [],
         future: [],
-      }),
+      });
+    },
 
-    loadSketches: (sketches) =>
+    loadSketches: (sketches) => {
+      inDragGesture = false;
+      dragSnapshot = null;
       set({
         sketches,
         activeSketchId: null,
@@ -415,7 +521,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         hoverPosition: null,
         past: [],
         future: [],
-      }),
+      });
+    },
 
     // A pending Smart Dimension proposal only makes sense while that tool stays active —
     // switching to any other tool (including re-arming Smart Dimension itself, which goes
@@ -807,13 +914,29 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       })),
 
     // Repositioning a label is display-only — it does not change what the dimension
-    // measures or drive a re-solve, so this writes directly rather than going through
-    // `edit()` (which re-solves and updates `diagnostics`, neither of which apply here).
+    // measures or drive a re-solve, so this writes the sketch directly rather than going
+    // through `edit()` (which re-solves and updates `diagnostics`, neither of which apply
+    // here). It is still a persisted, user-driven edit — the offset is saved with the
+    // document — so it pushes history: undoing a label drag has to restore the label, not
+    // (surprisingly) the last unrelated sketch edit. The label drag arms the same gesture
+    // mechanism a point drag does (`beginDrag` at the label's own pointer-down, see
+    // `SketchDimensions.tsx`), so a whole drag is one step — the first moving frame
+    // consumes the pre-gesture snapshot, later frames of the same drag apply without
+    // another entry.
     setDimensionLabelOffset: (dimensionId, offset) => {
       const { activeSketchId, sketches } = get();
       if (!activeSketchId) return;
       const current = sketches[activeSketchId];
       if (!current) return;
+
+      const target = current.dimensions.find((dimension) => dimension.id === dimensionId);
+      if (!target || (target.labelOffset.x === offset.x && target.labelOffset.y === offset.y)) return;
+
+      if (inDragGesture) {
+        consumeDragSnapshot();
+      } else {
+        pushHistory(current);
+      }
 
       set({
         sketches: {
@@ -909,7 +1032,15 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const { activeSketchId, sketches } = get();
       const current = activeSketchId ? sketches[activeSketchId] : undefined;
       if (!current) return;
-      pushHistory(current);
+      // Arms rather than pushes — see `consumeDragSnapshot`'s doc comment for why the
+      // snapshot only lands on the stack if the gesture actually changes something.
+      inDragGesture = true;
+      dragSnapshot = current;
+    },
+
+    endDrag: () => {
+      inDragGesture = false;
+      dragSnapshot = null;
     },
 
     dragPoint: (pointId, position) => {
@@ -941,7 +1072,14 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         ...moved,
         constraints: [
           ...moved.constraints,
-          { id: "drag-pin", kind: "fix", entities: [], points: [pointId] },
+          // The pin carries its own cursor target (`at`) rather than reading the solve's
+          // anchor map: the map is built from `current` below so every *real* fix/fix-line
+          // stays anchored to its pre-drag position (the behaviour that map choice was
+          // introduced for), but that same choice made the pin anchor the dragged point to
+          // its own pre-drag position too — every point drag silently solved straight back
+          // to where it started, a no-op drag nobody's test caught until the undo-history
+          // suite replayed one. Per-constraint target, and both behaviours coexist.
+          { id: "drag-pin", kind: "fix", entities: [], points: [pointId], at: { ...position } },
         ],
       };
 
@@ -972,22 +1110,42 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           ? inferDragSnap(final.sketch, pointId, settledPoint, snapTolerance())
           : null;
 
+      // The gesture's first *changing* frame is what turns the armed `beginDrag` snapshot
+      // into the drag's single history entry — see `consumeDragSnapshot`'s doc comment.
+      if (final.sketch !== current) consumeDragSnapshot();
+
       set({
         sketches: { ...sketches, [activeSketchId]: final.sketch },
         diagnostics: final.diagnostics,
         // `settled`, not `final.sketch` — see `edit`'s own doc comment on `conflictsFor`'s
         // anchor-reuse pitfall; `settled` is where the drag itself actually left the
         // points, `final.sketch` is a second solve pass that can already have wandered off
-        // chasing whatever's unsatisfiable.
-        conflictingIds: conflictsFor(settled, final.diagnostics),
+        // chasing whatever's unsatisfiable. Throttled rather than direct: the over-defined
+        // search is O(constraints) extra solves, which is too much to run per pointermove.
+        conflictingIds: scheduleConflictScan(settled, final.diagnostics),
         dragSnapSuggestion: suggestion,
       });
     },
 
     commitDragSnap: (pointId) => {
+      // The drag gesture just ended — run the deferred conflict scan (if one is pending)
+      // immediately so the highlighting matches the final geometry right away, not a
+      // throttle tick later.
+      flushConflictScan();
       const { dragSnapSuggestion } = get();
-      if (!dragSnapSuggestion) return;
+      if (!dragSnapSuggestion) {
+        // The gesture is over either way — a drag that never changed anything (a click on
+        // a fixed point, a grab released without moving) discards its armed snapshot here.
+        inDragGesture = false;
+        dragSnapshot = null;
+        return;
+      }
 
+      // `edit` is gesture-aware: the snap is the tail of the same gesture `beginDrag`
+      // armed, so it applies without a second undo step — a drag that ends in a
+      // smart-constraint snap still undoes as one step, back to the pre-drag sketch
+      // (position *and* the added relation together), the way `beginDrag`'s own doc
+      // comment has always described the gesture working.
       edit((sketch) => {
         if (dragSnapSuggestion.kind === "tangent") {
           return addConstraint(
@@ -1016,6 +1174,10 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         return snapped;
       });
 
+      // The gesture is over even if the snap's edit changed nothing — never leave a stale
+      // armed gesture behind for some later unrelated edit to be swallowed by.
+      inDragGesture = false;
+      dragSnapshot = null;
       set({ dragSnapSuggestion: null });
     },
 
@@ -1077,6 +1239,10 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     },
 
     undo: () => {
+      // A keyboard undo mid-drag ends the gesture: the drag's next frame becomes a fresh
+      // edit against the restored sketch rather than being swallowed as a gesture frame.
+      inDragGesture = false;
+      dragSnapshot = null;
       const { activeSketchId, sketches, past, future } = get();
       if (!activeSketchId) return;
       const current = sketches[activeSketchId];
@@ -1095,6 +1261,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     },
 
     redo: () => {
+      inDragGesture = false;
+      dragSnapshot = null;
       const { activeSketchId, sketches, past, future } = get();
       if (!activeSketchId) return;
       const current = sketches[activeSketchId];

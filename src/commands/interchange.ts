@@ -6,7 +6,7 @@ import {
   type ExportFormat,
 } from "@/kernel/io";
 import { releaseImportedShape } from "@/kernel/importedShapes";
-import { openFile, saveBlob } from "@/io/files";
+import { openFile, readFileAtPath, saveBlob, type PickedFile } from "@/io/files";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 
@@ -42,30 +42,55 @@ export async function runExport(format: ExportFormat): Promise<void> {
   }
 }
 
-export async function runImport(): Promise<void> {
+/**
+ * Shared body of the Import command and the drag-drop handler: creates the imported
+ * feature, registers the geometry against it, and rolls both back if the kernel rejects
+ * the file — a tree row pointing at geometry that failed to load would be worse than no
+ * row at all.
+ */
+async function importPicked(picked: PickedFile): Promise<void> {
   const { showToast } = useGeometryStore.getState();
   const documentStore = useDocumentStore.getState();
+
+  showToast(`Importing ${picked.name}…`);
+
+  // The feature is created first so the imported body has an owner to be keyed against.
+  const featureId = documentStore.addFeature("imported");
+
+  try {
+    await importModel(featureId, picked.name, picked.data);
+    documentStore.renameFeature(featureId, picked.name.replace(/\.[^.]+$/, ""));
+    showToast(`Imported ${picked.name}`);
+  } catch (error) {
+    releaseImportedShape(featureId);
+    documentStore.deleteFeature(featureId);
+    throw error;
+  }
+}
+
+export async function runImport(): Promise<void> {
+  const { showToast } = useGeometryStore.getState();
 
   try {
     const picked = await openFile(["step", "stp", "stl"]);
     if (!picked) return;
+    await importPicked(picked);
+  } catch (error) {
+    showToast(`Import failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
+  }
+}
 
-    showToast(`Importing ${picked.name}…`);
+/**
+ * Import from a file dropped onto the window — the path arrives from the Rust window
+ * event handler (see `src-tauri/src/lib.rs`), which is what blesses it against the read
+ * command, so this is the same flow as `runImport` minus the dialog.
+ */
+export async function runImportPath(path: string, name: string): Promise<void> {
+  const { showToast } = useGeometryStore.getState();
 
-    // The feature is created first so the imported body has an owner to be keyed against,
-    // and is removed again if the kernel rejects the file — a tree row pointing at
-    // geometry that failed to load would be worse than no row at all.
-    const featureId = documentStore.addFeature("imported");
-
-    try {
-      await importModel(featureId, picked.name, picked.data);
-      documentStore.renameFeature(featureId, picked.name.replace(/\.[^.]+$/, ""));
-      showToast(`Imported ${picked.name}`);
-    } catch (error) {
-      releaseImportedShape(featureId);
-      documentStore.deleteFeature(featureId);
-      throw error;
-    }
+  try {
+    const data = await readFileAtPath(path);
+    await importPicked({ name, data, path });
   } catch (error) {
     showToast(`Import failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
   }

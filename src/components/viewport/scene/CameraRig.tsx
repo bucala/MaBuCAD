@@ -32,11 +32,16 @@ export function CameraRig({ mode }: CameraRigProps) {
     const incoming = mode === "orthographic" ? orthographicRef.current : perspectiveRef.current;
     if (!incoming) return;
 
-    incoming.position.copy(lastPosition.current);
+    // The Vector3 is captured once per run rather than re-read from the ref in the
+    // cleanup: the ref's `.current` is never reassigned (only copied in and out of), but
+    // reading a ref during cleanup reads whatever it holds *then*, which the
+    // react-hooks lint rightly refuses to let pass silently.
+    const last = lastPosition.current;
+    incoming.position.copy(last);
     incoming.updateProjectionMatrix();
 
     return () => {
-      lastPosition.current.copy(incoming.position);
+      last.copy(incoming.position);
     };
   }, [mode]);
 

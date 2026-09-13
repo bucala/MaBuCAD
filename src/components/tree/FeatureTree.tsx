@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Box,
   ChevronDown,
@@ -58,13 +58,18 @@ export function FeatureTree() {
 
   // How many other features currently consume each sketch as input — surfaced on the row
   // so "one sketch feeding several features" (selecting it, then running another command)
-  // is visible after the fact, not just something that happens to work.
-  const sketchUsageCounts = new Map<string, number>();
-  for (const feature of document.features) {
-    for (const parentId of feature.parents) {
-      sketchUsageCounts.set(parentId, (sketchUsageCounts.get(parentId) ?? 0) + 1);
+  // is visible after the fact, not just something that happens to work. Computed per
+  // feature list, not per render: every row's used-by badge reads from this map, so
+  // rebuilding it for a hover re-render would defeat row memoisation.
+  const sketchUsageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const feature of document.features) {
+      for (const parentId of feature.parents) {
+        counts.set(parentId, (counts.get(parentId) ?? 0) + 1);
+      }
     }
-  }
+    return counts;
+  }, [document.features]);
 
   return (
     <div className={styles.tree}>
@@ -164,7 +169,7 @@ export function FeatureTree() {
                   onToggleVisibility={toggleFeatureVisibility}
                   onRollbackToBefore={rollbackToBefore}
                   onEditSketch={resumeSketch}
-                  onContextMenu={(x, y) => openContextMenu(x, y)}
+                  onContextMenu={openContextMenu}
                 />
               </div>
             ))}

@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Rust / Tauri build artifacts — installers ship via the release workflow, not the repo
+src-tauri/target
+
+# Playwright test artifacts
+test-results
+playwright-report
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

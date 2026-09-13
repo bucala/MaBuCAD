@@ -127,6 +127,16 @@ export interface GeometricConstraint {
   entities: string[];
   /** Point ids the constraint acts on. */
   points: string[];
+  /**
+   * An explicit target position, used only by the sketcher's ephemeral drag pin
+   * (`sketchStore.ts`'s `dragPoint`): the pin must pull the dragged point *to the cursor*
+   * while every real "fix"/"fix-line" in the same solve stays anchored to the pre-drag
+   * sketch (see `solveSketch`'s `anchorSketch` doc comment) — one shared anchor map cannot
+   * express both for the same point, so the pin carries its own. Never persisted: the
+   * store strips the drag-pin constraint before the solved sketch lands anywhere, and no
+   * user-facing command creates a constraint with this field.
+   */
+  at?: { x: number; y: number };
 }
 
 export type DimensionKind =

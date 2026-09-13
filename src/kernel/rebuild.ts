@@ -9,6 +9,14 @@ import type { EndCondition, Feature } from "@/types/document";
 import { getImportedShape } from "./importedShapes";
 import { initKernel } from "./occ";
 import { profileRegionGroups, profileRegions, type CircleLoop, type Loop } from "./profile";
+import {
+  MAX_CHECKPOINTS,
+  longestReusablePrefix,
+  planCheckpointEviction,
+  prefixKeys,
+  type BooleanOperation,
+  type RebuildCheckpoint,
+} from "./rebuildCache";
 
 /**
  * One kernel Face's triangle range within `MeshData.indices`, in index-buffer units (i.e.
@@ -76,8 +84,12 @@ export type Solid = ReturnType<ReturnType<typeof drawCircle>["sketchOnPlane"]>["
  * The solid produced by the last successful rebuild, kept so export can hand the kernel's
  * own B-Rep to STEP rather than re-deriving it from the triangulated mesh.
  *
- * Shapes are WebAssembly-backed and are not reclaimed by the JavaScript garbage collector,
- * so the previous one is released whenever a new rebuild replaces it.
+ * While this reference holds it, no collector can reclaim the shape (replicad's
+ * FinalizationRegistry only deletes a shape once its wrapper is unreachable) — but
+ * releasing the previous final is no longer this variable's job: the checkpoint
+ * chain below owns every kernel object it has ever recorded, and `planCheckpointEviction`
+ * releases the old final exactly when no kept checkpoint still references it (see
+ * `rebuildCache.ts`). Assigning here is therefore all that is left to do.
  */
 let currentShape: Solid | null = null;
 
@@ -86,15 +98,39 @@ export function getCurrentShape(): Solid | null {
 }
 
 function replaceCurrentShape(next: Solid | null): void {
-  const previous = currentShape as unknown as { delete?: () => void } | null;
-  if (previous && previous !== (next as unknown as typeof previous)) {
-    try {
-      previous.delete?.();
-    } catch {
-      // A shape already released by the kernel is not worth failing a rebuild over.
-    }
-  }
   currentShape = next;
+}
+
+/**
+ * The prefix cache: one checkpoint per evaluated feature of the history this process last
+ * rebuilt, `checkpoints[i]` holding the replay state after feature `i` under that
+ * prefix's content key. The next rebuild resumes from the longest matching key prefix
+ * instead of replaying features whose outcome is already proven identical — see
+ * `rebuildCache.ts` for the design and the aliasing rules that govern release.
+ *
+ * A single chain serves the active editing session; switching documents (or tabs, which
+ * reload the document) changes feature content at index 0, misses every key, and drops
+ * the whole chain, which is the correct conservative behaviour for a cache that must
+ * never outlive the content it proves.
+ */
+let checkpoints: RebuildCheckpoint<Solid>[] = [];
+
+/** Where the most recent rebuild resumed from — zero means a full replay. Written every
+ * rebuild; read only by the test introspection hook below. */
+let lastReplayedFrom = 0;
+
+/** Test-only: drops the prefix cache so a spec can measure a cold replay against a warm
+ * one, without releasing the dropped shapes (a spec process is short-lived, and the
+ * release path is exercised for real by every rebuild). Never called by the app. */
+export function __clearRebuildCacheForTesting(): void {
+  checkpoints = [];
+}
+
+/** Test-only: how many checkpoints are held and where the last rebuild resumed from, so
+ * the correctness spec can assert the cache actually shortened a replay. Never called by
+ * the app. */
+export function __rebuildCacheDiagnosticsForTesting(): { entries: number; replayedFrom: number } {
+  return { entries: checkpoints.length, replayedFrom: lastReplayedFrom };
 }
 
 /** Builds a replicad drawing for one closed region of a sketch. */
@@ -745,9 +781,6 @@ function buildSweepSolid(profileSketch: Sketch, pathSketch: Sketch): Solid | nul
   return genericSweep(profileWire as never, spineWire as never, {});
 }
 
-/** How a feature's own solid combines with whatever body already exists. */
-type BooleanOperation = "join" | "cut" | "intersect";
-
 /**
  * Combines `addition` into `base` with the given operation — `join`/`cut`/`intersect`
  * map straight onto replicad's own `fuse`/`cut`/`intersect`. A `null` base (nothing built
@@ -777,12 +810,24 @@ function applyOperation(base: Solid | null, addition: Solid, operation: BooleanO
  *
  * Only features above the rollback bar and not suppressed take part, so rolling back
  * genuinely re-evaluates the model rather than just hiding rows in the tree.
+ *
+ * Rather than replaying from scratch every time, the rebuild resumes from the cached
+ * checkpoint prefix whose content keys still match (`rebuildCache.ts`) and replays only
+ * the features from the first change onward — editing the last feature of a deep history
+ * costs one feature, not the whole chain. Every clean replayed prefix becomes the new
+ * cache, so the next edit starts from wherever this one ended.
  */
 export async function rebuildDocument(
   features: Feature[],
   sketches: Record<string, Sketch>,
 ): Promise<RebuildResult> {
   await initKernel();
+
+  // Suppressed features never reach the kernel, so the cache addresses the *evaluated*
+  // list — un-suppressing a feature inserts it into that list and shifts every key after
+  // it, which is exactly the divergence the prefix match exists to catch.
+  const evaluated = features.filter((candidate) => !candidate.suppressed);
+  const keys = prefixKeys(evaluated, sketches);
 
   const errors: Record<string, string> = {};
   let current: Solid | null = null;
@@ -793,11 +838,63 @@ export async function rebuildDocument(
   // rather than the whole cumulative body built up to that point.
   const featureSolids = new Map<string, { solid: Solid; operation: BooleanOperation }>();
 
-  for (const feature of features) {
-    if (feature.suppressed) continue;
+  // Resume from the longest cached prefix whose content still matches; `start` is the
+  // first evaluated index that has to actually be replayed. A fresh process (or a
+  // document switch, which changes feature content at index 0) starts at zero.
+  const start = longestReusablePrefix(
+    checkpoints.map((checkpoint) => checkpoint.key),
+    keys,
+  );
+  lastReplayedFrom = start;
+  if (start > 0) {
+    const resume = checkpoints[start - 1]!;
+    current = resume.current;
+    rotation = [...resume.rotation] as [number, number, number];
+    for (const [id, entry] of resume.featureSolids) featureSolids.set(id, { ...entry });
+  }
+
+  // The chain this rebuild leaves behind: the kept prefix, plus a fresh checkpoint for
+  // every replayed feature whose prefix stayed clean.
+  const newChain: RebuildCheckpoint<Solid>[] = checkpoints.slice(0, start);
+
+  // Checkpoints are only kept for prefixes that replayed without error and without an
+  // imported body. An errored feature can be transiently fixed by something outside the
+  // document (an imported shape being re-registered, kernel state), so the state after it
+  // must be re-derived rather than trusted — `recordCheckpoint` below refuses to record
+  // once any error exists. An imported solid is the other exclusion, tracked by this flag
+  // instead: it is owned by `importedShapes.ts`'s registry, which may release it while the
+  // cache still holds a reference, so the cache stops at the import.
+  let cacheable = true;
+
+  const recordCheckpoint = (index: number) => {
+    if (!cacheable || index < start || index >= MAX_CHECKPOINTS) return;
+    // An errored prefix must never be checkpointed: an error can be fixed by something
+    // outside the document (an imported shape re-registered, kernel state), so the state
+    // after it has to be re-derived, not trusted.
+    if (Object.keys(errors).length > 0) return;
+    newChain[index] = {
+      key: keys[index]!,
+      current,
+      featureSolids: new Map(featureSolids),
+      rotation: [...rotation] as [number, number, number],
+    };
+  };
+
+  for (let index = 0; index < evaluated.length; index++) {
+    if (index < start) continue;
+
+    // The state right now is the end of the *previous* feature — exactly what its
+    // checkpoint records. Recording at the top of the loop rather than the bottom means
+    // every early `continue` in the body below still leaves the checkpoint behind,
+    // without duplicating recording code into each branch.
+    if (index > start) recordCheckpoint(index - 1);
+
+    const feature = evaluated[index]!;
 
     // An imported body has no history to replay; it simply enters the model as a base.
     if (feature.kind === "imported") {
+      // Registry-owned solid from here on — see the `cacheable` note above.
+      cacheable = false;
       const imported = getImportedShape(feature.id);
       if (!imported) {
         errors[feature.id] = "Imported geometry is no longer loaded";
@@ -987,6 +1084,26 @@ export async function rebuildDocument(
       current = applyOperation(current, solid, operation);
     } catch (error) {
       errors[feature.id] = error instanceof Error ? error.message : "Rebuild failed";
+    }
+  }
+
+  // The last feature's checkpoint: the top-of-loop recorder fires only when a *next*
+  // iteration begins, which never happens for the final feature.
+  if (evaluated.length > 0 && evaluated.length - 1 >= start) {
+    recordCheckpoint(evaluated.length - 1);
+  }
+
+  // Swap in the new chain, releasing exactly the kernel objects the old chain owned that
+  // the new one does not — the old final solid included, when no kept checkpoint still
+  // holds it. This is the single place checkpoint shapes are deleted; `replaceCurrentShape`
+  // only assigns, because every previous final is either kept here or released here.
+  const doomed = planCheckpointEviction(checkpoints, newChain, currentShape, current);
+  checkpoints = newChain;
+  for (const shape of doomed) {
+    try {
+      (shape as unknown as { delete?: () => void }).delete?.();
+    } catch {
+      // A shape already released by the kernel is not worth failing a rebuild over.
     }
   }
 

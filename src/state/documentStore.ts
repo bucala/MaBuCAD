@@ -153,6 +153,21 @@ interface DocumentStore {
   rollBackOne: () => void;
   rollToEnd: () => void;
 
+  /**
+   * Arms a pointer-drag gesture on the Drawing sheet — the sheet container calls this on
+   * pointer-down (capture phase) and `endDragEdit` on pointer-up. The gesture's first
+   * *changing* `commit()` snapshots the pre-gesture document as the single undo entry for
+   * the whole drag; every later frame of the same gesture applies without a fresh entry.
+   * Without this, a view/label drag fires `moveDrawingView`/`updateDrawingNote` per
+   * pointermove, and one drag evicts everything before it from the capped history — the
+   * same class of bug `sketchStore.ts`'s own `beginDrag` exists to prevent for point
+   * drags. Arming is lazy (nothing is pushed until a frame actually changes something),
+   * so a plain click that never drags leaves the history untouched.
+   */
+  beginDragEdit: () => void;
+  /** Ends the gesture — discards the armed snapshot if no frame ever changed anything. */
+  endDragEdit: () => void;
+
   selectFeature: (id: string | null, additive?: boolean) => void;
   clearSelection: () => void;
 
@@ -264,15 +279,45 @@ interface DocumentStore {
 
 export const useDocumentStore = create<DocumentStore>((set, get) => {
   /**
+   * The pre-gesture document of a pointer-drag currently in progress (`beginDragEdit`
+   * until `endDragEdit`), or null outside a gesture — see `beginDragEdit`'s doc comment.
+   * Closure state, not store state: it is transient gesture bookkeeping that nothing
+   * renders, the same way `sketchStore.ts` keeps its own drag-gesture flags outside the
+   * store.
+   */
+  let dragSnapshot: CadDocument | null = null;
+  /** Whether a pointer-drag gesture is currently in progress at all — stays true for the
+   * whole gesture, unlike `dragSnapshot`, which the first *changing* commit consumes. */
+  let inDragGesture = false;
+
+  /**
    * Applies a change to the document and records the previous state for undo.
    *
    * Every mutation goes through here so history stays complete; selection and unit
    * changes deliberately do not, since undoing a click is surprising.
+   *
+   * Gesture-aware: inside an armed drag gesture the first *changing* commit records the
+   * pre-gesture document as the gesture's single history entry and the gesture's later
+   * frames apply without one, so a whole pointer-drag is one undo step.
    */
   const commit = (mutate: (document: CadDocument) => CadDocument) => {
     const { document, past } = get();
     const next = mutate(document);
     if (next === document) return;
+
+    if (inDragGesture) {
+      // The pre-gesture document, or null once an earlier frame of this gesture already
+      // consumed it — later frames of the same gesture push nothing.
+      const snapshot = dragSnapshot;
+      dragSnapshot = null;
+
+      set({
+        document: next,
+        past: snapshot ? [...past, snapshot].slice(-HISTORY_LIMIT) : past,
+        future: [],
+      });
+      return;
+    }
 
     set({
       document: next,
@@ -491,6 +536,15 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     rollBackOne: () => get().setRollbackIndex(get().document.rollbackIndex - 1),
     rollForwardOne: () => get().setRollbackIndex(get().document.rollbackIndex + 1),
     rollToEnd: () => get().setRollbackIndex(get().document.features.length),
+
+    beginDragEdit: () => {
+      inDragGesture = true;
+      dragSnapshot = get().document;
+    },
+    endDragEdit: () => {
+      inDragGesture = false;
+      dragSnapshot = null;
+    },
 
     selectFeature: (id, additive = false) => {
       if (id === null) {
@@ -917,13 +971,23 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         };
       }),
 
-    loadDocument: (document) =>
-      set({ document, past: [], future: [], selectedFeatureIds: [], contextMenu: null }),
+    loadDocument: (document) => {
+      inDragGesture = false;
+      dragSnapshot = null;
+      set({ document, past: [], future: [], selectedFeatureIds: [], contextMenu: null });
+    },
 
-    restoreSession: (document, past, future, unitSystem) =>
-      set({ document, past, future, unitSystem, selectedFeatureIds: [], contextMenu: null }),
+    restoreSession: (document, past, future, unitSystem) => {
+      inDragGesture = false;
+      dragSnapshot = null;
+      set({ document, past, future, unitSystem, selectedFeatureIds: [], contextMenu: null });
+    },
 
     undo: () => {
+      // A keyboard undo mid-drag ends the gesture: the drag's next frame becomes a fresh
+      // edit against the restored document rather than being swallowed as a gesture frame.
+      inDragGesture = false;
+      dragSnapshot = null;
       const { past, document, future } = get();
       const previous = past[past.length - 1];
       if (!previous) return;
@@ -936,6 +1000,8 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     },
 
     redo: () => {
+      inDragGesture = false;
+      dragSnapshot = null;
       const { past, document, future } = get();
       const [next, ...rest] = future;
       if (!next) return;

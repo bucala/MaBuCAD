@@ -390,6 +390,12 @@ export function measure(sketch: Sketch, kind: DimensionKind, points: string[], e
 
       const u = ends(a);
       const v = ends(b);
+      // A degenerate (zero-length) line has no angle to anything — `atan2(0, 0)` is 0 and
+      // would silently report a confident-looking 0° for a line with no direction. The
+      // solver's own angle residual skips the same case (see `residuals.ts`).
+      const scaleU = Math.hypot(u.x, u.y);
+      const scaleV = Math.hypot(v.x, v.y);
+      if (scaleU < 1e-9 || scaleV < 1e-9) return 0;
       const angle = Math.atan2(Math.abs(u.x * v.y - u.y * v.x), u.x * v.x + u.y * v.y);
       return (angle * 180) / Math.PI;
     }

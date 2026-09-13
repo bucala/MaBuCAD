@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { CircleAlert, Eye, EyeOff, Pencil, Power, PowerOff, Trash2, Undo2 } from "lucide-react";
 
 import { featureIcon } from "@/state/featureCatalog";
@@ -25,7 +25,13 @@ interface FeatureRowProps {
   onContextMenu: (clientX: number, clientY: number) => void;
 }
 
-export function FeatureRow({
+/**
+ * One feature row. Memoised: with all its callbacks stable (the tree passes store actions
+ * straight through), a row only re-renders when the values it actually shows change — a
+ * selection toggle or a hide/suppress click re-renders just that row instead of every row
+ * in a large feature history.
+ */
+export const FeatureRow = memo(function FeatureRow({
   feature,
   depth,
   isSelected,
@@ -220,4 +226,4 @@ export function FeatureRow({
       )}
     </div>
   );
-}
+});

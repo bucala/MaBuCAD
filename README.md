@@ -47,7 +47,8 @@ Tauri.
 
 Every feature (sketch, extrude, fillet, pattern…) is a step in an ordered, replayable
 history — rollback, suppress, rename, reorder by dragging the rollback bar, undo/redo, all
-live in the Feature Manager tree.
+live in the Feature Manager tree. Undo is gesture-aware: dragging a view, a note or a
+dimension label costs exactly one undo step, not one per pointer frame.
 
   </td>
   <td width="33%" valign="top">
@@ -71,7 +72,9 @@ just a colour swap.
 
 Solids are genuine OpenCASCADE boundary representation, compiled to WebAssembly and driven
 through [replicad](https://replicad.xyz) — not a triangle soup, which is what makes fillet,
-shell and exact STEP export possible at all.
+shell and exact STEP export possible at all. Rebuilds resume from a content-addressed
+prefix cache: editing a late feature replays only the tail of the history, and a no-change
+rebuild costs little more than re-meshing the result.
 
   </td>
   </tr>
@@ -128,8 +131,12 @@ Mica backdrop — Fluent 2 design tokens throughout, not an imitation.
 
 ### 🧪 A real regression suite
 
-60+ Playwright scripts drive the actual app end to end — sketch solving, every PartDesign
-feature, undo/redo, import/export — not just typecheck and hope.
+A committed Playwright suite drives the actual app end to end — the sketcher and the
+constraint solver's live DOF readout, an extrude through the WASM kernel, undo/redo, a
+document Save As/Open round-trip, the language switcher — plus a 106-test unit suite that
+runs the real WASM kernel under Node (the rebuild cache is proven byte-identical cached
+vs. from-scratch) and pins the sketch renderer's drag memoisation at a 240-entity scale,
+typecheck and a CI workflow that runs all of it on every push, not just typecheck and hope.
 
   </td>
   </tr>
@@ -139,8 +146,11 @@ feature, undo/redo, import/export — not just typecheck and hope.
 ### 🌍 9 languages
 
 A language switcher for English, Slovak, Czech, German, French, Italian, Spanish, Russian
-and Chinese. English and Slovak are fully translated today; the rest fall back to English
-string-by-string until translated.
+and Chinese. English and Slovak are fully translated today — including every ribbon hover
+tooltip and the three manager dock panels (Sketch, Inspect, Properties); the rest fall
+back to English string-by-string until translated. A unit test pins the Slovak
+dictionary's coverage of the ribbon and feature catalog, so a new command can't ship
+with a silent gap.
 
   </td>
   <td width="33%" valign="top">
@@ -222,9 +232,9 @@ Hole Wizard bolt pattern and a fillet — shown in the Feature Manager tree.</su
 │                   viewcube, B-Rep edge overlay drawn        │
 │                   separately from the shaded triangulation │
 ├───────────────────────────────────────────────────────────┤
-│ Sketch solver     damped Newton iteration over constraint  │
-│                   + dimension residuals, finite-difference │
-│                   Jacobian, DOF from its rank               │
+│ Sketch solver     damped Newton over constraint/dimension  │
+│                   residuals; sparse finite-difference      │
+│                   Jacobian; DOF from its rank               │
 ├───────────────────────────────────────────────────────────┤
 │ Geometric kernel  OpenCASCADE compiled to WASM (replicad), │
 │                   lazy-loaded on first feature; the whole  │
@@ -240,8 +250,15 @@ Hole Wizard bolt pattern and a fillet — shown in the Feature Manager tree.</su
 
 - **The whole document rebuilds from feature history on every change** — `kernel/rebuild.ts`
   replays every feature above the rollback bar into one solid, rather than patching an
-  existing one. Simpler to reason about than incremental topological-naming updates, at the
-  cost of rebuild time on very deep histories, which this project hasn't hit yet.
+  existing one. Simpler to reason about than incremental topological-naming updates. The
+  replay is checkpointed through `kernel/rebuildCache.ts`: each clean prefix of the
+  history is cached under a content hash of everything it reads (features, their
+  sketches), so a rebuild resumes from the longest still-matching prefix and replays only
+  the tail — an edit of a late feature no longer pays for the whole chain, and a
+  no-change rebuild costs little more than re-meshing. Checkpoints are never stored for
+  an errored prefix or across an imported body (whose solid the import registry owns and
+  may release), and kernel-shape release is centralised in an identity-based eviction
+  plan that understands the aliasing dress-ups create.
 - **Sketches build in their own plane's local, un-rotated space**; only the final
   triangulated mesh gets a cosmetic display rotation for on-screen placement. The
   alternative — mapping this app's plane conventions onto the kernel's own — risks a
@@ -285,6 +302,16 @@ Hole Wizard bolt pattern and a fillet — shown in the Feature Manager tree.</su
   (sketch previews, selection highlights) can't read a CSS variable — `three.js` materials
   need an actual value — so `useSceneAccentColor()` mirrors the same derivation in
   JavaScript for the viewport.
+- **A point drag re-tessellates one entity, not the whole sketch**: the sketch store
+  rewrites the sketch immutably on every pointer-move, so a naive `useMemo([entity,
+  sketch])` re-tessellates every circle/arc/spline on each drag frame. Each entity instead
+  gets a cheap version key (`sketchRender.ts`'s `entityPointVersion`) built from the
+  coordinates of only the points it references (plus radius, for circles/arcs), resolved
+  through one shared Map-backed point lookup per render rather than a linear pool scan;
+  the memoised `EntityView` compares that key, so the expensive tessellation reruns only for
+  the entity whose own points actually moved — measured at ~5x less per-frame geometry
+  work on a 240-entity sketch (reader construction included), with a unit suite pinning
+  the key's stability contract.
 - **Fluent-only where it doesn't cost correctness**: the window keeps its native Windows
   caption bar (`decorations: true`) rather than a custom-drawn one, so Snap Layouts, rounded
   corners and per-monitor DPI come from the OS. Mica needs `transparent: true`, so the page
@@ -333,8 +360,13 @@ npm run dev             # http://localhost:1420
 <br />
 
 ```powershell
+npm run lint             # ESLint over all source (hook discipline, unused code)
 npm run typecheck      # tsc --noEmit
+npm run test             # Vitest unit suite: solver, residuals, Jacobian, equations, undo
+                         # history, point drag, render memoisation, translations, document
+                         # validation, rebuild cache (boots the real WASM kernel)
 npm run build           # typecheck + production frontend build
+npm run test:e2e       # Playwright regression suite against the dev server
 npm run tauri build    # MSI and NSIS installers in src-tauri/target/release/bundle/
 ```
 
@@ -353,14 +385,17 @@ npm run tauri build    # MSI and NSIS installers in src-tauri/target/release/bun
 
 <br />
 
-A large committed suite of Playwright scripts drives the real dev server end to end —
-sketch drawing and the constraint solver, every PartDesign feature, undo/redo/rollback,
-import/export round trips, theming, and the full ribbon command surface — rather than
-relying on typecheck and build alone to say a feature actually works. See
-[`CHANGELOG.md`](./CHANGELOG.md) for the dated history of what was verified, and the bugs
-this suite caught along the way (including a WASM heap-corruption bug in the vendored
-kernel, a rare pointer-event race in the sketch tool, and a UI panel that silently never
-surfaced a new Fillet/Chamfer's own edge-selection and radius controls).
+A committed Playwright suite (`e2e/`) drives the real dev server end to end — the
+application shell, sketch drawing with the constraint solver's live DOF readout, an
+extrude that boots the WASM kernel, undo/redo, a document Save As/Open round-trip that
+asserts the on-disk format, and the language switcher — rather than relying on typecheck
+and build alone to say a feature actually works. GitHub Actions (`.github/workflows/ci.yml`)
+runs the suite plus typecheck, the production build, `cargo check` and clippy on every
+push and pull request. See [`CHANGELOG.md`](./CHANGELOG.md) for the dated history of what
+was verified along the way, including the bugs past rounds of testing caught (a WASM
+heap-corruption bug in the vendored kernel, a rare pointer-event race in the sketch tool,
+and a UI panel that silently never surfaced a new Fillet/Chamfer's own edge-selection and
+radius controls).
 
 </details>
 
@@ -386,9 +421,10 @@ src/
   kernel/occ.ts               Lazy OpenCASCADE WebAssembly boot
   kernel/profile.ts           Closed-loop extraction from a sketch
   kernel/rebuild.ts           Feature history -> solid -> triangulated mesh
+  kernel/rebuildCache.ts      Content-addressed prefix cache for the replay
   kernel/io.ts                 STEP/STL export and import against the kernel
-  sketch/solver.ts             Damped Newton constraint solver and DOF counting
-  sketch/residuals.ts          Constraint and dimension residual equations
+  sketch/solver.ts             Damped Newton solver; per-constraint sparse Jacobian
+  sketch/residuals.ts          Constraint/dimension residual blocks + variable deps
   sketch/sketchModel.ts        Sketch construction, snapping and measuring
   sketch/planeBasis.ts         Sketch 2D <-> world transforms
   state/documentStore.ts       Feature history, selection, undo/redo
@@ -404,6 +440,11 @@ src-tauri/
   src/fileio.rs                 Scoped read/write commands for interchange
   tauri.conf.json               Window, Mica effect, CSP and bundle configuration
 scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into one command
+e2e/                           Playwright regression suite driving the real dev server
+playwright.config.ts           Test config: boots the Vite dev server as the test target
+vitest.config.ts              Unit-test config: pure TypeScript logic under Node, no browser
+eslint.config.js              ESLint flat config: hook discipline + unused code, no style rules
+.github/workflows/ci.yml       CI: typecheck, build, e2e, cargo check + clippy
 ```
 
 ---
@@ -415,7 +456,7 @@ scripts/build-msi.ps1          Wraps install + typecheck + `tauri build` into on
 | **STEP** | ✅ | ✅ | Exact B-Rep (`ADVANCED_BREP`), round-trips exactly |
 | **STL** | ✅ binary | ✅ binary | Triangulated mesh, for manufacturing hand-off / 3D printing |
 | **IGES** | — | — | The bundled OpenCASCADE build has no IGES support compiled in; the ribbon button stays visibly present but disabled, with the reason in its tooltip |
-| **`.mabucad`** (document) | ✅ | ✅ | The full parametric feature history, sketches included |
+| **`.mabucad`** (document) | ✅ | ✅ | The full parametric feature history, sketches included; files carry a format version and are migrated forward on open |
 | **`.mabucad-settings`** | ✅ | ✅ | App-wide preferences (theme, accent, tolerances) — for backup or a second machine |
 
 ---

@@ -5,6 +5,7 @@ import { PrintOverlay } from "@/components/PrintOverlay";
 import { useAutosave } from "@/hooks/useAutosave";
 import { useDebugLogging } from "@/hooks/useDebugLogging";
 import { useDisableNativeContextMenu } from "@/hooks/useDisableNativeContextMenu";
+import { useDragDropImport } from "@/hooks/useDragDropImport";
 import { useEscapeToDeselect } from "@/hooks/useEscapeToDeselect";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useRebuild } from "@/hooks/useRebuild";
@@ -19,6 +20,7 @@ export default function App() {
   useDisableNativeContextMenu();
   useAutosave();
   useDebugLogging();
+  useDragDropImport();
 
   // Rebuild failures belong on the feature that caused them, so the tree can badge it.
   const errors = useGeometryStore((state) => state.errors);

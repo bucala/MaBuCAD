@@ -137,6 +137,8 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
   const toggleSelection = useSketchStore((state) => state.toggleSelection);
   const setDimensionValue = useSketchStore((state) => state.setDimensionValue);
   const setDimensionLabelOffset = useSketchStore((state) => state.setDimensionLabelOffset);
+  const beginDrag = useSketchStore((state) => state.beginDrag);
+  const endDrag = useSketchStore((state) => state.endDrag);
   const openContextMenu = useSketchStore((state) => state.openContextMenu);
   const conflictingIds = useSketchStore((state) => state.conflictingIds);
   // Dimension labels are real DOM buttons layered over the canvas via drei's Html, so
@@ -186,6 +188,10 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     const sketchPos = screenToSketch(event.clientX, event.clientY);
     if (!sketchPos) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    // Arms the same gesture mechanism a point drag uses — the whole label drag becomes one
+    // undo step (first moving frame snapshots, later frames apply), and a grab released
+    // without moving pushes nothing. See `beginDrag`'s own doc comment in `sketchStore.ts`.
+    beginDrag();
     didDrag.current = false;
     dragStart.current = { offset: dimension.labelOffset, sketchPos };
   };
@@ -205,6 +211,8 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
   const handleLabelPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (!dragStart.current) return;
     dragStart.current = null;
+    // Ends the gesture — discards the armed snapshot if no frame ever moved the label.
+    endDrag();
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
@@ -511,6 +519,7 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
             onPointerDown={handleLabelPointerDown}
             onPointerMove={handleLabelPointerMove}
             onPointerUp={handleLabelPointerUp}
+            onPointerCancel={handleLabelPointerUp}
           >
             {text}
           </button>

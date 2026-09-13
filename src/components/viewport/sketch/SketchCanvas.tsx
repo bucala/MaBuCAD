@@ -175,6 +175,34 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     return snapToGridEnabled ? snapToGrid(local) : local;
   };
 
+  /**
+   * Window-level release for a drag or trim marquee started on the r3f pick plane.
+   *
+   * The r3f `onPointerUp` only fires when the release's raycast still hits that plane, so
+   * a release landing on a DOM overlay, anywhere the ray misses, or on an entity whose own
+   * handler stops propagation would leave `draggingPointId`/`trimPointerDownAt` set — and
+   * the next hover over the canvas would resume the drag or marquee with no button held.
+   * This listener runs *after* r3f's own release handling (bubble phase: the canvas sits
+   * below `window`), so a normal in-plane release has already cleared the refs and this
+   * is a no-op; only the missed-release path reaches the cleanup, where a drag still
+   * commits its snap suggestion but an unfinished marquee is cancelled rather than
+   * window-selecting a rectangle the user never finished.
+   */
+  const installDragRelease = () => {
+    const finish = () => {
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      if (draggingPointId.current) {
+        commitDragSnap(draggingPointId.current);
+        draggingPointId.current = null;
+      }
+      trimPointerDownAt.current = null;
+      setTrimMarquee(null);
+    };
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  };
+
   const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
     if (tool === "trim" && event.button === 0) {
       // Doesn't `stopPropagation()`: a plain click still needs to reach whichever entity's
@@ -186,6 +214,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
       // reference point is simpler than re-deriving one) must not move an already-fixed
       // corner.
       trimPointerDownAt.current = { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY };
+      installDragRelease();
       const local = screenToSketch(event.nativeEvent.clientX, event.nativeEvent.clientY);
       if (local) setTrimMarquee({ start: local, end: local });
       return;
@@ -205,6 +234,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
       // doc comment for why `dragPoint` below does not push its own history.
       beginDrag();
       draggingPointId.current = hit.id;
+      installDragRelease();
       event.stopPropagation();
     }
   };

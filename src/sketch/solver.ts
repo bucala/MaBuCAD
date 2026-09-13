@@ -1,11 +1,14 @@
 import {
+  buildEntityMap,
   buildLayout,
-  evaluateResiduals,
   packVariables,
+  residualSources,
+  sourceResiduals,
   unpackVariables,
+  type ResidualSource,
   type VariableLayout,
 } from "./residuals";
-import type { Sketch, SketchDiagnostics, SketchEntity } from "./types";
+import type { Sketch, SketchDiagnostics } from "./types";
 
 const MAX_ITERATIONS = 60;
 const CONVERGENCE_TOLERANCE = 1e-8;
@@ -13,7 +16,15 @@ const CONVERGENCE_TOLERANCE = 1e-8;
 const DERIVATIVE_STEP = 1e-7;
 /** Levenberg-Marquardt damping, small enough not to bias a well-posed system. */
 const DAMPING = 1e-9;
-/** Singular value threshold when counting independent constraint rows. */
+/**
+ * How many times a rejected Newton step is halved before the iteration gives up on it.
+ * A damped Newton step can overshoot — its linear model is only locally valid — so a step
+ * that *increases* the residual norm is retried at half, quarter, … scale rather than
+ * accepted (the pre-backtracking behaviour) or thrown away after one try.
+ */
+const MAX_BACKTRACKING_STEPS = 5;
+/** Pivot threshold when counting independent constraint rows, applied after each row is
+ * normalised by its own largest entry — see `matrixRank`. */
 const RANK_TOLERANCE = 1e-7;
 
 function norm(values: number[]): number {
@@ -23,37 +34,53 @@ function norm(values: number[]): number {
 }
 
 /**
- * Jacobian by central differences.
+ * Jacobian by central differences, exploiting each residual block's sparse dependencies.
  *
- * Analytic derivatives would be faster, but sketches here have tens of variables, and
- * finite differences keep every constraint's residual as the single source of truth —
- * adding a constraint type needs no matching derivative code to get wrong.
+ * A constraint's equations only read a handful of the sketch's variables, so instead of
+ * perturbing a full variable at a time — the dense build pays 2n+1 *whole* residual
+ * evaluations per iteration and touches every row×column cell, which is quadratic in the
+ * sketch and dominates once sketches reach hundreds of variables — each block recomputes
+ * only its own rows and only along the variables its own equations read. Rows stay at zero
+ * off their block's own `variables`, and a free variable that no block references keeps its
+ * entire column zero (dense probing would have found the same zeros, just at full cost).
+ *
+ * The `jacobian.spec.ts` consistency suite is the guarantee that this sparse build produces
+ * the same matrix as a dense full-vector perturbation on every constraint/dimension kind —
+ * including the `fix`-on-circle/arc radius rows — so a drift in the dependency tables in
+ * `residuals.ts` fails loudly instead of silently producing a wrong solver.
+ *
+ * Exported only so that suit can call the exact same function the solver uses; no other
+ * caller imports it.
  */
-function jacobian(
-  sketch: Sketch,
+export function jacobian(
+  sources: ResidualSource[],
   layout: VariableLayout,
   values: Float64Array,
-  anchors: Map<string, { x: number; y: number }>,
-  anchorEntities: Map<string, SketchEntity>,
   rows: number,
 ): number[][] {
   const matrix: number[][] = Array.from({ length: rows }, () => new Array(layout.size).fill(0));
   const probe = Float64Array.from(values);
 
-  for (let column = 0; column < layout.size; column += 1) {
-    const original = probe[column];
-    const step = DERIVATIVE_STEP * Math.max(1, Math.abs(original));
+  for (const source of sources) {
+    const start = source.rowStart;
+    const evaluate = source.evaluate;
 
-    probe[column] = original + step;
-    const forward = evaluateResiduals(sketch, layout, probe, anchors, anchorEntities);
+    for (const column of source.variables) {
+      const original = probe[column];
+      const step = DERIVATIVE_STEP * Math.max(1, Math.abs(original));
 
-    probe[column] = original - step;
-    const backward = evaluateResiduals(sketch, layout, probe, anchors, anchorEntities);
+      probe[column] = original + step;
+      const forward = evaluate(probe);
 
-    probe[column] = original;
+      probe[column] = original - step;
+      const backward = evaluate(probe);
 
-    for (let row = 0; row < rows; row += 1) {
-      matrix[row][column] = (forward[row] - backward[row]) / (2 * step);
+      probe[column] = original;
+
+      const denominator = 2 * step;
+      for (let row = 0; row < forward.length; row += 1) {
+        matrix[start + row][column] = (forward[row] - backward[row]) / denominator;
+      }
     }
   }
 
@@ -117,9 +144,25 @@ function solveNormalEquations(
   return step;
 }
 
-/** Rank of the Jacobian by Gaussian elimination, used to count degrees of freedom. */
+/**
+ * Rank of the Jacobian by Gaussian elimination, used to count degrees of freedom.
+ *
+ * Each row is normalised by its own largest entry first: constraint rows arrive in mixed
+ * scales (a degenerate-direction guard divides by a `MIN_LENGTH` clamp, which for a
+ * zero-length line produces entries around 1e9, while an ordinary coincidence row sits
+ * near 1), so a raw absolute threshold lets one extreme row dominate pivot selection and
+ * flickers the counted rank — and with it the DOF readout — between solves of
+ * near-identical constraint sets. On the normalised matrix `RANK_TOLERANCE` keeps one
+ * constant meaning ("a pivot this small is finite-difference noise, not an independent
+ * direction") across rows of any original scale.
+ */
 function matrixRank(matrix: number[][], columns: number): number {
-  const working = matrix.map((row) => [...row]);
+  const working = matrix.map((row) => {
+    let max = 0;
+    for (const value of row) max = Math.max(max, Math.abs(value));
+    const scale = max > 0 ? max : 1;
+    return row.map((value) => value / scale);
+  });
   let rank = 0;
 
   for (let column = 0; column < columns && rank < working.length; column += 1) {
@@ -152,7 +195,12 @@ export interface SolveOutcome {
 }
 
 /**
- * Solves a sketch's constraint system by damped Newton iteration.
+ * Solves a sketch's constraint system by damped Newton iteration with a backtracking line
+ * search — steps are only accepted when they reduce the residual norm, so the returned
+ * geometry is never *less* constraint-satisfying than the geometry passed in, even when
+ * the system cannot converge at all (conflicting constraints leave it at the closest
+ * attempt and report over-defined, rather than committing wherever the iteration cap
+ * happened to leave the points).
  *
  * Returns the updated geometry together with diagnostics the status bar turns into
  * "Fully Defined" / "Under Defined" / "Over Defined". An under-defined sketch is not an
@@ -171,9 +219,16 @@ export function solveSketch(sketch: Sketch, anchorSketch: Sketch = sketch): Solv
   const layout = buildLayout(sketch);
   const anchors = new Map(anchorSketch.points.map((point) => [point.id, { x: point.x, y: point.y }]));
   const anchorEntities = new Map(anchorSketch.entities.map((entity) => [entity.id, entity]));
+  const entities = buildEntityMap(sketch);
 
   let values = packVariables(sketch, layout);
-  let residuals = evaluateResiduals(sketch, layout, values, anchors, anchorEntities);
+  // The sparse residual decomposition — one block per constraint/dimension, each knowing
+  // the few variables its own equations read. Built once for the whole solve and reused
+  // by every iteration's residual pass and Jacobian probe (see `jacobian`); the initial
+  // `values` fix each block's row offset, so the vector `sourceResiduals` produces matches
+  // the one `evaluateResiduals` would have returned for the same guess.
+  const sources = residualSources(sketch, layout, values, anchors, anchorEntities, entities);
+  let residuals = sourceResiduals(sources, values);
 
   if (residuals.length === 0 || layout.size === 0) {
     return {
@@ -188,38 +243,70 @@ export function solveSketch(sketch: Sketch, anchorSketch: Sketch = sketch): Solv
     };
   }
 
+  let residualNorm = norm(residuals);
   let iterations = 0;
-  let converged = norm(residuals) < CONVERGENCE_TOLERANCE;
+  let converged = residualNorm < CONVERGENCE_TOLERANCE;
+
+  // Best-so-far tracking over a strictly monotonically improving path: every accepted
+  // step reduces ‖F‖ (see the backtracking below), so `bestValues` is never further from
+  // satisfying the constraints than the geometry this function was handed. A
+  // non-converged solve therefore returns the closest attempt rather than committing
+  // wherever iteration 60 happened to leave the points — the old behaviour, which could
+  // hand a wildly diverged sketch to the store when the system conflicted.
+  let bestValues = values;
+  let bestResiduals = residuals;
+  let bestNorm = residualNorm;
 
   while (!converged && iterations < MAX_ITERATIONS) {
-    const matrix = jacobian(sketch, layout, values, anchors, anchorEntities, residuals.length);
+    const matrix = jacobian(sources, layout, values, residuals.length);
     const step = solveNormalEquations(matrix, residuals, layout.size);
     if (!step) break;
 
-    const candidate = Float64Array.from(values);
-    for (let index = 0; index < layout.size; index += 1) candidate[index] += step[index];
+    // Backtracking line search: accept a step only if it actually reduces ‖F‖, halving
+    // and retrying when it doesn't. Without this the loop accepted every finite step —
+    // a conflicting or badly-posed system would wander for all 60 iterations, each one
+    // potentially further out than the last.
+    let accepted = false;
+    for (let attempt = 0; attempt < MAX_BACKTRACKING_STEPS && !accepted; attempt += 1) {
+      const candidate = Float64Array.from(values);
+      for (let index = 0; index < layout.size; index += 1) candidate[index] += step[index];
 
-    const candidateResiduals = evaluateResiduals(sketch, layout, candidate, anchors, anchorEntities);
-    if (!candidateResiduals.every(Number.isFinite)) break;
+      const candidateResiduals = sourceResiduals(sources, candidate);
+      if (!candidateResiduals.every(Number.isFinite)) break;
+      const candidateNorm = norm(candidateResiduals);
 
-    values = candidate;
-    residuals = candidateResiduals;
+      if (candidateNorm < residualNorm) {
+        values = candidate;
+        residuals = candidateResiduals;
+        residualNorm = candidateNorm;
+        accepted = true;
+        if (candidateNorm < bestNorm) {
+          bestValues = candidate;
+          bestResiduals = candidateResiduals;
+          bestNorm = candidateNorm;
+        }
+      } else {
+        for (let index = 0; index < layout.size; index += 1) step[index] /= 2;
+      }
+    }
+
+    if (!accepted) break;
     iterations += 1;
-    converged = norm(residuals) < CONVERGENCE_TOLERANCE;
+    converged = residualNorm < CONVERGENCE_TOLERANCE;
   }
 
-  const finalJacobian = jacobian(sketch, layout, values, anchors, anchorEntities, residuals.length);
+  const finalJacobian = jacobian(sources, layout, bestValues, bestResiduals.length);
   const rank = matrixRank(finalJacobian, layout.size);
 
   return {
-    sketch: unpackVariables(sketch, layout, values),
+    sketch: unpackVariables(sketch, layout, bestValues),
     diagnostics: {
       dof: Math.max(0, layout.size - rank),
       converged,
       // Fewer independent rows than equations means at least one constraint restates
       // another, which is what SolidWorks reports as over-defined.
-      redundant: rank < residuals.length,
-      residualNorm: norm(residuals),
+      redundant: rank < bestResiduals.length,
+      residualNorm: bestNorm,
       iterations,
     },
   };

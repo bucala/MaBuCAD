@@ -1,6 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { create } from "zustand";
 
+import { DOCUMENT_FORMAT_VERSION, SavedDocument, validateSavedDocument } from "@/io/documentValidation";
 import { releaseImportedShapesForFeatures } from "@/kernel/importedShapes";
 import { openFile, saveBlobAs, writeBinaryAtPath } from "@/io/files";
 import type { Sketch } from "@/sketch/types";
@@ -30,24 +31,6 @@ import { useViewportStore } from "./viewportStore";
  */
 
 const EXTENSION = "mabucad";
-const FORMAT_VERSION = 1;
-
-interface SavedDocument {
-  formatVersion: number;
-  document: CadDocument;
-  sketches: Record<string, Sketch>;
-  unitSystem: UnitSystemId;
-}
-
-function isSavedDocument(value: unknown): value is SavedDocument {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "formatVersion" in value &&
-    "document" in value &&
-    "sketches" in value
-  );
-}
 
 export interface DocumentSession {
   /** Tab identity — deliberately not `document.id`: a document's own id is assigned by a
@@ -207,20 +190,22 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       }
 
       const parsed: unknown = JSON.parse(new TextDecoder().decode(picked.data));
-      if (!isSavedDocument(parsed)) {
-        throw new Error(`${picked.name} is not a MaBuCAD document`);
+      const validated = validateSavedDocument(parsed);
+      if (!validated.ok) {
+        throw new Error(`${picked.name} is not a valid MaBuCAD document: ${validated.error}`);
       }
+      const saved = validated.saved;
 
       const { sessions, activeId } = get();
       const withSnapshot = sessions.map((session) => (session.id === activeId ? snapshotActive(session) : session));
 
       const session: DocumentSession = {
         id: nextSessionId(),
-        kind: parsed.document.kind,
+        kind: saved.document.kind,
         filePath: picked.path,
-        document: parsed.document,
-        sketches: parsed.sketches,
-        unitSystem: parsed.unitSystem ?? "MMGS",
+        document: saved.document,
+        sketches: saved.sketches,
+        unitSystem: saved.unitSystem ?? "MMGS",
         past: [],
         future: [],
         hiddenFeatureIds: [],
@@ -280,7 +265,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const { sketches } = useSketchStore.getState();
     const knownPath = get().sessions.find((session) => session.id === get().activeId)?.filePath ?? null;
 
-    const payload: SavedDocument = { formatVersion: FORMAT_VERSION, document, sketches, unitSystem };
+    const payload: SavedDocument = { formatVersion: DOCUMENT_FORMAT_VERSION, document, sketches, unitSystem };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
 
     try {
@@ -311,7 +296,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const { document, unitSystem } = useDocumentStore.getState();
     const { sketches } = useSketchStore.getState();
 
-    const payload: SavedDocument = { formatVersion: FORMAT_VERSION, document, sketches, unitSystem };
+    const payload: SavedDocument = { formatVersion: DOCUMENT_FORMAT_VERSION, document, sketches, unitSystem };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
 
     try {

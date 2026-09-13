@@ -13,14 +13,17 @@ export function RibbonButton({ item, onInvoke }: RibbonButtonProps) {
   const isLarge = size === "large";
   const { t } = useTranslation();
   // The command's own `id` doubles as its translation key — see `translations.ts`'s doc
-  // comment on why that needed no new keys invented for the whole ribbon.
+  // comment on why that needed no new keys invented for the whole ribbon. The hover
+  // tooltip follows the same scheme with a `.description` suffix; when a command has no
+  // description at all the tooltip falls back to the (translated) label itself.
   const label = t(item.id, englishLabel);
+  const tooltip = description ? t(`${item.id}.description`, description) : label;
 
   return (
     <button
       type="button"
       className={`${styles.button} ${isLarge ? styles.large : styles.small}`}
-      title={description ?? label}
+      title={tooltip}
       aria-label={label}
       disabled={!enabled}
       onClick={() => onInvoke(item)}

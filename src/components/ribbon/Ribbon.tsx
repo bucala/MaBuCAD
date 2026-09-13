@@ -57,6 +57,7 @@ export function Ribbon() {
   return (
     <div
       className={styles.ribbon}
+      data-testid="ribbon"
       onContextMenu={(event) => {
         event.preventDefault();
         setContextMenuPosition({ x: event.clientX, y: event.clientY });

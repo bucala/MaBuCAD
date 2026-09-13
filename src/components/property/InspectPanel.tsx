@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { computeGeometryCheck } from "@/kernel/checkGeometry";
 import { faceAngleToAxis } from "@/kernel/faceColoring";
 import { computeMassProperties, computeMeasureSummary, computeSectionProperties } from "@/kernel/measure";
+import { fillTemplate, useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
 import { evaluateExpression, isValidVariableName } from "@/state/equations";
 import { useGeometryStore } from "@/state/geometryStore";
@@ -15,16 +16,18 @@ import styles from "./InspectPanel.module.css";
 const ENTITY_LABEL: Record<"face" | "edge", string> = { face: "Face", edge: "Edge" };
 const VALUE_LABEL: Record<"face" | "edge", string> = { face: "Area", edge: "Length" };
 
-const TOOL_TITLE: Record<Exclude<InspectTool, null>, string> = {
-  measure: "Measure",
-  mass: "Mass Properties",
-  section: "Section Properties",
-  geometry: "Check Geometry",
-  "draft-analysis": "Draft Analysis",
-  "parent-child": "Parent / Child",
-  equations: "Equations",
-  sensors: "Sensors",
-  appearance: "Appearance",
+/** Section title per tool — the value reuses the matching `inspect.*` command key, so the
+ * ribbon button and the panel it opens always show the same words. */
+const TOOL_TITLE: Record<Exclude<InspectTool, null>, { key: string; label: string }> = {
+  measure: { key: "inspect.measure", label: "Measure" },
+  mass: { key: "inspect.mass", label: "Mass Properties" },
+  section: { key: "inspect.section", label: "Section Properties" },
+  geometry: { key: "inspect.geometry", label: "Check Geometry" },
+  "draft-analysis": { key: "inspect.draft-analysis", label: "Draft Analysis" },
+  "parent-child": { key: "inspect.parent-child", label: "Parent / Child" },
+  equations: { key: "inspect.equations", label: "Equations" },
+  sensors: { key: "inspect.sensors", label: "Sensors" },
+  appearance: { key: "inspect.appearance", label: "Appearance" },
 };
 
 /** Feature kinds that consume "whatever the current body is" rather than a recorded
@@ -40,6 +43,10 @@ function formatNumber(value: number): string {
 }
 
 const SENSOR_PROPERTY_LABEL: Record<SensorProperty, string> = { volume: "Volume", area: "Surface area" };
+const SENSOR_PROPERTY_KEY: Record<SensorProperty, string> = {
+  volume: "inspectPanel.volume",
+  area: "inspectPanel.surfaceArea",
+};
 const SENSOR_OPERATOR_LABEL: Record<SensorOperator, string> = { lt: "<", gt: ">", eq: "=" };
 
 /**
@@ -51,6 +58,7 @@ const SENSOR_OPERATOR_LABEL: Record<SensorOperator, string> = { lt: "<", gt: ">"
 export function InspectPanel() {
   const activeTool = useInspectStore((state) => state.activeTool);
   const closeInspect = useInspectStore((state) => state.closeInspect);
+  const { t } = useTranslation();
 
   // Escape backs out of an Inspect tool the same way it backs out of Hole Wizard
   // placement (see `SolidModel.tsx`'s own Escape handler for `holePlacementActive`) —
@@ -69,8 +77,13 @@ export function InspectPanel() {
   return (
     <div className={styles.panel}>
       <div className={styles.header}>
-        <h2 className={styles.title}>{TOOL_TITLE[activeTool]}</h2>
-        <button type="button" className={styles.closeButton} aria-label="Close Inspect" onClick={closeInspect}>
+        <h2 className={styles.title}>{t(TOOL_TITLE[activeTool].key, TOOL_TITLE[activeTool].label)}</h2>
+        <button
+          type="button"
+          className={styles.closeButton}
+          aria-label={t("inspectPanel.closeAria", "Close Inspect")}
+          onClick={closeInspect}
+        >
           <X size={14} strokeWidth={1.75} />
         </button>
       </div>
@@ -94,26 +107,44 @@ function MeasureSection() {
   const measurePicks = useInspectStore((state) => state.measurePicks);
   const clearMeasurePicks = useInspectStore((state) => state.clearMeasurePicks);
   const mesh = useGeometryStore((state) => state.mesh);
+  const { t } = useTranslation();
 
   // Recomputed whenever the committed mesh reference changes — the same trigger
   // `SolidModel.tsx` uses to know a rebuild actually happened. The kernel's own current
   // shape (`getCurrentShape()`) only ever reflects the *latest* rebuild, so this can't be
   // computed once and cached across edits.
-  const measureSummary = useMemo(() => computeMeasureSummary(measurePicks), [measurePicks, mesh]);
+  const measureSummary = useMemo(
+    () => computeMeasureSummary(measurePicks),
+    // `mesh` is the rebuild signal, not an input — see the comment above; dropping it
+    // would keep stale measurements on screen after an edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [measurePicks, mesh],
+  );
 
   return (
     <section className={styles.section}>
-      <h3 className={styles.sectionTitle}>Picked Entities</h3>
+      <h3 className={styles.sectionTitle}>{t("inspectPanel.pickedEntities", "Picked Entities")}</h3>
       <p className={styles.hint}>
         {measurePicks.length === 0
-          ? "Click a face or edge in the 3D view."
+          ? t("inspectPanel.measureHintNone", "Click a face or edge in the 3D view.")
           : measurePicks.length === 1
-            ? "Click a second face or edge to measure the distance between them."
-            : "Click either one again to replace it, or Clear to start over."}
+            ? t(
+                "inspectPanel.measureHintOne",
+                "Click a second face or edge to measure the distance between them.",
+              )
+            : t(
+                "inspectPanel.measureHintTwo",
+                "Click either one again to replace it, or Clear to start over.",
+              )}
       </p>
 
       {!measureSummary && measurePicks.length > 0 && (
-        <p className={styles.hint}>One of the picked entities no longer exists — Clear and pick again.</p>
+        <p className={styles.hint}>
+          {t(
+            "inspectPanel.measureStale",
+            "One of the picked entities no longer exists — Clear and pick again.",
+          )}
+        </p>
       )}
 
       {measureSummary && measureSummary.picks.length > 0 && (
@@ -121,7 +152,9 @@ function MeasureSection() {
           {measureSummary.picks.map((pick, index) => (
             <Fragment key={`${pick.kind}-${pick.id}`}>
               <dt>
-                {ENTITY_LABEL[pick.kind]} {index + 1} {VALUE_LABEL[pick.kind]}
+                {t(pick.kind === "face" ? "inspectPanel.face" : "inspectPanel.edge", ENTITY_LABEL[pick.kind])}{" "}
+                {index + 1} —{" "}
+                {t(pick.kind === "face" ? "inspectPanel.area" : "inspectPanel.length", VALUE_LABEL[pick.kind])}
               </dt>
               <dd>
                 {formatNumber(pick.value)} {pick.kind === "face" ? "mm²" : "mm"}
@@ -130,7 +163,7 @@ function MeasureSection() {
           ))}
           {measureSummary.distance !== null && (
             <Fragment>
-              <dt>Distance</dt>
+              <dt>{t("inspectPanel.distance", "Distance")}</dt>
               <dd>{formatNumber(measureSummary.distance)} mm</dd>
             </Fragment>
           )}
@@ -139,7 +172,7 @@ function MeasureSection() {
 
       {measurePicks.length > 0 && (
         <button type="button" className={styles.clearButton} onClick={clearMeasurePicks}>
-          Clear
+          {t("inspectPanel.clear", "Clear")}
         </button>
       )}
     </section>
@@ -148,26 +181,37 @@ function MeasureSection() {
 
 function MassPropertiesSection() {
   const mesh = useGeometryStore((state) => state.mesh);
+  const { t } = useTranslation();
+  // `mesh` is the rebuild signal, not an input: the computation reads the kernel's
+  // current shape (`getCurrentShape()`), which only ever reflects the latest rebuild —
+  // the same pattern the Measure section documents above.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const massProperties = useMemo(() => computeMassProperties(), [mesh]);
 
   return (
     <section className={styles.section}>
-      <h3 className={styles.sectionTitle}>Mass Properties</h3>
+      <h3 className={styles.sectionTitle}>{t("inspect.mass", "Mass Properties")}</h3>
       {massProperties ? (
         <dl className={styles.stats}>
-          <dt>Volume</dt>
+          <dt>{t("inspectPanel.volume", "Volume")}</dt>
           <dd>{formatNumber(massProperties.volume)} mm³</dd>
-          <dt>Surface area</dt>
+          <dt>{t("inspectPanel.surfaceArea", "Surface area")}</dt>
           <dd>{formatNumber(massProperties.area)} mm²</dd>
-          <dt>Centre of mass X</dt>
+          <dt>
+            {t("inspectPanel.centerOfMass", "Centre of mass")} X
+          </dt>
           <dd>{formatNumber(massProperties.centerOfMass[0])} mm</dd>
-          <dt>Centre of mass Y</dt>
+          <dt>
+            {t("inspectPanel.centerOfMass", "Centre of mass")} Y
+          </dt>
           <dd>{formatNumber(massProperties.centerOfMass[1])} mm</dd>
-          <dt>Centre of mass Z</dt>
+          <dt>
+            {t("inspectPanel.centerOfMass", "Centre of mass")} Z
+          </dt>
           <dd>{formatNumber(massProperties.centerOfMass[2])} mm</dd>
         </dl>
       ) : (
-        <p className={styles.hint}>There is no solid body to measure yet.</p>
+        <p className={styles.hint}>{t("inspectPanel.noBodyMeasure", "There is no solid body to measure yet.")}</p>
       )}
     </section>
   );
@@ -177,45 +221,58 @@ function SectionPropertiesSection() {
   const sectionFacePick = useInspectStore((state) => state.sectionFacePick);
   const clearSectionPick = useInspectStore((state) => state.clearSectionPick);
   const mesh = useGeometryStore((state) => state.mesh);
+  const { t } = useTranslation();
 
   const properties = useMemo(
     () => (sectionFacePick === null ? null : computeSectionProperties(sectionFacePick)),
+    // `mesh` is the rebuild signal, not an input — see the Measure section's comment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [sectionFacePick, mesh],
   );
 
   return (
     <section className={styles.section}>
-      <h3 className={styles.sectionTitle}>Section Properties</h3>
+      <h3 className={styles.sectionTitle}>{t("inspect.section", "Section Properties")}</h3>
       <p className={styles.hint}>
-        {sectionFacePick === null ? "Click a planar face in the 3D view." : "Click another face to switch to it."}
+        {sectionFacePick === null
+          ? t("inspectPanel.sectionHintNone", "Click a planar face in the 3D view.")
+          : t("inspectPanel.sectionHintSwitch", "Click another face to switch to it.")}
       </p>
 
       {sectionFacePick !== null && !properties && (
-        <p className={styles.hint}>That face no longer exists — pick another one.</p>
+        <p className={styles.hint}>{t("inspectPanel.sectionStale", "That face no longer exists — pick another one.")}</p>
       )}
 
       {properties && (
         <>
           <dl className={styles.stats}>
-            <dt>Area</dt>
+            <dt>{t("inspectPanel.area", "Area")}</dt>
             <dd>{formatNumber(properties.area)} mm²</dd>
-            <dt>Centroid X</dt>
+            <dt>
+              {t("inspectPanel.centroid", "Centroid")} X
+            </dt>
             <dd>{formatNumber(properties.centroid[0])} mm</dd>
-            <dt>Centroid Y</dt>
+            <dt>
+              {t("inspectPanel.centroid", "Centroid")} Y
+            </dt>
             <dd>{formatNumber(properties.centroid[1])} mm</dd>
-            <dt>Centroid Z</dt>
+            <dt>
+              {t("inspectPanel.centroid", "Centroid")} Z
+            </dt>
             <dd>{formatNumber(properties.centroid[2])} mm</dd>
-            <dt>Surface type</dt>
+            <dt>{t("inspectPanel.surfaceType", "Surface type")}</dt>
             <dd>{properties.surfaceType}</dd>
           </dl>
           {properties.surfaceType !== "PLANE" && (
             <p className={styles.hint}>
-              This face isn't planar — area and centroid are still exact, but a "planar" reading (e.g. a single
-              flat centroid) is only fully meaningful for one that is.
+              {t(
+                "inspectPanel.sectionNonPlanar",
+                "This face isn't planar — area and centroid are still exact, but a \"planar\" reading (e.g. a single flat centroid) is only fully meaningful for one that is.",
+              )}
             </p>
           )}
           <button type="button" className={styles.clearButton} onClick={clearSectionPick}>
-            Clear
+            {t("inspectPanel.clear", "Clear")}
           </button>
         </>
       )}
@@ -225,23 +282,26 @@ function SectionPropertiesSection() {
 
 function CheckGeometrySection() {
   const mesh = useGeometryStore((state) => state.mesh);
+  const { t } = useTranslation();
+  // `mesh` is the rebuild signal, not an input — see the Measure section's comment.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const result = useMemo(() => computeGeometryCheck(), [mesh]);
 
   return (
     <section className={styles.section}>
-      <h3 className={styles.sectionTitle}>Check Geometry</h3>
+      <h3 className={styles.sectionTitle}>{t("inspect.geometry", "Check Geometry")}</h3>
       {!result ? (
-        <p className={styles.hint}>There is no solid body to check yet.</p>
+        <p className={styles.hint}>{t("inspectPanel.noBodyCheck", "There is no solid body to check yet.")}</p>
       ) : (
         <>
           <dl className={styles.stats}>
-            <dt>Faces</dt>
+            <dt>{t("inspectPanel.faces", "Faces")}</dt>
             <dd>{result.faceCount}</dd>
-            <dt>Edges</dt>
+            <dt>{t("inspectPanel.edges", "Edges")}</dt>
             <dd>{result.edgeCount}</dd>
           </dl>
           {result.issues.length === 0 ? (
-            <p className={styles.statusOk}>No issues found.</p>
+            <p className={styles.statusOk}>{t("inspectPanel.noIssues", "No issues found.")}</p>
           ) : (
             <ul className={styles.issueList}>
               {result.issues.map((issue) => (
@@ -252,8 +312,10 @@ function CheckGeometrySection() {
             </ul>
           )}
           <p className={styles.hint}>
-            Checks every face and edge for zero area/length — the OpenCascade build this app ships exposes no
-            full topology validator, so self-intersections and non-manifold edges aren't covered.
+            {t(
+              "inspectPanel.geometryHint",
+              "Checks every face and edge for zero area/length — the OpenCascade build this app ships exposes no full topology validator, so self-intersections and non-manifold edges aren't covered.",
+            )}
           </p>
         </>
       )}
@@ -270,6 +332,7 @@ function DraftAnalysisSection() {
   const setDraftLimitDegrees = useInspectStore((state) => state.setDraftLimitDegrees);
   const [limitText, setLimitText] = useState(() => String(draftLimitDegrees));
   const mesh = useGeometryStore((state) => state.mesh);
+  const { t } = useTranslation();
 
   const summary = useMemo(() => {
     if (!mesh) return null;
@@ -284,10 +347,10 @@ function DraftAnalysisSection() {
 
   return (
     <section className={styles.section}>
-      <h3 className={styles.sectionTitle}>Draft Analysis</h3>
+      <h3 className={styles.sectionTitle}>{t("inspect.draft-analysis", "Draft Analysis")}</h3>
 
       <div className={styles.modifyRow}>
-        <span className={styles.modifyLabel}>Pull direction</span>
+        <span className={styles.modifyLabel}>{t("inspectPanel.pullDirection", "Pull direction")}</span>
         <div className={styles.buttonRow}>
           {AXIS_OPTIONS.map((axis) => (
             <button
@@ -304,12 +367,12 @@ function DraftAnalysisSection() {
       </div>
 
       <div className={styles.modifyRow}>
-        <span className={styles.modifyLabel}>Limit (deg)</span>
+        <span className={styles.modifyLabel}>{t("inspectPanel.limitDeg", "Limit (deg)")}</span>
         <input
           className={styles.modifyInput}
           type="text"
           inputMode="decimal"
-          aria-label="Draft angle limit in degrees"
+          aria-label={t("inspectPanel.limitDeg", "Draft angle limit in degrees")}
           value={limitText}
           onChange={(event) => {
             const text = event.target.value;
@@ -322,19 +385,27 @@ function DraftAnalysisSection() {
 
       <div className={styles.legend}>
         <span className={styles.legendItem}>
-          <span className={`${styles.legendSwatch} ${styles.legendSwatchSafe}`} /> Draft ≥ limit
+          <span className={`${styles.legendSwatch} ${styles.legendSwatchSafe}`} />{" "}
+          {t("inspectPanel.draftLimit", "Draft ≥ limit")}
         </span>
         <span className={styles.legendItem}>
-          <span className={`${styles.legendSwatch} ${styles.legendSwatchUnsafe}`} /> Needs more draft
+          <span className={`${styles.legendSwatch} ${styles.legendSwatchUnsafe}`} />{" "}
+          {t("inspectPanel.needsMoreDraft", "Needs more draft")}
         </span>
       </div>
 
       {summary && (
         <p className={styles.hint}>
-          {summary.unsafe} of {summary.total} faces need more draft along this axis.
+          {fillTemplate(
+            t(
+              "inspectPanel.draftSummary",
+              "{{unsafe}} of {{total}} faces need more draft along this axis.",
+            ),
+            { unsafe: summary.unsafe, total: summary.total },
+          )}
         </p>
       )}
-      {!mesh && <p className={styles.hint}>There is no solid body to analyse yet.</p>}
+      {!mesh && <p className={styles.hint}>{t("inspectPanel.noBodyAnalyse", "There is no solid body to analyse yet.")}</p>}
     </section>
   );
 }
@@ -342,6 +413,7 @@ function DraftAnalysisSection() {
 function ParentChildSection() {
   const selectedFeatureIds = useDocumentStore((state) => state.selectedFeatureIds);
   const features = useDocumentStore((state) => state.document.features);
+  const { t } = useTranslation();
 
   const feature = selectedFeatureIds.length === 1 ? features.find((f) => f.id === selectedFeatureIds[0]) : undefined;
 
@@ -350,8 +422,13 @@ function ParentChildSection() {
   if (!feature) {
     return (
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Parent / Child</h3>
-        <p className={styles.hint}>Select a single feature in the Feature Manager to see its dependencies.</p>
+        <h3 className={styles.sectionTitle}>{t("inspect.parent-child", "Parent / Child")}</h3>
+        <p className={styles.hint}>
+          {t(
+            "inspectPanel.parentChildHint",
+            "Select a single feature in the Feature Manager to see its dependencies.",
+          )}
+        </p>
       </section>
     );
   }
@@ -362,7 +439,7 @@ function ParentChildSection() {
     <section className={styles.section}>
       <h3 className={styles.sectionTitle}>{feature.name}</h3>
 
-      <h4 className={styles.subTitle}>Parents</h4>
+      <h4 className={styles.subTitle}>{t("inspectPanel.parents", "Parents")}</h4>
       {feature.parents.length > 0 ? (
         <ul className={styles.list}>
           {feature.parents.map((id) => (
@@ -370,12 +447,14 @@ function ParentChildSection() {
           ))}
         </ul>
       ) : IMPLICIT_WHOLE_BODY_KINDS.has(feature.kind) ? (
-        <p className={styles.hint}>Depends on the whole body — every feature above it in the tree.</p>
+        <p className={styles.hint}>
+          {t("inspectPanel.wholeBody", "Depends on the whole body — every feature above it in the tree.")}
+        </p>
       ) : (
-        <p className={styles.hint}>None.</p>
+        <p className={styles.hint}>{t("inspectPanel.none", "None.")}</p>
       )}
 
-      <h4 className={styles.subTitle}>Children</h4>
+      <h4 className={styles.subTitle}>{t("inspectPanel.children", "Children")}</h4>
       {children.length > 0 ? (
         <ul className={styles.list}>
           {children.map((child) => (
@@ -383,7 +462,7 @@ function ParentChildSection() {
           ))}
         </ul>
       ) : (
-        <p className={styles.hint}>None.</p>
+        <p className={styles.hint}>{t("inspectPanel.none", "None.")}</p>
       )}
     </section>
   );
@@ -393,6 +472,7 @@ function EquationsSection() {
   const variables = useDocumentStore((state) => state.document.variables ?? {});
   const setVariable = useDocumentStore((state) => state.setVariable);
   const deleteVariable = useDocumentStore((state) => state.deleteVariable);
+  const { t } = useTranslation();
 
   const [name, setName] = useState("");
   const [expression, setExpression] = useState("");
@@ -401,12 +481,22 @@ function EquationsSection() {
   const handleAdd = () => {
     const trimmedName = name.trim();
     if (!isValidVariableName(trimmedName)) {
-      setError("Name must start with a letter or underscore, and contain only letters, digits and underscores.");
+      setError(
+        t(
+          "inspectPanel.invalidName",
+          "Name must start with a letter or underscore, and contain only letters, digits and underscores.",
+        ),
+      );
       return;
     }
     const value = evaluateExpression(expression, variables);
     if (value === null) {
-      setError("That doesn't evaluate to a number — check for a typo or an undefined variable.");
+      setError(
+        t(
+          "inspectPanel.notANumber",
+          "That doesn't evaluate to a number — check for a typo or an undefined variable.",
+        ),
+      );
       return;
     }
     setVariable(trimmedName, value);
@@ -419,31 +509,40 @@ function EquationsSection() {
 
   return (
     <section className={styles.section}>
-      <h3 className={styles.sectionTitle}>Equations</h3>
+      <h3 className={styles.sectionTitle}>{t("inspect.equations", "Equations")}</h3>
       <p className={styles.hint}>
-        Define a named number here, then type <code>=name</code> (or an expression using one, like{" "}
-        <code>=width*2</code>) into a sketch dimension's value field to drive it from this variable.
+        {t(
+          "inspectPanel.equationsHintPrefix",
+          "Define a named number here, then type ",
+        )}
+        <code>=name</code>
+        {t("inspectPanel.equationsHintMiddle", " (or an expression using one, like ")}
+        <code>=width*2</code>
+        {t(
+          "inspectPanel.equationsHintSuffix",
+          ") into a sketch dimension's value field to drive it from this variable.",
+        )}
       </p>
 
       <div className={styles.modifyRow}>
         <input
           className={styles.modifyInput}
           type="text"
-          aria-label="Variable name"
-          placeholder="name"
+          aria-label={t("inspectPanel.variableNameAria", "Variable name")}
+          placeholder={t("inspectPanel.variableNamePlaceholder", "name")}
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
         <input
           className={styles.modifyInput}
           type="text"
-          aria-label="Variable expression"
-          placeholder="value or expression"
+          aria-label={t("inspectPanel.variableExpressionAria", "Variable expression")}
+          placeholder={t("inspectPanel.variableExpressionPlaceholder", "value or expression")}
           value={expression}
           onChange={(event) => setExpression(event.target.value)}
         />
         <button type="button" className={styles.modifyApply} onClick={handleAdd}>
-          Set
+          {t("inspectPanel.set", "Set")}
         </button>
       </div>
       {error && <p className={styles.statusAlert}>{error}</p>}
@@ -458,7 +557,7 @@ function EquationsSection() {
                 <button
                   type="button"
                   className={styles.rowDeleteButton}
-                  aria-label={`Delete ${variableName}`}
+                  aria-label={`${t("inspectPanel.deleteVariable", "Delete variable")} ${variableName}`}
                   onClick={() => deleteVariable(variableName)}
                 >
                   ×
@@ -468,7 +567,7 @@ function EquationsSection() {
           ))}
         </dl>
       ) : (
-        <p className={styles.hint}>No variables defined yet.</p>
+        <p className={styles.hint}>{t("inspectPanel.noVariables", "No variables defined yet.")}</p>
       )}
     </section>
   );
@@ -478,6 +577,7 @@ function SensorsSection() {
   const sensors = useDocumentStore((state) => state.document.sensors ?? []);
   const addSensor = useDocumentStore((state) => state.addSensor);
   const deleteSensor = useDocumentStore((state) => state.deleteSensor);
+  const { t } = useTranslation();
 
   const [name, setName] = useState("");
   const [property, setProperty] = useState<SensorProperty>("volume");
@@ -498,33 +598,36 @@ function SensorsSection() {
 
   return (
     <section className={styles.section}>
-      <h3 className={styles.sectionTitle}>Sensors</h3>
+      <h3 className={styles.sectionTitle}>{t("inspect.sensors", "Sensors")}</h3>
       <p className={styles.hint}>
-        Alerts (a toast, plus the status below) whenever the watched property crosses the threshold on a rebuild.
+        {t(
+          "inspectPanel.sensorsHint",
+          "Alerts (a toast, plus the status below) whenever the watched property crosses the threshold on a rebuild.",
+        )}
       </p>
 
       <div className={styles.modifyGroup}>
         <input
           className={styles.modifyInput}
           type="text"
-          aria-label="Sensor name"
-          placeholder="Name"
+          aria-label={t("inspectPanel.sensorNameAria", "Sensor name")}
+          placeholder={t("inspectPanel.sensorNamePlaceholder", "Name")}
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
         <div className={styles.modifyRow}>
           <select
             className={styles.modifyInput}
-            aria-label="Watched property"
+            aria-label={t("inspectPanel.watchedPropertyAria", "Watched property")}
             value={property}
             onChange={(event) => setProperty(event.target.value as SensorProperty)}
           >
-            <option value="volume">Volume</option>
-            <option value="area">Surface area</option>
+            <option value="volume">{t("inspectPanel.volume", "Volume")}</option>
+            <option value="area">{t("inspectPanel.surfaceArea", "Surface area")}</option>
           </select>
           <select
             className={styles.modifyInput}
-            aria-label="Alert condition"
+            aria-label={t("inspectPanel.alertConditionAria", "Alert condition")}
             value={operator}
             onChange={(event) => setOperator(event.target.value as SensorOperator)}
           >
@@ -536,13 +639,13 @@ function SensorsSection() {
             className={styles.modifyInput}
             type="text"
             inputMode="decimal"
-            aria-label="Alert threshold"
+            aria-label={t("inspectPanel.alertThresholdAria", "Alert threshold")}
             value={thresholdText}
             onChange={(event) => setThresholdText(event.target.value)}
           />
         </div>
         <button type="button" className={styles.modifyApplyFull} onClick={handleAdd}>
-          Add Sensor
+          {t("inspectPanel.addSensor", "Add Sensor")}
         </button>
       </div>
 
@@ -553,18 +656,19 @@ function SensorsSection() {
           ))}
         </ul>
       ) : (
-        <p className={styles.hint}>No sensors defined yet.</p>
+        <p className={styles.hint}>{t("inspectPanel.noSensors", "No sensors defined yet.")}</p>
       )}
     </section>
   );
 }
 
 function SensorRow({ sensor, onDelete }: { sensor: Sensor; onDelete: () => void }) {
+  const { t } = useTranslation();
   return (
     <li className={styles.sensorRow}>
       <span className={styles.sensorLabel}>
-        {sensor.name}: {SENSOR_PROPERTY_LABEL[sensor.property]} {SENSOR_OPERATOR_LABEL[sensor.operator]}{" "}
-        {formatNumber(sensor.threshold)}
+        {sensor.name}: {t(SENSOR_PROPERTY_KEY[sensor.property], SENSOR_PROPERTY_LABEL[sensor.property])}{" "}
+        {SENSOR_OPERATOR_LABEL[sensor.operator]} {formatNumber(sensor.threshold)}
       </span>
       <span
         className={
@@ -575,9 +679,18 @@ function SensorRow({ sensor, onDelete }: { sensor: Sensor; onDelete: () => void 
               : styles.hint
         }
       >
-        {sensor.lastStatus === "alert" ? "Alert" : sensor.lastStatus === "ok" ? "OK" : "—"}
+        {sensor.lastStatus === "alert"
+          ? t("inspectPanel.alert", "Alert")
+          : sensor.lastStatus === "ok"
+            ? t("inspectPanel.ok", "OK")
+            : "—"}
       </span>
-      <button type="button" className={styles.rowDeleteButton} aria-label={`Delete sensor ${sensor.name}`} onClick={onDelete}>
+      <button
+        type="button"
+        className={styles.rowDeleteButton}
+        aria-label={`${t("inspectPanel.deleteSensor", "Delete sensor")} ${sensor.name}`}
+        onClick={onDelete}
+      >
         ×
       </button>
     </li>
@@ -591,15 +704,18 @@ function AppearanceSection() {
   const setAppearanceColor = useInspectStore((state) => state.setAppearanceColor);
   const faceColors = useInspectStore((state) => state.faceColors);
   const clearAllFaceColors = useInspectStore((state) => state.clearAllFaceColors);
+  const { t } = useTranslation();
 
   const paintedCount = Object.keys(faceColors).length;
 
   return (
     <section className={styles.section}>
-      <h3 className={styles.sectionTitle}>Appearance</h3>
+      <h3 className={styles.sectionTitle}>{t("inspect.appearance", "Appearance")}</h3>
       <p className={styles.hint}>
-        Pick a colour, then click faces in the 3D view to paint them. Clicking a face already in that colour clears
-        it.
+        {t(
+          "inspectPanel.appearanceHint",
+          "Pick a colour, then click faces in the 3D view to paint them. Clicking a face already in that colour clears it.",
+        )}
       </p>
 
       <div className={styles.colorSwatchGrid}>
@@ -610,24 +726,28 @@ function AppearanceSection() {
             className={styles.colorSwatch}
             style={{ backgroundColor: color }}
             aria-pressed={appearanceColor === color}
-            aria-label={`Paint colour ${color}`}
+            aria-label={`${t("inspectPanel.paintColour", "Paint colour")} ${color}`}
             onClick={() => setAppearanceColor(color)}
           />
         ))}
         <input
           type="color"
           className={styles.colorPicker}
-          aria-label="Custom paint colour"
+          aria-label={t("inspectPanel.customPaintColour", "Custom paint colour")}
           value={appearanceColor}
           onChange={(event) => setAppearanceColor(event.target.value)}
         />
       </div>
 
-      <p className={styles.hint}>{paintedCount === 0 ? "No faces painted yet." : `${paintedCount} face(s) painted.`}</p>
+      <p className={styles.hint}>
+        {paintedCount === 0
+          ? t("inspectPanel.noPaintedFaces", "No faces painted yet.")
+          : fillTemplate(t("inspectPanel.paintedFaces", "{{count}} face(s) painted."), { count: paintedCount })}
+      </p>
 
       {paintedCount > 0 && (
         <button type="button" className={styles.clearButton} onClick={clearAllFaceColors}>
-          Clear All
+          {t("inspectPanel.clearAll", "Clear All")}
         </button>
       )}
     </section>

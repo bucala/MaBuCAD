@@ -7,6 +7,363 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-09-13 — Undo/redo hardening (and a dead point-drag fix), prefix cache for rebuilds (v0.19.0)
+
+Two items in one round: drags and gestures now cost exactly one undo step instead of
+flooding or splitting the history (and along the way a regression was found that had
+silently disabled *point dragging entirely* since v0.14.0), and feature-history rebuilds
+resume from a content-addressed prefix cache instead of replaying every feature from
+scratch on every edit.
+
+### Fixed — point drag has been dead since v0.14.0
+- Dragging a sketch point did nothing: v0.14.0's `solveSketch(pinned, current)` anchored
+  the drag-pin itself to the point's *pre-drag* position, so every drag solved straight
+  back to where it started (a silent no-op — no error, no movement, which is why no spec
+  or e2e ever caught it; none covered dragging).
+- The pin is now a *goal*, not a constraint: `GeometricConstraint` gains an ephemeral
+  `at?: {x, y}` target (never persisted) that `residuals.ts` prefers over the point's
+  original position, and the pin's pull is weighted down (`DRAG_PIN_WEIGHT = 1e-3`) so
+  real constraints win the tug-of-war while an otherwise-free point still lands exactly
+  on the cursor. Without the weight, a pin on a fix-line point tied the constraint and
+  split the difference (y = 3 mm compromise instead of holding the line).
+- `pointDrag.spec.ts` (4 tests) pins the behaviour: a free point lands on the cursor, a
+  fix-line's line holds while the endpoint slides along it, dragging a circle's centre
+  moves it without resizing the circle, and a directly-fixed point refuses to move.
+
+### Changed — one undo step per gesture, not per pointer-move
+- Dragging a drawing-sheet view (or its notes/annotations/tables) used to push one
+  history entry per `pointermove` — one drag evicted the whole 30-entry undo stack.
+  `documentStore.commit()` is now gesture-aware: `beginDragEdit()` (wired capture-phase
+  on the sheet's scroll container via `DrawingSheet`) arms a pre-gesture snapshot, the
+  first *changing* commit consumes it, later frames push nothing, and `endDragEdit()`
+  closes the step. A gesture with no movement pushes nothing at all.
+- Same mechanism in `sketchStore` for in-sketch gestures: `beginDrag()`/`endDrag()`
+  around point drags and dimension-label drags (wired in `SketchDimensions.tsx`), and
+  `commitDragSnap` no longer opens a second undo step for a drag-then-snap gesture.
+- Mid-gesture undo/redo now *ends* the gesture (flags cleared in undo/redo, load,
+  restore) rather than leaving the arm state dangling for the next unrelated edit.
+- `setDimensionLabelOffset` (dragging a dimension's label) is now undoable at all — it
+  previously bypassed history entirely.
+- `undoHistory.spec.ts` (6 tests) replays real gesture call sequences: view drag = one
+  step with bound annotations restored, no-move drag = nothing, mid-gesture undo ends
+  the gesture, drag+snap = one step, a fixed point's no-op drag = nothing, label drag =
+  one undoable step.
+
+### Added — prefix cache for feature-history rebuilds (`rebuildCache.ts`)
+- `rebuildDocument` replayed the whole feature history on every document change; editing
+  the last feature of a 15-feature history paid for all 15 again. Each feature's outcome
+  depends only on the cumulative body, the per-feature solids of possible pattern
+  sources, its sketch, and its parameters — so a rebuild that changed feature *k*
+  reproduces the prefix before *k* byte for byte, and that state can simply be kept.
+- `rebuildCache.ts` holds the design as pure, kernel-free logic: `prefixKeys` (a 64-bit
+  FNV-1a content hash for every evaluated-feature prefix — chained so hashing stays
+  linear; a feature's segment includes every parent sketch it reads, so editing an
+  unrelated sketch changes no key), `longestReusablePrefix`, and
+  `planCheckpointEviction` — which kernel objects die when one chain replaces another,
+  subtracting by object identity so every aliasing case is safe (a dress-up's
+  `featureSolids` entry aliases its own `current`; a pending-edge-pick dress-up is a
+  pass-through aliasing the previous checkpoint; a reused prefix shares its objects with
+  the new chain).
+- `rebuildDocument` resumes from the longest matching key prefix and replays only the
+  tail. Checkpoints are recorded only while the prefix replays without error (an error
+  can be fixed by something outside the document, so its state is re-derived, never
+  trusted) and stops at an imported body (whose solid the import registry owns and may
+  release). Release is centralised in the eviction plan — `replaceCurrentShape` only
+  assigns now, since the plan already decides the old final's fate — and the chain is
+  capped at 64 checkpoints. A single chain serves the active editing session; a document
+  or tab switch misses at index 0 and drops it whole.
+- Kernel-backed specs are now possible under vitest: `vitest.config.ts`'s
+  `absoluteWasmUrl` plugin serves the `?url` import of the 11 MB wasm as an absolute
+  filesystem path (under Node, Emscripten treated the dev-server URL as one and ENOENT'd
+  at the drive root).
+- `rebuildCache.spec.ts` (15 tests, suite now 103): the pure half pins hashing
+  determinism/sensitivity, divergence exactly at an edited feature, at the first reader
+  of an edited sketch, at a suppressed feature's own slot, and the eviction plan's
+  aliasing rules with dummy objects. The kernel half proves the property that matters —
+  a rebuild resumed from cached checkpoints produces a byte-identical mesh (positions,
+  normals, indices, edges, groups) to a from-scratch replay of the same document — plus
+  full-history reuse on a no-change rebuild, error-then-recover, imported-body inertness
+  across a registry swap, and a thrash canary alternating two documents.
+- Measured (15-feature history: box → every-edge fillet → nine channels → three
+  patterns; best-of runs in one process): no-change rebuild 640–680 ms → 15–19 ms
+  (~40x); a repeated identical edit ~605 ms → ~16 ms; the first application of a late
+  edit pays only the tail (cut edit ~412 ms vs ~605 ms; a pattern edit ~492 ms), and an
+  edit of an early feature costs the same as before (~598 ms) — the cache never makes a
+  rebuild slower, it just cannot help changes that invalidate the whole prefix.
+
+### Changed — item-9 render memoisation re-validated, and its lookup path fixed
+- Re-measured the sketch-render memoisation through the *real* `dragPoint` flow (only
+  possible since this round's dead-drag fix made drags actually move points): 240
+  entities, 600 points, 240 drag frames.
+- The re-measurement caught a gap between the recorded claim and the shipped wiring:
+  `EntityView` resolved each entity's points through `pointById`'s *linear scan* of the
+  whole point pool — hundreds of full-pool scans per drag frame on a large sketch,
+  roughly three times the cost of the tessellation the version keys exist to skip. The
+  8.4x figure had been measured against a Map-backed reader the component never used.
+- `SketchGeometry` now builds one Map-backed point reader per render and shares it with
+  every `EntityView` (replacing the per-entity `sketch` prop, so entity memoisation now
+  also survives non-geometry sketch rewrites — a constraint added or a selection made
+  reuses the same reader object and the rows skip their re-render entirely).
+- Measured in this tree, with the reader's construction cost charged to the keyed path:
+  per-frame render-side geometry work 1.07 ms → 0.21 ms (5.2x, was 2.5x through the
+  linear-scan path), with exactly 1 of 240 entities re-tessellating per steady drag
+  frame and the other 239 skipping entirely.
+- The large-sketch fixture is now permanent (`testFixtures.ts`'s `largeSketchFixture` —
+  240 curve entities over a 600-point pool, deterministic, with the drag target named),
+  and `sketchRender.spec.ts` grew three at-scale tests that pin the contract by call
+  counts and object identities rather than timings (which cannot flake on a slow CI
+  machine): a 240-frame one-point drag re-tessellates exactly the dragged circle per
+  steady frame (240 + 239 tessellations total versus the naive path's 57,600), every
+  untouched entity keeps its polyline by the same array reference across frames — the
+  identity drei's `<Line>` needs to skip the GPU-side rebuild — and the fixture builds
+  byte-identically every time.
+
+### Known issues — imported bodies drift across repeated rebuilds (pre-existing)
+- Investigated while proving the cache correct, left unfixed on purpose: re-fusing the
+  *same* imported body on a second rebuild is not bit-stable — OpenCASCADE's booleans
+  update tolerances on the shared TShape data, and replicad offers no true deep copy
+  (`translate` *frees the shape it is called on* — consuming the registry's object — and
+  `clone()` shares the underlying TShapes, so the drift returns through the copy).
+  Measured: the same history replayed twice went from 3432 to 1008 mesh positions, the
+  fillet behind the import failing to resolve the same way. The cache is deliberately
+  inert across imports (no checkpoint spans one), so this is untouched by the round; a
+  real fix needs an OCCT-level `BRepBuilderAPI_Copy` at the right ownership boundary.
+  Related discovery while investigating: replicad 0.23 *does* garbage-collect shapes
+  (a FinalizationRegistry deletes a shape's WASM memory once its wrapper is unreachable),
+  so the long-standing "not reclaimed by the GC" assumption in the app's comments is
+  outdated — but the checkpoint chain holds its shapes by strong reference, so the
+  cache's explicit eviction plan remains load-bearing regardless.
+
+## 2026-09-13 — Document-format migration, e2e round-trip coverage, render memoisation (v0.19.0)
+
+Three groundwork items in one round: old documents keep opening across format changes
+(the migration framework the `.mabucad` format needs as it evolves), the e2e suite gains
+its first file-IO and localisation coverage, and a sketch with hundreds of entities stops
+re-tessellating itself on every drag frame.
+
+### Added — document format migration (`documentValidation.ts`)
+- `DOCUMENT_FORMAT_VERSION` is now 2: a v2 document carries `unitSystem` explicitly (the
+  MMGS/IPSS choice, previously implicit in whatever document created the file).
+- A `MIGRATIONS` chain plus `migrateSavedDocument()` walk an older file forward step by
+  step (v1→v2 fills `unitSystem: "MMGS"`); the framework — not each step — bumps
+  `formatVersion` after every hop, so a step can't forget. Non-integer, below-range, or
+  beyond-current versions are rejected outright rather than "migrated" into garbage.
+- `validateSavedDocument()` routes through migration first: a v1 file saved by an older
+  build now *opens* (filled in and upgraded) instead of failing validation, and a v2
+  file missing `unitSystem` is caught as invalid. Five new spec cases pin the chain —
+  17 validation specs in total.
+
+### Added — e2e: the first file-IO and i18n coverage
+- `e2e/documents.spec.ts`: draw a rectangle, exit the sketch, Save As a `.mabucad`, then
+  assert the file's actual content (`formatVersion: 2`, `unitSystem: "MMGS"`, the four
+  entities), New Part, and Open it back through the file chooser — the Feature Manager
+  shows the saved sketch with its four entities again. The first run caught a real UI
+  quirk: a single click on the tree row auto-switches the manager dock to the property
+  panel, which detaches the tree mid-dblclick — the spec now clicks the row, returns to
+  the Feature Manager tab, then double-clicks.
+- `e2e/i18n.spec.ts`: switch the language to Slovak in Settings and assert the ribbon
+  actually speaks it ("Súbor", "Uložiť ako").
+
+### Changed — render memoisation for large sketches (`sketchRender.ts`)
+- The per-entity render geometry moved out of `SketchGeometry.tsx` into a pure, unit-
+  tested module: `resolveEntityPolyline` (what each entity's polyline is) and
+  `entityPointVersion` (a cheap key over only the points an entity references — plus
+  radius for circles/arcs — saying when its polyline actually needs rebuilding).
+- `EntityView` and `SketchPointDot` are `memo`ised, and `EntityView`'s tessellation is
+  keyed on `entityPointVersion` instead of the `sketch` object: the store rewrites the
+  whole sketch immutably per pointer-move (a fresh object *every* drag frame), so the
+  old `useMemo([entity, sketch])` re-tessellated every circle/arc/spline in the sketch
+  on every frame. The per-entity callbacks were restructured to be genuinely stable
+  (shared `pick`/`trim` closures taking the entity id as their first argument, via
+  `useCallback`) — inline per-entity closures would have defeated the memo comparison on
+  every render.
+- `FeatureRow` is `memo`ised with all its callbacks stable, and `FeatureTree` memoises its
+  per-sketch usage counts — a selection or hover re-renders one row, not the whole
+  history.
+- Measured in one process (240 entities, 600 points, 240-frame point drag, best of 7):
+  per-frame render-side geometry work 1.077 ms → 0.127 ms (8.4x), with 239 of 240
+  entities skipping tessellation entirely per frame; a checksum confirmed only the
+  dragged circle's polyline rebuilt. `sketchRender.spec.ts` (12 tests) pins the key's
+  stability contract — a rebuilt-but-identical point pool keeps keys stable, an
+  unreferenced point's move changes nothing, radius changes count, and the polyline
+  output matches the old inline tessellation kind by kind.
+
+## 2026-09-13 — Sparse Jacobian for the sketch solver (v0.19.0)
+
+The solver's largest algorithmic jump so far. Every Newton iteration used to rebuild the
+Jacobian by perturbing *every* variable against the *full* residual vector (`2n+1` whole
+residual evaluations per iteration, quadratic once a sketch reaches hundreds of variables);
+now each constraint/dimension is a self-contained residual *block* that gets perturbed only
+along the handful of variables its own equations read.
+
+### Changed — the solver
+- `residuals.ts` decomposes the residual vector into `ResidualSource` blocks — one per
+  constraint/dimension — each carrying its own row range, the layout variables its
+  equations actually read, and its residual closure. `evaluateResiduals` is unchanged on
+  the surface (same signature, same values); it just routes through the block list now,
+  and a solver can build the blocks once per solve instead of per evaluation.
+- `solver.ts` builds the Jacobian sparsely: for each block, only its own variables are
+  probed and only its own rows are written. A free variable no block references keeps its
+  whole column at zero instead of being probed and discarded; each probe recomputes one
+  constraint's equations, not the whole vector.
+- A `jacobian.spec.ts` suite proves the sparse build reproduces a dense full-vector
+  perturbation *exactly* on every one of the 16 geometric and 9 dimension kinds — including
+  the `fix`-on-circle/arc radius rows and the spline case whose equations read the whole
+  spline's points — so the dependency tables in `residuals.ts` cannot drift from the
+  residual math without failing loudly.
+- Measured on a 120-variable/105-constraint grid, dense vs sparse in the same process:
+  ~4.4x faster on a converging solve, ~5.0x on a conflicting one, converging to identical
+  geometry. Sketches in the app are still tens of variables today, so the win is the
+  headroom to build larger ones without the solver becoming the bottleneck.
+
+## 2026-09-13 — Slovak for the ribbon tooltips and the three manager panels (v0.19.0)
+
+The Slovak dictionary covered the app's chrome but left its deepest, most-used surfaces
+in English. This round closes that gap — every hover tooltip in the ribbon and the full
+contents of the manager dock panels.
+
+### Added — translation coverage, and a test that keeps it
+- Every one of the 103 ribbon commands now has a translated hover tooltip
+  (`${id}.description` keys, wired in `RibbonButton.tsx`), plus the two labels the
+  dictionary had missed (`drawing.edit-background`, the panel's `relation.colinear`).
+- `SketchPanel`, `InspectPanel` and `PropertyManager` — the three surfaces the dock swaps
+  between while modelling — are fully translated, including the feature-catalog
+  description line every property panel opens with (26 kinds), hole/seat/end-condition/
+  boolean option tooltips, equation and sensor UI, and the sketch tools' own toasts.
+  Tool and relation labels *reuse the ribbon's command keys* rather than inventing
+  parallel ones, so the dock and the ribbon can never drift apart terminologically.
+- Dynamic sentences (counts, diameters, names) translate through a `{{placeholder}}`
+  convention filled by a new `fillTemplate` helper — a dictionary value is a static
+  string, so the placeholder is the only way a number can ride along; the document
+  tabs' `{{name}}` tooltip already used the same idea inline.
+- A unit test (`src/i18n/translations.spec.ts`) iterates `RIBBON_TABS` and
+  `FEATURE_CATALOG` against the Slovak dictionary, so the next command added without
+  its label and tooltip fails CI instead of silently degrading to English; it also
+  checks every `{{placeholder}}` is balanced, since `fillTemplate` deliberately passes
+  unknown tokens through rather than swallowing them.
+- `translations.ts`'s header comment no longer claims panels and tooltips are
+  untranslated — it now documents the key conventions and the surfaces still
+  deliberately out of scope (drawing annotation editors, store-raised toasts, and
+  feature *names*, which are user data).
+
+## 2026-09-13 — Follow-up round: lint, unit suite, write-blessing split, repo hygiene (v0.19.0)
+
+Four small follow-ups to the audit round above, chosen for their ratio of value to
+effort — one of them earned its keep before it was even wired into CI.
+
+### Added — ESLint and a Vitest unit suite
+- ESLint (flat config, `npm run lint`) with exactly the rules a type checker cannot
+  provide: React hook discipline and unused code — deliberately no style rules, so the
+  hand-maintained format stays and real diffs stay readable. Gated at zero warnings in
+  CI. Its very first pass caught a real bug: the audit round's own
+  `PropertyManager` memo had landed *after* the component's early return, a
+  rules-of-hooks violation that would crash React the moment the panel toggled between
+  "no active command" and a feature. Fixed, along with a stale-cleanup ref read in
+  `CameraRig`, a missing effect dependency in `DrawingSheet`'s Delete handler (the
+  annotation deleter is now a stable `useCallback`), and four rebuild-signal
+  `useMemo` dependencies in `InspectPanel` that are intentionally not inputs and now
+  say so inline.
+- A Vitest unit suite (`npm test`, 38 tests, ~0.4 s) over the pure TypeScript logic the
+  e2e suite can only exercise through the UI: the constraint solver (full/under/over
+  defined DOF counting, exact solve of a pinned line, the audit round's arc
+  equal/concentric and monotone best-so-far guarantees as regression tests,
+  conflicting-pair diagnosis), the residual equations (including the audit guards:
+  arc constraints, degenerate-angle sit-out), the equations expression parser (grammar,
+  variables, the decimal comma, and "never an eval"), and `.mabucad` document
+  validation (every rejection path of the structural validator).
+
+### Security — read and write blessings are now separate sets
+- A path an *open* dialog or a file drop handed back used to be writable as well as
+  readable, which is more permission than the gesture implied. `PickedPaths` is now two
+  sets: open/drop blesses readable only, a save dialog is the only thing that blesses
+  writable, reads accept both. A dropped STEP file is no longer an overwrite target the
+  webview could name. Covered by the crate's first Rust unit tests (`cargo test`).
+
+### Fixed — repository hygiene
+- `src-tauri/target` is finally gitignored, and the two MSI installer binaries that had
+  been committed into it are removed from the index (kept on disk) — the repo tracked
+  its own build output, which every `tauri build` would have quietly grown.
+
+## 2026-09-13 — Application audit: file-IO hardening, solver descent guarantee, committed e2e suite (v0.19.0)
+
+A full audit round: the native file commands now only touch paths a real dialog (or a
+real drop) produced, the sketch solver can no longer commit diverged geometry, several
+real UI bugs were fixed, and the regression suite this README had been claiming all along
+is actually in the repository now, with CI to run it.
+
+### Security — dialog-blessed file access
+- `read_binary_file`/`write_binary_file` used to accept any path the webview named —
+  the entire filesystem, exactly the surface a compromised webview would want. The
+  dialogs now open on the Rust side (`pick_open_path`/`pick_save_path`), which records
+  every path it hands out in a session-lifetime set, and the read/write commands refuse
+  anything not in it. Forging a blessed path now requires opening a real dialog in front
+  of the user. The webview's dialog permissions were removed from the capability file
+  along the way, and the never-actually-used `tauri-plugin-opener` dependency is gone
+  from Rust, the npm manifest and the capability list.
+- `'unsafe-eval'` is no longer granted by the CSP — `vite.config.ts`'s build-time embind
+  patch exists precisely so it isn't needed, but the grant had been left in place
+  contradicting the patch's own documentation. `script-src` is now `'self'
+  'wasm-unsafe-eval'`.
+- `.mabucad` documents are structurally validated on Open (feature kinds, entity kinds,
+  finite numbers, referential integrity between entities and the point pool) instead of
+  the old three-key `"x" in value` check that let arbitrary JSON straight into the stores.
+
+### Added — drag-and-drop import, committed regression suite, CI
+- Dropping a STEP/STL file onto the window imports it. The OS reports dropped files to
+  Rust, which blesses the path and announces it to the frontend's normal import flow —
+  previously `dragDropEnabled` was on with no handler, so a drop silently did nothing.
+- A committed Playwright suite (`e2e/`, `npm run test:e2e`) drives the real dev server:
+  application shell, sketch drawing with the solver's live DOF readout, extrude through
+  the WASM kernel, undo/redo. GitHub Actions (`.github/workflows/ci.yml`) runs the suite
+  plus typecheck, the production build, `cargo check` and clippy on every push and PR —
+  the README's testing claims are now backed by files in the repository.
+
+### Fixed — solver and sketcher
+- The sketch solver accepted every finite Newton step, so a conflicting system could
+  wander for all 60 iterations and commit wildly diverged geometry to the document.
+  Steps are now only accepted when they reduce the residual norm (with backtracking),
+  and a non-converged solve returns the best-so-far state — the returned geometry is
+  never further from satisfying the constraints than the geometry it was handed.
+- `Equal` and `Concentric` were silent no-ops on arcs (the residual fell through to the
+  line branch and contributed nothing), leaving a dead constraint and a misleading DOF
+  readout. Both now cover arcs via the radius/centre variables they already carry.
+- An `angle` dimension on a degenerate (zero-length) line produced an `atan2(0, 0)` residual
+  with a noisy derivative; it now sits out until the line has actual extent, and `measure`
+  reports the same way.
+- Jacobian rank (the DOF readout) is now computed on row-normalised rows — one
+  degenerate-guard row could previously dominate pivot selection and flicker the
+  reported DOF between solves.
+- The entity id map is built once per solve instead of per residual evaluation (the
+  finite-difference Jacobian alone rebuilt it 2n+1 times per iteration).
+- A point drag that ended off the sketch plane (over an overlay, off-canvas) left the
+  drag armed — the next hover resumed it with no button held. A window-level release
+  listener now finishes the gesture wherever the pointerup lands.
+- Drawing-sheet Delete/Backspace deleted the current selection even while typing in a
+  title-block cell or annotation field; the handler now ignores keys aimed at any
+  focused editable surface.
+- While over-defined, `findConflictingConstraints` ran its O(constraints) re-solves on
+  every pointermove of a live drag; mid-drag it is throttled to 150ms and flushed the
+  moment the drag ends.
+
+### Fixed — rendering and view performance
+- One overlay geometry swap (a Measure pick) used to dispose *every* still-mounted
+  geometry — body mesh included — forcing a full GPU re-upload on the next frame;
+  each BufferGeometry now has its own disposal effect. Face-highlight geometries no
+  longer upload unused normal buffers (basic materials never read them).
+- Drawing-sheet zoom/pan re-rendered the entire 1393-line sheet tree per wheel tick;
+  the transform is now written imperatively and the zoom readout lives in its own
+  memoised cluster, so only annotations that counter-scale text re-render on zoom.
+- `SolidModel` re-rendered (and regenerated every cosmetic thread helix) on each
+  sketch-store write from any pointermove; it now selects only the sketches hole
+  features read, shallowly, and the edge-pick preview effect keys on what the rebuild
+  actually consumes instead of re-running a kernel rebuild on every unrelated write.
+- `PropertyManager` re-ran its closed-loop extraction on every render, including each
+  pointermove of a drag; it is memoised on the profile sketch now.
+
+### Fixed — consistency
+- The Rust crate's version (0.3.0) disagreed with `package.json`/`tauri.conf.json`
+  (0.18.0); all three now carry the same number with a comment keeping them in step.
+
 ## 2026-08-06 — Active-view annotation binding, real Fillet/Chamfer edge picking, Edge selection priority (v0.18.0)
 
 A twenty-second round: a real "which view does this annotation belong to" concept for

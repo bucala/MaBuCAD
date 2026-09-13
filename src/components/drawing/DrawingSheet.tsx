@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { FileUp, Frame, Maximize, RotateCw, Settings2, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 
 import { runCommand } from "@/commands/commandRegistry";
@@ -705,6 +705,49 @@ function TitleBlockView({
 }
 
 /**
+ * The toolbar's zoom-out / readout / zoom-in / reset cluster, isolated in its own memoized
+ * component so its `zoom` subscription doesn't re-render the whole sheet — before this,
+ * the sheet itself subscribed to `zoom` for these three buttons and the readout, which
+ * dragged the entire view/annotation/border tree through a render on every wheel tick.
+ * Nothing else in the sheet needs zoom in React; the pan/zoom transform itself is written
+ * imperatively (see the effect below).
+ */
+const ZoomCluster = memo(function ZoomCluster({ resetZoomPan }: { resetZoomPan: () => void }) {
+  const zoom = useDrawingToolStore((state) => state.zoom);
+  const { t } = useTranslation();
+
+  return (
+    <>
+      <button
+        type="button"
+        className={styles.toolbarButton}
+        title={t("drawing.zoom-out", "Zoom out")}
+        onClick={() => useDrawingToolStore.getState().setZoom(zoom / 1.25)}
+      >
+        <ZoomOut size={14} strokeWidth={1.75} />
+      </button>
+      <span className={styles.zoomReadout}>{Math.round(zoom * 100)}%</span>
+      <button
+        type="button"
+        className={styles.toolbarButton}
+        title={t("drawing.zoom-in", "Zoom in")}
+        onClick={() => useDrawingToolStore.getState().setZoom(zoom * 1.25)}
+      >
+        <ZoomIn size={14} strokeWidth={1.75} />
+      </button>
+      <button
+        type="button"
+        className={styles.toolbarButton}
+        title={t("drawing.zoom-reset", "Reset zoom/pan (or Ctrl+double-click the sheet)")}
+        onClick={resetZoomPan}
+      >
+        <Maximize size={14} strokeWidth={1.75} />
+      </button>
+    </>
+  );
+});
+
+/**
  * A Drawing document's 2D sheet — `AppShell.tsx` swaps this in for the 3D Feature
  * Manager/viewport split whenever the active document's `kind` is `"drawing"`.
  *
@@ -719,6 +762,8 @@ function TitleBlockView({
 export function DrawingSheet() {
   const drawing = useDocumentStore((state) => state.document.drawing);
   const setDrawingSheet = useDocumentStore((state) => state.setDrawingSheet);
+  const beginDragEdit = useDocumentStore((state) => state.beginDragEdit);
+  const endDragEdit = useDocumentStore((state) => state.endDragEdit);
   const moveDrawingView = useDocumentStore((state) => state.moveDrawingView);
   const deleteDrawingView = useDocumentStore((state) => state.deleteDrawingView);
   const addDrawingNote = useDocumentStore((state) => state.addDrawingNote);
@@ -762,9 +807,6 @@ export function DrawingSheet() {
   const ordinateAxis = useDrawingToolStore((state) => state.ordinateAxis);
   const pickOrdinateDatum = useDrawingToolStore((state) => state.pickOrdinateDatum);
   const startOrdinateChain = useDrawingToolStore((state) => state.startOrdinateChain);
-  const zoom = useDrawingToolStore((state) => state.zoom);
-  const panX = useDrawingToolStore((state) => state.panX);
-  const panY = useDrawingToolStore((state) => state.panY);
   const zoomAt = useDrawingToolStore((state) => state.zoomAt);
   const setPan = useDrawingToolStore((state) => state.setPan);
   const resetZoomPan = useDrawingToolStore((state) => state.resetZoomPan);
@@ -821,7 +863,10 @@ export function DrawingSheet() {
     setSelectedNoteId(null);
   };
 
-  const deleteSelectedAnnotation = () => {
+  // Stable across renders while the selection holds, so the window-level Delete handler
+  // below does not tear down and re-register on every render — the store actions it
+  // dispatches to are stable zustand setters, so only the selection itself changes it.
+  const deleteSelectedAnnotation = useCallback(() => {
     if (!selectedAnnotation) return;
     switch (selectedAnnotation.kind) {
       case "dimension":
@@ -847,7 +892,17 @@ export function DrawingSheet() {
         break;
     }
     setSelectedAnnotation(null);
-  };
+  }, [
+    selectedAnnotation,
+    deleteDrawingDimension,
+    deleteDrawingOrdinateChain,
+    deleteDrawingDatum,
+    deleteDrawingGdt,
+    deleteDrawingSurfaceFinish,
+    deleteDrawingWeld,
+    deleteDrawingTable,
+    setSelectedAnnotation,
+  ]);
 
   const sheetFormat: SheetFormat | undefined =
     sheetFormats.find((format) => format.id === (drawing?.sheetFormatId ?? DEFAULT_SHEET_FORMAT_ID)) ??
@@ -858,11 +913,63 @@ export function DrawingSheet() {
     ? paperDimensions(sheetFormat.size, sheetFormat.orientation)
     : { width: 420, height: 297 };
 
+  /**
+   * Zoom/pan is applied imperatively to the `<svg>`'s own transform, outside React —
+   * subscribing this component to `zoom`/`panX`/`panY` re-rendered the entire sheet tree
+   * (views, annotations, borders, toolbar) on every wheel tick and middle-drag
+   * pointermove for what is a single style write. Annotation children that genuinely need
+   * zoom (counter-scaling their text) already subscribe to the store themselves; everything
+   * else is pure SVG geometry the CSS transform scales without a re-render. React never
+   * manages the transform key, so its own re-renders don't touch what this effect wrote.
+   */
+  useEffect(() => {
+    const apply = (state: { zoom: number; panX: number; panY: number }) => {
+      const sheet = sheetRef.current;
+      if (!sheet) return;
+      sheet.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    };
+    apply(useDrawingToolStore.getState());
+    return useDrawingToolStore.subscribe(apply);
+  }, []);
+
+  // Wheel zoom goes through a native non-passive listener: React attaches `onWheel`
+  // passively, where `event.preventDefault()` was a logged no-op — the scroll container is
+  // `overflow: hidden` so nothing actually scrolled anyway, but the listener might as well
+  // do what it claims.
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = container.getBoundingClientRect();
+      const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+      zoomAt(factor, event.clientX, event.clientY, rect.left, rect.top);
+    };
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [zoomAt]);
+
   // Delete/Backspace removes whichever view or note is selected — not while a note is
   // mid-edit, where those keys mean "edit the text", not "delete the annotation".
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (editingNoteId) return;
+      // Any other focused editable surface — a title-block cell mid-edit, an annotation
+      // text field, a toolbar input — keeps its keys too, for the same reason as
+      // `editingNoteId` above: Delete/Backspace there mean "edit the text", never "delete
+      // the sheet selection". Guarded on the event target itself rather than each
+      // editor's own editing flag, which is exactly what the title-block cells' local
+      // state previously left invisible to this handler.
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       if (selectedViewId) {
         deleteDrawingView(selectedViewId);
@@ -877,7 +984,7 @@ export function DrawingSheet() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedViewId, activeViewId, selectedNoteId, editingNoteId, selectedAnnotation, deleteDrawingView, deleteDrawingNote]);
+  }, [selectedViewId, activeViewId, selectedNoteId, editingNoteId, selectedAnnotation, deleteDrawingView, deleteDrawingNote, deleteSelectedAnnotation]);
 
   const setSheetFormat = (formatId: string) => {
     if (!drawing) return;
@@ -1113,50 +1220,34 @@ export function DrawingSheet() {
             {t("drawing.delete-selected", "Delete")}
           </button>
         )}
-        <button
-          type="button"
-          className={styles.toolbarButton}
-          title={t("drawing.zoom-out", "Zoom out")}
-          onClick={() => useDrawingToolStore.getState().setZoom(zoom / 1.25)}
-        >
-          <ZoomOut size={14} strokeWidth={1.75} />
-        </button>
-        <span className={styles.zoomReadout}>{Math.round(zoom * 100)}%</span>
-        <button
-          type="button"
-          className={styles.toolbarButton}
-          title={t("drawing.zoom-in", "Zoom in")}
-          onClick={() => useDrawingToolStore.getState().setZoom(zoom * 1.25)}
-        >
-          <ZoomIn size={14} strokeWidth={1.75} />
-        </button>
-        <button
-          type="button"
-          className={styles.toolbarButton}
-          title={t("drawing.zoom-reset", "Reset zoom/pan (or Ctrl+double-click the sheet)")}
-          onClick={resetZoomPan}
-        >
-          <Maximize size={14} strokeWidth={1.75} />
-        </button>
+        <ZoomCluster resetZoomPan={resetZoomPan} />
       </div>
 
       <div
         ref={scrollRef}
         className={styles.sheetScroll}
-        onWheel={(event) => {
-          event.preventDefault();
-          const container = scrollRef.current?.getBoundingClientRect();
-          if (!container) return;
-          const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-          zoomAt(factor, event.clientX, event.clientY, container.left, container.top);
-        }}
+        /*
+          * One undo step per drag gesture, not per pointer-move. Every draggable thing on
+          * the sheet (views, notes, annotation labels/anchors, tables) fires its
+          * documentStore update on each pointermove, and each of those would otherwise
+          * push its own history entry — one view drag evicting everything before it from
+          * the 30-step history. Capture phase so the gesture is armed before the child's
+          * own pointerdown (the child calls setPointerCapture there, which retargets
+          * later events but keeps them bubbling through here), and pointercancel so an
+          * interrupted press doesn't leave a stale armed gesture behind. A press that
+          * never changes anything never pushes: see `beginDragEdit`'s own doc comment.
+        */
+        onPointerDownCapture={() => beginDragEdit()}
+        onPointerUpCapture={() => endDragEdit()}
+        onPointerCancelCapture={() => endDragEdit()}
         onPointerDown={(event) => {
           // Middle-mouse drag pans the sheet, the same button the 3D viewport already
           // reserves for panning — left click stays free for select/place/pick.
           if (event.button !== 1) return;
           event.preventDefault();
           event.currentTarget.setPointerCapture(event.pointerId);
-          panOrigin.current = { x: event.clientX, y: event.clientY, panX, panY };
+          const { panX: originPanX, panY: originPanY } = useDrawingToolStore.getState();
+          panOrigin.current = { x: event.clientX, y: event.clientY, panX: originPanX, panY: originPanY };
         }}
         onPointerMove={(event) => {
           if (!panOrigin.current) return;
@@ -1186,10 +1277,7 @@ export function DrawingSheet() {
             // fight over the same double-click.
             if (!event.ctrlKey && !event.metaKey) setActiveViewId(null);
           }}
-          style={{
-            cursor: PICKING_TOOLS.has(tool) ? "crosshair" : "default",
-            transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
-          }}
+          style={{ cursor: PICKING_TOOLS.has(tool) ? "crosshair" : "default" }}
         >
           <defs>
             {/* ISO 128-50: thin lines at 45°, uniform spacing — one shared pattern so every

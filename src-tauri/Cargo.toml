@@ -1,6 +1,8 @@
 [package]
 name = "mabucad"
-version = "0.3.0"
+# Kept in step with `package.json` and `tauri.conf.json` — three version sources, one
+# number, so the status bar's readout and the installers never disagree with the frontend.
+version = "0.19.0"
 description = "Parametric 3D/2D CAD system for Windows 11 x64"
 authors = ["Bucala"]
 edition = "2021"
@@ -19,8 +21,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# Rust-side dialogs for the file commands (`fileio.rs`'s pick_open_path/pick_save_path):
+# the frontend never calls the plugin directly, so the webview holds no dialog permission.
 tauri-plugin-dialog = "2"
-tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

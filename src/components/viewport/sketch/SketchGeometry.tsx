@@ -1,14 +1,15 @@
-import { useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { Line } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
-import { CatmullRomCurve3, Vector3 } from "three";
+import { Vector3 } from "three";
 
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 import { worldToSketch } from "@/sketch/planeBasis";
-import { entityPoints, pointById } from "@/sketch/sketchModel";
+import { entityPoints } from "@/sketch/sketchModel";
 import type { Sketch, SketchEntity } from "@/sketch/types";
 import { useSketchStore } from "@/state/sketchStore";
 
+import { entityPointVersion, resolveEntityPolyline, type PointReader } from "./sketchRender";
 import { useScreenSpacePixelScale } from "./screenSpaceScale";
 
 const STATIC_COLORS = {
@@ -88,21 +89,48 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   // feeds it rather than plain-replacing the selection, even in ordinary Select mode. The
   // Fillet tool is its own tool rather than an armed relation (it needs a numeric radius
   // alongside the two picks), so it's checked by `tool` like Smart Dimension is.
-  const pick = (id: string, additive: boolean) => {
-    if (pendingConstraintKind) {
-      pickForConstraint(id);
-      return;
-    }
-    if (tool === "smart-dimension") {
-      pickForSmartDimension(id);
-      return;
-    }
-    if (tool === "fillet") {
-      pickForFillet(id);
-      return;
-    }
-    toggleSelection(id, additive);
-  };
+  //
+  // `useCallback`, not a plain closure: this is passed to *every* entity and point as
+  // `onSelect`/`onPick`, and the memoised child components compare it by reference — a
+  // fresh function per render would re-render the whole geometry on every store update.
+  const pick = useCallback(
+    (id: string, additive: boolean) => {
+      if (pendingConstraintKind) {
+        pickForConstraint(id);
+        return;
+      }
+      if (tool === "smart-dimension") {
+        pickForSmartDimension(id);
+        return;
+      }
+      if (tool === "fillet") {
+        pickForFillet(id);
+        return;
+      }
+      toggleSelection(id, additive);
+    },
+    [pendingConstraintKind, tool, pickForConstraint, pickForSmartDimension, pickForFillet, toggleSelection],
+  );
+
+  // Same stability reasoning as `pick`: the entity hands back its own id and the clicked
+  // world point, and the (stable) trim action converts it into sketch space against the
+  // sketch's plane, which does not change within a session.
+  const trim = useCallback(
+    (entityId: string, point: Vector3) => trimAt(entityId, worldToSketch(sketch.planeId, point)),
+    [trimAt, sketch.planeId],
+  );
+
+  // One Map-backed point lookup shared by every entity for this render. `pointById` is a
+  // linear scan over the whole pool, and every entity's version key does a lookup per
+  // point it references — on a 600-point sketch that is hundreds of full-pool scans per
+  // drag frame, several times the cost of the tessellation the keys exist to skip. Built
+  // on `sketch.points` identity (not the whole sketch): a rewrite that didn't touch
+  // geometry — a constraint added, a selection made — reuses the same reader object, so
+  // the memoised entities below still skip their re-render.
+  const readPoint = useMemo(() => {
+    const pointsById = new Map(sketch.points.map((point) => [point.id, point]));
+    return (id: string) => pointsById.get(id);
+  }, [sketch.points]);
 
   const baseColor = isDark ? STATIC_COLORS.geometryDark : STATIC_COLORS.geometry;
 
@@ -120,17 +148,17 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
           <EntityView
             key={entity.id}
             entity={entity}
-            sketch={sketch}
+            readPoint={readPoint}
             color={isEntityConflicting ? CONFLICT_COLOR : isEntitySelected ? accent : baseColor}
             isSelected={isEntitySelected}
             isSelectMode={isPickMode}
-            onSelect={(additive) => pick(entity.id, additive)}
+            onSelect={pick}
             // Arcs and standalone points aren't trimmable yet (see trimEntityAt's doc
             // comment) — they simply don't get a click handler in trim mode, so a click
             // falls through to the drawing surface behind them instead of doing nothing
             // silently on a hit.
             isTrimTarget={isTrimMode && (entity.kind === "line" || entity.kind === "circle" || entity.kind === "spline")}
-            onTrim={(point) => trimAt(entity.id, worldToSketch(sketch.planeId, point))}
+            onTrim={trim}
           />
         );
       })}
@@ -144,7 +172,7 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
           isConflicting={conflictingGeometryIds.has(point.id)}
           isPickMode={isPickMode}
           accent={accent}
-          onPick={(additive) => pick(point.id, additive)}
+          onPick={pick}
         />
       ))}
     </group>
@@ -165,7 +193,7 @@ const SELECTED_POINT_VISIBLE_PIXELS = 6;
 const SELECTED_POINT_HALO_PIXELS = 11;
 const POINT_PICK_TARGET_PIXELS = 9;
 
-function SketchPointDot({
+const SketchPointDot = memo(function SketchPointDot({
   point,
   isOrigin,
   isSelected,
@@ -180,7 +208,8 @@ function SketchPointDot({
   isConflicting: boolean;
   isPickMode: boolean;
   accent: string;
-  onPick: (additive: boolean) => void;
+  /** Which point was picked — the shared, stable callback receives it as its first argument. */
+  onPick: (id: string, additive: boolean) => void;
 }) {
   const pickRef = useScreenSpacePixelScale(POINT_PICK_TARGET_PIXELS);
   const dotRef = useScreenSpacePixelScale(
@@ -204,7 +233,7 @@ function SketchPointDot({
           isPickMode
             ? (event) => {
                 event.stopPropagation();
-                onPick(event.ctrlKey || event.metaKey);
+                onPick(point.id, event.ctrlKey || event.metaKey);
               }
             : undefined
         }
@@ -242,22 +271,32 @@ function SketchPointDot({
       </mesh>
     </group>
   );
-}
+});
 
 interface EntityViewProps {
   entity: SketchEntity;
-  sketch: Sketch;
+  /** Shared Map-backed point lookup, one per render of the parent (see its own note there). */
+  readPoint: PointReader;
   color: string;
   isSelected: boolean;
   isSelectMode: boolean;
-  onSelect: (additive: boolean) => void;
+  /** Which entity was picked — the shared, stable callback receives it as its first argument. */
+  onSelect: (id: string, additive: boolean) => void;
   isTrimTarget: boolean;
-  onTrim: (point: Vector3) => void;
+  /** Same shared-callback pattern as `onSelect`: the entity reports its own id. */
+  onTrim: (entityId: string, point: Vector3) => void;
 }
 
-function EntityView({
+/**
+ * One entity's rendered polyline. Memoised on `entity` + the coordinates of its own
+ * points only (see `entityPointVersion`): during a point drag the parent re-renders with a
+ * fresh `sketch` object every frame, but an untouched entity's polyline is identical, so
+ * its whole render can be skipped — the difference between dragging a point and
+ * re-tessellating every circle/arc/spline in a large sketch per pointer-move.
+ */
+const EntityView = memo(function EntityView({
   entity,
-  sketch,
+  readPoint,
   color,
   isSelected,
   isSelectMode,
@@ -265,57 +304,14 @@ function EntityView({
   isTrimTarget,
   onTrim,
 }: EntityViewProps) {
-  const points = useMemo(() => {
-    const resolved = entityPoints(entity)
-      .map((id) => pointById(sketch, id))
-      .filter((point): point is NonNullable<typeof point> => Boolean(point));
-
-    if (entity.kind === "line") {
-      return resolved.map((point) => [point.x, point.y, 0] as [number, number, number]);
-    }
-
-    if (entity.kind === "circle") {
-      const centre = resolved[0];
-      if (!centre) return [];
-      const segments = 72;
-      return Array.from({ length: segments + 1 }, (_, index) => {
-        const angle = (index / segments) * Math.PI * 2;
-        return [
-          centre.x + Math.cos(angle) * entity.radius,
-          centre.y + Math.sin(angle) * entity.radius,
-          0,
-        ] as [number, number, number];
-      });
-    }
-
-    if (entity.kind === "arc") {
-      const [centre, start, end] = resolved;
-      if (!centre || !start || !end) return [];
-
-      // Always sweeps counter-clockwise from start to end — the same convention
-      // `arcMidpoint` and the sketch canvas's own arc preview both use.
-      const startAngle = Math.atan2(start.y - centre.y, start.x - centre.x);
-      let endAngle = Math.atan2(end.y - centre.y, end.x - centre.x);
-      if (endAngle <= startAngle) endAngle += Math.PI * 2;
-
-      const segments = 48;
-      return Array.from({ length: segments + 1 }, (_, index) => {
-        const angle = startAngle + ((endAngle - startAngle) * index) / segments;
-        return [
-          centre.x + Math.cos(angle) * entity.radius,
-          centre.y + Math.sin(angle) * entity.radius,
-          0,
-        ] as [number, number, number];
-      });
-    }
-
-    // Spline: interpolate through its points so the curve reads as a smooth profile.
-    if (resolved.length < 2) return [];
-    const curve = new CatmullRomCurve3(resolved.map((point) => new Vector3(point.x, point.y, 0)));
-    return curve.getPoints(Math.max(24, resolved.length * 12)).map(
-      (point) => [point.x, point.y, 0] as [number, number, number],
-    );
-  }, [entity, sketch]);
+  // The version key already encodes everything the polyline reads about this entity — so
+  // depending on `readPoint` directly here would re-run the tessellation for every entity
+  // whenever the parent rebuilds its reader (any geometry edit), the exact churn the
+  // keyed memo exists to remove. A reader whose points moved without this entity's own
+  // changing produces the same key, and therefore the same polyline, by construction.
+  const pointVersion = entityPointVersion(entity, readPoint);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const points = useMemo(() => resolveEntityPolyline(entity, readPoint), [entity, pointVersion]);
 
   if (points.length < 2) return null;
 
@@ -346,12 +342,12 @@ function EntityView({
           isSelectMode
             ? (event) => {
                 event.stopPropagation();
-                onSelect(event.ctrlKey || event.metaKey);
+                onSelect(entity.id, event.ctrlKey || event.metaKey);
               }
             : isTrimTarget
               ? (event: ThreeEvent<MouseEvent>) => {
                   event.stopPropagation();
-                  onTrim(event.point);
+                  onTrim(entity.id, event.point);
                 }
               : undefined
         }
@@ -359,4 +355,4 @@ function EntityView({
       />
     </>
   );
-}
+});

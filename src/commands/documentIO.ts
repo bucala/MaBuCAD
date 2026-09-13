@@ -1,10 +1,9 @@
-import type { Sketch } from "@/sketch/types";
+import { DOCUMENT_FORMAT_VERSION, SavedDocument, validateSavedDocument } from "@/io/documentValidation";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { useSketchStore } from "@/state/sketchStore";
 import { confirmDiscard, useWorkspaceStore } from "@/state/workspaceStore";
-import type { CadDocument, DocumentKind } from "@/types/document";
-import type { UnitSystemId } from "@/types/ui";
+import type { DocumentKind } from "@/types/document";
 
 /**
  * Whole-document persistence: New, Open, Save.
@@ -26,25 +25,6 @@ import type { UnitSystemId } from "@/types/ui";
  * any other reason — a real gap, but a graceful one rather than a crash, and re-importing
  * the original file is the fix either way.
  */
-
-const FORMAT_VERSION = 1;
-
-interface SavedDocument {
-  formatVersion: number;
-  document: CadDocument;
-  sketches: Record<string, Sketch>;
-  unitSystem: UnitSystemId;
-}
-
-function isSavedDocument(value: unknown): value is SavedDocument {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "formatVersion" in value &&
-    "document" in value &&
-    "sketches" in value
-  );
-}
 
 export async function runSaveDocument(): Promise<void> {
   const saved = await useWorkspaceStore.getState().saveActive();
@@ -92,7 +72,7 @@ export function writeAutosaveSnapshot(): void {
   const { sketches } = useSketchStore.getState();
 
   const snapshot: AutosaveSnapshot = {
-    formatVersion: FORMAT_VERSION,
+    formatVersion: DOCUMENT_FORMAT_VERSION,
     document,
     sketches,
     unitSystem,
@@ -113,7 +93,10 @@ function readAutosaveSnapshot(): AutosaveSnapshot | null {
     const raw = window.localStorage.getItem(AUTOSAVE_STORAGE_KEY);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    return isSavedDocument(parsed) && "savedAt" in parsed ? (parsed as AutosaveSnapshot) : null;
+    const validated = validateSavedDocument(parsed);
+    return validated.ok && typeof (parsed as AutosaveSnapshot).savedAt === "string"
+      ? (parsed as AutosaveSnapshot)
+      : null;
   } catch {
     return null;
   }

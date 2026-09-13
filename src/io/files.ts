@@ -1,13 +1,14 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { open, save } from "@tauri-apps/plugin-dialog";
 
 /**
  * File access for interchange.
  *
- * Inside Tauri the user picks a path with a native dialog and the bytes go through a
- * dedicated Rust command. In a plain browser — `vite dev`, and the automated tests — the
- * same calls fall back to a download and a file input, so the export and import paths can
- * be exercised without packaging the desktop app.
+ * Inside Tauri the dialogs are opened by the Rust side (`pick_open_path`/`pick_save_path`
+ * in `src-tauri/src/fileio.rs`), which remembers every path it handed out and gates the
+ * read/write commands on that set — the page never gets to name a location the user
+ * didn't choose in a real dialog or a real drop. In a plain browser — `vite dev`, and the
+ * automated tests — the same calls fall back to a download and a file input, so the
+ * export and import paths can be exercised without packaging the desktop app.
  */
 
 export interface PickedFile {
@@ -34,11 +35,7 @@ export async function saveBlobAs(
     return "";
   }
 
-  const path = await save({
-    defaultPath: suggestedName,
-    filters: [{ name: extensions.join("/").toUpperCase(), extensions }],
-  });
-
+  const path = await invoke<string | null>("pick_save_path", { suggestedName, extensions });
   if (!path) return null;
 
   await writeBinaryAtPath(path, blob);
@@ -47,8 +44,10 @@ export async function saveBlobAs(
 
 /** Writes a blob directly to an already-known path, no dialog — what plain Save uses once a
  * document has a real file behind it, so re-saving never re-prompts for a location the way
- * Save As deliberately does. Browser-only sessions have no such path to begin with (`saveAs`
- * always returns `""` there), so callers only reach this inside Tauri. */
+ * Save As deliberately does. The Rust side only honours paths one of its own dialogs (or a
+ * drop) handed back this session, which is exactly where a document's `filePath` comes
+ * from. Browser-only sessions have no such path to begin with (`saveBlobAs` always
+ * returns `""` there), so callers only reach this inside Tauri. */
 export async function writeBinaryAtPath(path: string, blob: Blob): Promise<void> {
   const contents = Array.from(new Uint8Array(await blob.arrayBuffer()));
   await invoke("write_binary_file", { path, contents });
@@ -67,13 +66,8 @@ export async function openFile(extensions: string[]): Promise<PickedFile | null>
     return pickInBrowser(extensions);
   }
 
-  const path = await open({
-    multiple: false,
-    directory: false,
-    filters: [{ name: extensions.join("/").toUpperCase(), extensions }],
-  });
-
-  if (typeof path !== "string") return null;
+  const path = await invoke<string | null>("pick_open_path", { extensions });
+  if (!path) return null;
 
   const contents = await invoke<number[]>("read_binary_file", { path });
   return {
@@ -84,10 +78,10 @@ export async function openFile(extensions: string[]): Promise<PickedFile | null>
 }
 
 /**
- * Re-reads a file at a path previously returned by `openFile`, with no dialog — Tauri only,
- * since it's the only mode that ever hands back a real `path` to begin with. Callers must
- * check for a `null` path themselves (see `PickedFile.path`'s own doc comment) rather than
- * calling this speculatively.
+ * Re-reads a file at a path previously returned by `openFile` (or announced by the Rust
+ * drag-drop handler), with no dialog — Tauri only, since it's the only mode that ever
+ * hands back a real `path` to begin with. Callers must check for a `null` path themselves
+ * (see `PickedFile.path`'s own doc comment) rather than calling this speculatively.
  */
 export async function readFileAtPath(path: string): Promise<ArrayBuffer> {
   const contents = await invoke<number[]>("read_binary_file", { path });
