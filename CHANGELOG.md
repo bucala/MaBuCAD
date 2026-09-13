@@ -118,6 +118,20 @@ scratch on every edit.
   identity drei's `<Line>` needs to skip the GPU-side rebuild — and the fixture builds
   byte-identically every time.
 
+### Added — installer builds on GitHub Actions (`installer.yml`)
+- `installer.yml` builds the Windows installers (MSI + NSIS — `tauri.conf.json`'s own
+  `bundle.targets`) for whatever version the repo carries, read straight from
+  `tauri.conf.json` so the workflow never needs a manual version bump. Two triggers:
+  Actions ▸ Installer ▸ Run workflow builds both installers and uploads them as
+  workflow artifacts named `MaBuCAD_<version>_installers` (nothing is published), and
+  pushing a `v*` tag (e.g. `v0.19.0`) builds the same pair and attaches them to a
+  GitHub Release for that tag with generated notes — tag pushes don't run the CI
+  workflow (`ci.yml` filters on branches), so this is the publishing path.
+  Deliberately lean, the same choice `scripts\build-msi.ps1` makes locally: the build
+  itself typechecks the frontend (`beforeBuildCommand` runs `npm run build`, i.e.
+  `tsc && vite build`), and a tag is expected to be cut from main, which CI already
+  gates on every push.
+
 ### Known issues — imported bodies drift across repeated rebuilds (pre-existing)
 - Investigated while proving the cache correct, left unfixed on purpose: re-fusing the
   *same* imported body on a second rebuild is not bit-stable — OpenCASCADE's booleans

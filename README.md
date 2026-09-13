@@ -378,6 +378,13 @@ npm run tauri build    # MSI and NSIS installers in src-tauri/target/release/bun
 .\scripts\build-msi.ps1 -Target msi -Open         # just the MSI, then open the output folder
 ```
 
+The same build also runs on GitHub Actions (`.github/workflows/installer.yml`), so an
+installer can be produced without a local Rust toolchain: Actions ▸ **Installer** ▸
+*Run workflow* builds both installers for whatever version the repo carries and uploads
+them as workflow artifacts, and pushing a `v*` tag (e.g. `v0.19.0`) builds and attaches
+them to a GitHub Release for that tag — the publishing path, since the CI workflow only
+gates branch pushes.
+
 </details>
 
 <details>
