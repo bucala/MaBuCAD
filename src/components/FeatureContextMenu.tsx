@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Circle, Eye, EyeOff, Trash2, Undo2 } from "lucide-react";
+import { Circle, Eye, EyeOff, Power, PowerOff, Trash2, Undo2 } from "lucide-react";
 
 import { runCommand } from "@/commands/commandRegistry";
+import { useTranslation } from "@/i18n/useTranslation";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
@@ -32,6 +33,7 @@ const MENU_HEIGHT = 210;
  * selected, which is exactly what a tree row's opener already has to hand directly.
  */
 export function FeatureContextMenu() {
+  const { t } = useTranslation();
   const contextMenu = useDocumentStore((state) => state.contextMenu);
   const closeContextMenu = useDocumentStore((state) => state.closeContextMenu);
   const selectedFeatureIds = useDocumentStore((state) => state.selectedFeatureIds);
@@ -113,7 +115,7 @@ export function FeatureContextMenu() {
           }}
         >
           <Circle size={14} strokeWidth={1.75} />
-          New Sketch
+          {t("tree.newSketch", "New Sketch")}
         </button>
       )}
 
@@ -128,7 +130,7 @@ export function FeatureContextMenu() {
           }}
         >
           {isHidden ? <Eye size={14} strokeWidth={1.75} /> : <EyeOff size={14} strokeWidth={1.75} />}
-          {isHidden ? "Show" : "Hide"}
+          {isHidden ? t("tree.show", "Show") : t("tree.hide", "Hide")}
         </button>
       )}
 
@@ -145,7 +147,7 @@ export function FeatureContextMenu() {
               }}
             >
               <Circle size={14} strokeWidth={1.75} />
-              Edit Sketch
+              {t("tree.editSketch", "Edit Sketch")}
             </button>
           )}
 
@@ -160,7 +162,7 @@ export function FeatureContextMenu() {
               }}
             >
               <Circle size={14} strokeWidth={1.75} />
-              Edit Sketch
+              {t("tree.editSketch", "Edit Sketch")}
             </button>
           )}
 
@@ -175,8 +177,10 @@ export function FeatureContextMenu() {
                   close();
                 }}
               >
-                {feature.suppressed ? <Eye size={14} strokeWidth={1.75} /> : <EyeOff size={14} strokeWidth={1.75} />}
-                {feature.suppressed ? "Unsuppress" : "Suppress"}
+                {feature.suppressed ? <Power size={14} strokeWidth={1.75} /> : <PowerOff size={14} strokeWidth={1.75} />}
+                {feature.suppressed
+                  ? t("feature.unsuppress", "Unsuppress")
+                  : t("feature.suppress", "Suppress")}
               </button>
 
               <button
@@ -189,7 +193,7 @@ export function FeatureContextMenu() {
                 }}
               >
                 <Undo2 size={14} strokeWidth={1.75} />
-                Roll Back to Before
+                {t("tree.rollBackToBeforeMenu", "Roll Back to Before")}
               </button>
 
               <div className={styles.divider} />
@@ -204,7 +208,7 @@ export function FeatureContextMenu() {
                 }}
               >
                 <Trash2 size={14} strokeWidth={1.75} />
-                Delete
+                {t("feature.delete", "Delete")}
               </button>
             </>
           )}

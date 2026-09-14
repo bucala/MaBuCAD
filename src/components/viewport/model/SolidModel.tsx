@@ -8,7 +8,6 @@ import { placeHoleAtPick } from "@/commands/commandRegistry";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { buildFaceColorAttribute, faceAngleToAxis } from "@/kernel/faceColoring";
 import { computeMassProperties } from "@/kernel/measure";
-import type { MeshData } from "@/kernel/rebuild";
 import type { Sketch } from "@/sketch/types";
 import { selectBuiltFeatures, useDocumentStore } from "@/state/documentStore";
 import { GEOMETRY_FEATURE_KINDS, useGeometryStore } from "@/state/geometryStore";
@@ -19,11 +18,9 @@ import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 import { useClickGuard } from "../controls/useClickGuard";
+import { nearestEdgeGroupId } from "./edgePicking";
 import { HoleThreadOverlay } from "./HoleThreadOverlay";
 
-/** How close (world units) a new pick needs to land to an already-picked point to toggle it
- * off instead of adding a duplicate — clicking the same edge again deselects it. */
-const EDGE_PICK_TOGGLE_DISTANCE = 2;
 /** Highlight colour for the "face"/"edge" selection filters — the same cyan for both, since
  * they're the same "this is what the current selection-priority filter picked" concept just
  * applied to a different entity kind, distinct from the amber edge-pick highlight and the
@@ -53,30 +50,6 @@ const APPEARANCE_FALLBACK_COLOR: [number, number, number] = [0.72, 0.77, 0.82];
 function hexToRgb(hex: string): [number, number, number] {
   const color = new Color(hex);
   return [color.r, color.g, color.b];
-}
-
-/** Nearest `EdgeGroup.id` to a point already in the mesh's own un-rotated local space —
- * shared by the Fillet/Chamfer picked-edge highlight (`pickedEdgeHighlightGeometry`) and
- * Inspect > Measure's edge pick, both of which only have a raycaster hit point to start
- * from, not a kernel edge id. */
-function nearestEdgeGroupId(mesh: MeshData, point: readonly [number, number, number]): number | null {
-  let bestId: number | null = null;
-  let bestDistanceSq = Infinity;
-  for (const group of mesh.edgeGroups) {
-    const startFloat = group.start * 3;
-    const endFloat = startFloat + group.count * 3;
-    for (let i = startFloat; i < endFloat; i += 3) {
-      const dx = mesh.edges[i] - point[0];
-      const dy = mesh.edges[i + 1] - point[1];
-      const dz = mesh.edges[i + 2] - point[2];
-      const distanceSq = dx * dx + dy * dy + dz * dz;
-      if (distanceSq < bestDistanceSq) {
-        bestDistanceSq = distanceSq;
-        bestId = group.id;
-      }
-    }
-  }
-  return bestId;
 }
 
 /**
@@ -278,8 +251,15 @@ export function SolidModel() {
 
   /**
    * Toggles the clicked point into or out of the picking feature's `edgePoints` — clicking
-   * an already-picked edge again (within `EDGE_PICK_TOGGLE_DISTANCE`) deselects it, matching
-   * how selection toggles everywhere else in this app.
+   * an already-picked edge again deselects it, matching how selection toggles everywhere
+   * else in this app.
+   *
+   * "Already-picked" is resolved by *which edge* the click landed on, not by how close the
+   * new point sits to a stored one: two clicks anywhere along one long edge can be
+   * centimetres apart along it, so a fixed world-unit radius used to make a zoomed-out
+   * second click add a duplicate pick of the same edge instead of removing it. Both the
+   * new point and the stored ones resolve through the same `nearestEdgeGroupId`, so the
+   * second click finds the first click's edge at any zoom.
    *
    * `event.point` comes out in world (display) space, resolved through every parent
    * transform including this group's own `mesh.rotation` — but the replicad `Solid` the
@@ -299,9 +279,11 @@ export function SolidModel() {
     const point: [number, number, number] = [local.x, local.y, local.z];
 
     const existing = pickingFeature.parameters.edgePoints ?? [];
-    const nearbyIndex = existing.findIndex(
-      ([x, y, z]) => Math.hypot(x - point[0], y - point[1], z - point[2]) < EDGE_PICK_TOGGLE_DISTANCE,
-    );
+    const clickedGroupId = nearestEdgeGroupId(mesh, point);
+    const nearbyIndex =
+      clickedGroupId === null
+        ? -1
+        : existing.findIndex((stored) => nearestEdgeGroupId(mesh, stored) === clickedGroupId);
     const next = nearbyIndex >= 0 ? existing.filter((_, index) => index !== nearbyIndex) : [...existing, point];
     // The very first real pick clears `edgesPending` for good — see its own doc comment.
     // Toggling that first edge back off afterward correctly falls through to "every edge"
@@ -488,10 +470,12 @@ export function SolidModel() {
    * than a marker dropped at the click point — each `edgePoints` entry (see that field's
    * own doc comment in `types/document.ts`) is resolved to the nearest `EdgeGroup` (the
    * kernel's own per-edge slice of `mesh.edges`, straight from replicad's `meshEdges()`),
-   * and every vertex belonging to a matched group is drawn. A point can land near more than
-   * one group's vertices only right at a shared corner, in which case the nearest wins —
-   * fine in practice since a corner point was picked by clicking *somewhere along* one of
-   * the edges meeting there, not exactly on the corner itself.
+   * and every vertex belonging to a matched group is drawn. Resolution is
+   * point-to-segment (see `nearestEdgeGroupId`), so a pick in the middle of a long edge
+   * highlights that edge — the only way two groups can tie is a point equidistant from
+   * two distinct edges' segments, where the first one wins, an exact corner case a real
+   * click never produces (it was picked by clicking *somewhere along* one of the edges
+   * meeting there, not exactly on the shared corner point).
    */
   const pickedEdgeHighlightGeometry = useMemo(() => {
     const edgePoints = pickingFeature?.parameters.edgePoints;

@@ -7,6 +7,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 
+import { fillTemplate, useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
 import { useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
@@ -22,10 +23,12 @@ import styles from "./FeatureTree.module.css";
  * modellers let you step back and insert a feature mid-history.
  */
 export function FeatureTree() {
+  const { t } = useTranslation();
   const document = useDocumentStore((state) => state.document);
   const selectedFeatureIds = useDocumentStore((state) => state.selectedFeatureIds);
 
   const selectFeature = useDocumentStore((state) => state.selectFeature);
+  const beginFeatureEdit = useDocumentStore((state) => state.beginFeatureEdit);
   const renameFeature = useDocumentStore((state) => state.renameFeature);
   const deleteFeature = useDocumentStore((state) => state.deleteFeature);
   const toggleSuppressed = useDocumentStore((state) => state.toggleSuppressed);
@@ -75,15 +78,17 @@ export function FeatureTree() {
     <div className={styles.tree}>
       <div className={styles.toolbar}>
         {rolledBackCount > 0 && (
-          <span className={styles.rollbackCount}>{rolledBackCount} rolled back</span>
+          <span className={styles.rollbackCount}>
+            {fillTemplate(t("tree.rolledBack", "{{count}} rolled back"), { count: rolledBackCount })}
+          </span>
         )}
         <div className={styles.toolSpacer} />
 
         <button
           type="button"
           className={styles.toolButton}
-          title="Roll back one feature"
-          aria-label="Roll back one feature"
+          title={t("tree.rollBackOne", "Roll back one feature")}
+          aria-label={t("tree.rollBackOne", "Roll back one feature")}
           onClick={rollBackOne}
         >
           <ChevronUp size={14} />
@@ -91,8 +96,8 @@ export function FeatureTree() {
         <button
           type="button"
           className={styles.toolButton}
-          title="Roll forward one feature"
-          aria-label="Roll forward one feature"
+          title={t("tree.rollForwardOne", "Roll forward one feature")}
+          aria-label={t("tree.rollForwardOne", "Roll forward one feature")}
           disabled={rolledBackCount === 0}
           onClick={rollForwardOne}
         >
@@ -101,8 +106,8 @@ export function FeatureTree() {
         <button
           type="button"
           className={styles.toolButton}
-          title="Roll to end"
-          aria-label="Roll to end"
+          title={t("tree.rollToEnd", "Roll to end")}
+          aria-label={t("tree.rollToEnd", "Roll to end")}
           disabled={rolledBackCount === 0}
           onClick={rollToEnd}
         >
@@ -110,7 +115,11 @@ export function FeatureTree() {
         </button>
       </div>
 
-      <div className={styles.rows} role="tree" aria-label="Feature manager design tree">
+      <div
+        className={styles.rows}
+        role="tree"
+        aria-label={t("tree.ariaLabel", "Feature manager design tree")}
+      >
         <div
           className={styles.row}
           role="treeitem"
@@ -123,7 +132,11 @@ export function FeatureTree() {
           <button
             type="button"
             className={styles.chevron}
-            aria-label={isRootExpanded ? "Collapse document" : "Expand document"}
+            aria-label={
+              isRootExpanded
+                ? t("tree.collapseDocument", "Collapse document")
+                : t("tree.expandDocument", "Expand document")
+            }
             onClick={() => setIsRootExpanded((expanded) => !expanded)}
           >
             {isRootExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -169,6 +182,7 @@ export function FeatureTree() {
                   onToggleVisibility={toggleFeatureVisibility}
                   onRollbackToBefore={rollbackToBefore}
                   onEditSketch={resumeSketch}
+                  onEditFeature={beginFeatureEdit}
                   onContextMenu={openContextMenu}
                 />
               </div>
@@ -182,8 +196,10 @@ export function FeatureTree() {
 
         {document.features.every((feature) => feature.isDefault) && (
           <p className={styles.empty}>
-            Only the default reference geometry so far. Start a command from the Features or
-            Sketch tab and it appears here in document order.
+            {t(
+              "tree.empty",
+              "Only the default reference geometry so far. Start a command from the Features or Sketch tab and it appears here in document order.",
+            )}
           </p>
         )}
       </div>
@@ -203,6 +219,7 @@ export function FeatureTree() {
  * track.
  */
 function RollbackBar({ onDrag }: { onDrag: (clientY: number) => void }) {
+  const { t } = useTranslation();
   const isDraggingRef = useRef(false);
 
   const handlePointerDown = (event: React.PointerEvent) => {
@@ -226,16 +243,14 @@ function RollbackBar({ onDrag }: { onDrag: (clientY: number) => void }) {
     <div
       className={styles.rollbackBar}
       role="separator"
-      aria-label="Rollback bar"
+      aria-label={t("tree.rollbackBar", "Rollback bar")}
       data-testid="rollback-bar"
       // The whole bar shows the ns-resize cursor, so the drag needs to start from anywhere
       // along it — not just the small "ROLLBACK" text, which used to be the only element
       // with a handler — or that cursor is a lie the majority of its own width.
       onPointerDown={handlePointerDown}
     >
-      <span className={styles.rollbackGrip}>
-        Rollback
-      </span>
+      <span className={styles.rollbackGrip}>{t("tree.rollback", "Rollback")}</span>
       <span className={styles.rollbackLine} />
     </div>
   );

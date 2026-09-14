@@ -19,11 +19,13 @@
  * Scope: the ribbon (every tab, group, command label *and hover tooltip*), the menu bar,
  * the status bar, the Settings dialog's tab strip, the New Document dialog, the document
  * tabs, the drawing sheet's chrome and the three manager dock panels (SketchPanel,
- * InspectPanel, PropertyManager, including the feature-catalog descriptions they show).
+ * InspectPanel, PropertyManager, including the feature-catalog descriptions they show),
+ * and the Feature Manager tree — its chrome (toolbar, rollback bar, tooltips, empty state),
+ * its right-click menu, and the row *names* that are not user data: the default reference
+ * geometry and still-auto-generated feature names are localised at render time by
+ * `i18n/featureNames.ts`, while a name the user typed stays exactly as typed.
  * Still English-only and deliberately out of scope for now: the drawing annotation
- * editors' deep field sets, toast messages raised from stores outside React's render,
- * and the per-feature rows of the Feature Manager tree (a feature's own *name* is user
- * data like "Boss-Extrude1", not UI chrome to translate).
+ * editors' deep field sets, and toast messages raised from stores outside React's render.
  */
 export const sk: Record<string, string> = {
   // ---------------------------------------------------------------------- ribbon tabs
@@ -405,6 +407,84 @@ export const sk: Record<string, string> = {
   "featureCatalog.reference-axis": "Používateľom vytvorená referenčná os",
   "featureCatalog.reference-point": "Používateľom vytvorený referenčný bod",
   "featureCatalog.reference-csys": "Používateľom vytvorený lokálny súradnicový systém",
+
+  // ------------------------------------------------- feature manager tree (design tree)
+  // Row *names* are translated at render time by `i18n/featureNames.ts`: the default
+  // reference geometry by its own stable feature id, and an auto-generated name by its
+  // catalog prefix ("Boss-Extrude1" → "Vytiahnutie1"). A name the user typed themselves
+  // is never touched, and the document file always keeps the English name.
+  "featureName.annotations": "Anotácie",
+  "featureName.material": "Materiál <neurčený>",
+  "featureName.plane-front": "Predná rovina",
+  "featureName.plane-top": "Horná rovina",
+  "featureName.plane-right": "Pravá rovina",
+  "featureName.origin": "Počiatok",
+
+  "featurePrefix.annotations": "Anotácie",
+  "featurePrefix.material": "Materiál",
+  "featurePrefix.plane": "Rovina",
+  "featurePrefix.origin": "Počiatok",
+  "featurePrefix.sketch": "Náčrt",
+  "featurePrefix.extrude": "Vytiahnutie",
+  "featurePrefix.revolve": "Rotácia",
+  "featurePrefix.sweep": "Ťahanie",
+  "featurePrefix.loft": "Nafukovanie",
+  "featurePrefix.cut-extrude": "Orezanie-vytiahnutím",
+  "featurePrefix.cut-revolve": "Orezanie-rotáciou",
+  "featurePrefix.cut-sweep": "Orezanie-ťahaním",
+  "featurePrefix.hole": "Diera",
+  "featurePrefix.fillet": "Zaoblenie",
+  "featurePrefix.chamfer": "Skosenie",
+  "featurePrefix.shell": "Škrupina",
+  "featurePrefix.draft": "Úkos",
+  "featurePrefix.rib": "Rebro",
+  "featurePrefix.linear-pattern": "LinPole",
+  "featurePrefix.circular-pattern": "KruhPole",
+  "featurePrefix.mirror": "Zrkadlenie",
+  "featurePrefix.imported": "Import",
+  "featurePrefix.reference-plane": "Rovina",
+  "featurePrefix.reference-axis": "Os",
+  "featurePrefix.reference-point": "Bod",
+  "featurePrefix.reference-csys": "SúradSystém",
+
+  // Shared by every surface that offers them — the tree row actions, the right-click menu
+  // and the property panel's action bar — so one feature can never be "suppressed" in one
+  // place and something else in another.
+  "feature.suppress": "Potlačiť",
+  "feature.unsuppress": "Zrušiť potlačenie",
+  "feature.delete": "Odstrániť",
+  "feature.ok": "OK",
+  "feature.cancel": "Zrušiť",
+  "feature.okTitle": "Potvrdiť prvok (Enter)",
+  "feature.cancelTitle": "Zrušiť zmeny (Esc)",
+  "feature.editing": "Upravuje sa",
+  "feature.creating": "Vytvára sa",
+
+  "tree.ariaLabel": "Strom prvkov dokumentu",
+  "tree.collapseDocument": "Zbaliť dokument",
+  "tree.expandDocument": "Rozbaliť dokument",
+  "tree.rolledBack": "{{count}} vrátených",
+  "tree.rollBackOne": "Vrátiť o jeden prvok",
+  "tree.rollForwardOne": "Posunúť o jeden prvok",
+  "tree.rollToEnd": "Posunúť na konec",
+  "tree.rollback": "Návrat",
+  "tree.rollbackBar": "Lišta návratu",
+  "tree.rollbackToBefore": "Vrátiť pred tento prvok",
+  "tree.rollbackToBeforeAria": "Vrátiť pred {{name}}",
+  "tree.rollBackToBeforeMenu": "Vrátiť pred tento prvok",
+  "tree.rename": "Premenovať (F2)",
+  "tree.renameAria": "Premenovať {{name}}",
+  "tree.deleteAria": "Odstrániť {{name}}",
+  "tree.show": "Zobraziť",
+  "tree.hide": "Skryť",
+  "tree.newSketch": "Nový náčrt",
+  "tree.editSketch": "Upraviť náčrt",
+  "tree.usedByOne": "Použitý ako vstup {{count}} prvkom",
+  "tree.usedByMany": "Použitý ako vstup {{count}} prvkami",
+  "tree.sketchRowHint":
+    "Vyberte náčrt a spustite príkaz z karty Prvky — ten istý náčrt môže byť vstupom pre viac prvkov",
+  "tree.empty":
+    "Zatiaľ len predvolená referenčná geometria. Spustite príkaz z karty Prvky alebo Náčrt a zobrazí sa tu v poradí dokumentu.",
 
   // --------------------------------------------------------------- sketch panel (dock)
   // Tool and relation *labels* reuse the ribbon command keys above so the two surfaces

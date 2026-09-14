@@ -107,6 +107,18 @@ function nextFeatureName(features: Feature[], kind: FeatureKind): string {
 /** How many default features every document starts with — the rollback floor. */
 const DEFAULT_FEATURE_COUNT = createDefaultFeatures().length;
 
+/** An open feature create/edit session — see `DocumentStore.featureEdit`. */
+export interface FeatureEditSession {
+  featureId: string;
+  /** True while the session belongs to a feature that was created by opening it, which is
+   * what makes Cancel remove the feature rather than just revert its parameters. */
+  isNew: boolean;
+}
+
+/** Kinds that never open a session of their own: a sketch is edited in the sketch editor,
+ * which is its own session with its own undo stack and its own Exit (`sketchStore.ts`). */
+const SESSIONLESS_KINDS: ReadonlySet<FeatureKind> = new Set<FeatureKind>(["sketch"]);
+
 const HISTORY_LIMIT = 30;
 
 interface DocumentStore {
@@ -167,6 +179,31 @@ interface DocumentStore {
   beginDragEdit: () => void;
   /** Ends the gesture — discards the armed snapshot if no frame ever changed anything. */
   endDragEdit: () => void;
+
+  /**
+   * The feature currently being created or edited, or null when nothing is.
+   *
+   * One session model for every feature on every surface: creating a feature from the
+   * ribbon opens a session on it (`isNew`), selecting an existing one and changing anything
+   * opens a session on that (`isNew: false`), and `PropertyManager.tsx`'s own action bar is
+   * the single place that ends it — OK keeps the result, Cancel restores the document to
+   * exactly what it was when the session opened (which removes a just-created feature), and
+   * Suppress/Delete are the same two buttons everywhere. Before this, every keystroke in the
+   * property panel was its own undo step and there was no way to back out of a feature at
+   * all except deleting it by hand.
+   *
+   * A session collapses every change inside it into a *single* undo step (the same
+   * mechanism `beginDragEdit` uses for one pointer-drag), so undoing after OK undoes the
+   * whole feature, not the last digit typed into one of its fields.
+   */
+  featureEdit: FeatureEditSession | null;
+  /** Opens a session on an existing feature — idempotent, and a no-op for default
+   * reference geometry, which has nothing to edit. */
+  beginFeatureEdit: (id: string) => void;
+  /** Ends the open session: `"commit"` keeps the document as it stands, `"cancel"` restores
+   * the pre-session document and drops the session's own undo entry, so a cancelled edit
+   * leaves no trace in the history either. */
+  endFeatureEdit: (outcome: "commit" | "cancel") => void;
 
   selectFeature: (id: string | null, additive?: boolean) => void;
   clearSelection: () => void;
@@ -291,6 +328,21 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
   let inDragGesture = false;
 
   /**
+   * The document as it was when the open feature session started, or null outside a session
+   * — what Cancel restores. Unlike `dragSnapshot` this is *not* consumed by the first
+   * changing commit (Cancel can arrive at any point in the session); `editPushedHistory`
+   * tracks that part separately.
+   */
+  let editSnapshot: CadDocument | null = null;
+  /** Whether the open session has already pushed its single undo entry. */
+  let editPushedHistory = false;
+
+  const clearEditSession = () => {
+    editSnapshot = null;
+    editPushedHistory = false;
+  };
+
+  /**
    * Applies a change to the document and records the previous state for undo.
    *
    * Every mutation goes through here so history stays complete; selection and unit
@@ -298,12 +350,29 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
    *
    * Gesture-aware: inside an armed drag gesture the first *changing* commit records the
    * pre-gesture document as the gesture's single history entry and the gesture's later
-   * frames apply without one, so a whole pointer-drag is one undo step.
+   * frames apply without one, so a whole pointer-drag is one undo step. A feature
+   * create/edit session (`beginFeatureEdit`) batches the same way, over a whole session
+   * rather than a whole drag: typing "12.5" into a depth field is one undo step, not three.
    */
   const commit = (mutate: (document: CadDocument) => CadDocument) => {
     const { document, past } = get();
     const next = mutate(document);
     if (next === document) return;
+
+    if (editSnapshot) {
+      // Checked before the drag branch: a feature session and a sheet drag can never
+      // legitimately overlap (a Drawing has no features), and the session is the one whose
+      // Cancel has to be able to restore its snapshot afterwards.
+      const pushSnapshot = !editPushedHistory;
+      editPushedHistory = true;
+
+      set({
+        document: next,
+        past: pushSnapshot ? [...past, editSnapshot].slice(-HISTORY_LIMIT) : past,
+        future: [],
+      });
+      return;
+    }
 
     if (inDragGesture) {
       // The pre-gesture document, or null once an earlier frame of this gesture already
@@ -335,6 +404,16 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
 
     addFeature: (kind, parameters, parents = []) => {
       const id = nextId(kind);
+      const opensSession = !SESSIONLESS_KINDS.has(kind);
+
+      // Creating a feature ends whatever session was open, the same way clicking another
+      // feature does (OK semantics) — two sessions can never be open at once.
+      if (get().featureEdit) get().endFeatureEdit("commit");
+
+      if (opensSession) {
+        editSnapshot = get().document;
+        editPushedHistory = false;
+      }
 
       commit((document) => {
         const feature: Feature = {
@@ -355,7 +434,10 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         return { ...document, features, rollbackIndex: document.rollbackIndex + 1 };
       });
 
-      set({ selectedFeatureIds: [id] });
+      set({
+        selectedFeatureIds: [id],
+        ...(opensSession ? { featureEdit: { featureId: id, isNew: true } } : {}),
+      });
       return id;
     },
 
@@ -437,6 +519,13 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       set((state) => ({
         selectedFeatureIds: state.selectedFeatureIds.filter((selected) => selected !== id),
       }));
+
+      // Deleting the feature a session was open on ends it: there is nothing left to
+      // confirm, and leaving the session armed would let a later Cancel resurrect it.
+      if (get().featureEdit?.featureId === id) {
+        clearEditSession();
+        set({ featureEdit: null });
+      }
     },
 
     toggleSuppressed: (id) => {
@@ -546,7 +635,57 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       dragSnapshot = null;
     },
 
+    featureEdit: null,
+
+    beginFeatureEdit: (id) => {
+      const { featureEdit, document } = get();
+      if (featureEdit?.featureId === id) return;
+
+      const target = document.features.find((feature) => feature.id === id);
+      if (!target || target.isDefault || SESSIONLESS_KINDS.has(target.kind)) return;
+
+      // Leaving one feature for another confirms the first, matching what clicking away in
+      // any other modeller does — never silently discarding work.
+      if (featureEdit) get().endFeatureEdit("commit");
+
+      editSnapshot = get().document;
+      editPushedHistory = false;
+      set({ featureEdit: { featureId: id, isNew: false }, selectedFeatureIds: [id] });
+    },
+
+    endFeatureEdit: (outcome) => {
+      const snapshot = editSnapshot;
+      const pushed = editPushedHistory;
+      clearEditSession();
+
+      if (outcome === "commit" || !snapshot) {
+        set({ featureEdit: null });
+        return;
+      }
+
+      // Cancel: back to the pre-session document, and drop the session's own history entry
+      // — a cancelled edit is not something Undo should have to step through. `future` is
+      // cleared for the same reason it is on any other edit: the redo chain belonged to a
+      // document state that no longer exists.
+      set((state) => ({
+        document: snapshot,
+        past: pushed ? state.past.slice(0, -1) : state.past,
+        future: [],
+        featureEdit: null,
+        // Cancel also deselects — the PropertyManager equivalent of SolidWorks dismissing
+        // the panel on Cancel: the panel drops to its empty state rather than lingering on
+        // a feature whose session just ended (which would show disabled OK/Cancel and
+        // fields whose next keystroke silently starts a *new* session).
+        selectedFeatureIds: [],
+      }));
+    },
+
     selectFeature: (id, additive = false) => {
+      // Selecting anything other than the feature being edited confirms that edit first, so
+      // the session can never outlive the panel that shows it.
+      const openSession = get().featureEdit;
+      if (openSession && openSession.featureId !== id) get().endFeatureEdit("commit");
+
       if (id === null) {
         set({ selectedFeatureIds: [] });
         return;
@@ -564,7 +703,10 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       });
     },
 
-    clearSelection: () => set({ selectedFeatureIds: [] }),
+    clearSelection: () => {
+      if (get().featureEdit) get().endFeatureEdit("commit");
+      set({ selectedFeatureIds: [] });
+    },
 
     contextMenu: null,
     openContextMenu: (x, y) => set({ contextMenu: { x, y } }),
@@ -974,20 +1116,34 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     loadDocument: (document) => {
       inDragGesture = false;
       dragSnapshot = null;
-      set({ document, past: [], future: [], selectedFeatureIds: [], contextMenu: null });
+      clearEditSession();
+      set({ document, past: [], future: [], selectedFeatureIds: [], contextMenu: null, featureEdit: null });
     },
 
     restoreSession: (document, past, future, unitSystem) => {
       inDragGesture = false;
       dragSnapshot = null;
-      set({ document, past, future, unitSystem, selectedFeatureIds: [], contextMenu: null });
+      clearEditSession();
+      set({
+        document,
+        past,
+        future,
+        unitSystem,
+        selectedFeatureIds: [],
+        contextMenu: null,
+        featureEdit: null,
+      });
     },
 
     undo: () => {
       // A keyboard undo mid-drag ends the gesture: the drag's next frame becomes a fresh
       // edit against the restored document rather than being swallowed as a gesture frame.
+      // Same for a feature session — the next edit starts a fresh undo step instead of
+      // being folded into a session whose snapshot no longer matches the document.
       inDragGesture = false;
       dragSnapshot = null;
+      clearEditSession();
+      set({ featureEdit: null });
       const { past, document, future } = get();
       const previous = past[past.length - 1];
       if (!previous) return;
@@ -1002,6 +1158,8 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     redo: () => {
       inDragGesture = false;
       dragSnapshot = null;
+      clearEditSession();
+      set({ featureEdit: null });
       const { past, document, future } = get();
       const [next, ...rest] = future;
       if (!next) return;

@@ -214,6 +214,43 @@
   color: var(--text-accent);
 }
 
+.actionButton:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.actionButton:disabled:hover {
+  background: var(--fill-control);
+}
+
+/* OK is the default action of an open feature session, so it carries the accent the way
+   any other primary confirm in the app does. */
+.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.primary:hover {
+  background: var(--accent-hover, var(--accent));
+}
+
+.primary:disabled {
+  border-color: var(--stroke-control);
+  background: var(--fill-control);
+}
+
+/* The confirm/cancel/suppress/delete bar sits between the header and the scrolling body so
+   it stays visible however long a feature's own parameter list is. */
+.sessionBar {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--stroke-divider);
+}
+
+.sessionBar .actions {
+  margin-top: 0;
+}
+
 .danger:hover {
   color: var(--status-over);
   border-color: var(--status-over);

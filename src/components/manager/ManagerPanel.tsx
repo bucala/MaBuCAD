@@ -55,6 +55,17 @@ export function ManagerPanel() {
     if (selectedFeatureId && !isSketchMode) setActiveTab("properties");
   }, [selectedFeatureId, isSketchMode]);
 
+  // A feature edit session opening swings the panel to the properties tab too, since that's
+  // where the session's OK/Cancel live. This covers the one case the selection effect
+  // above cannot: double-clicking a row that is *already* the sole selection (no selection
+  // change, so no re-run) still has to bring its panel up. `PropertyManager` only opens
+  // sessions while it is already mounted on this tab, so this never fights a tab the user
+  // chose to be on.
+  const featureEditId = useDocumentStore((state) => state.featureEdit?.featureId ?? null);
+  useEffect(() => {
+    if (featureEditId) setActiveTab("properties");
+  }, [featureEditId]);
+
   return (
     <div className={styles.panel}>
       <div className={styles.tabs} role="tablist" aria-label="Manager panels">

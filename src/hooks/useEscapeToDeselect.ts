@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { useDocumentStore } from "@/state/documentStore";
 import { useSketchStore } from "@/state/sketchStore";
+import { useViewportStore } from "@/state/viewportStore";
 
 /**
  * Escape backs out of whatever is currently active, one level at a time — the same
@@ -14,11 +15,18 @@ import { useSketchStore } from "@/state/sketchStore";
  * 2. A non-Select sketch tool is active → back to Select (an in-progress multi-click
  *    entity like a spline or arc is abandoned, the same as the existing right-click
  *    "finish chain" gesture SketchCanvas.tsx already offers for a *completed* one).
- * 3. Otherwise, a sketch or feature selection exists → clear it.
+ * 3. A feature create/edit session is open → cancel it, which restores the document to what
+ *    it was when the session started (removing the feature entirely if the session created
+ *    it). This is the counterpart of the property panel's own Cancel button, and it comes
+ *    before clearing the selection for the same reason the sketch tool does: losing an
+ *    unwanted half-configured feature matters more than losing a highlight.
+ * 4. Otherwise, a sketch or feature selection exists → clear it.
  *
  * Skipped while a form field has focus (an open `<input>`/`<textarea>`/`<select>`) so
  * Escape can do its ordinary "cancel editing this field" job instead — components that
- * need that (the dimension value field) handle their own Escape locally.
+ * need that (the dimension value field) handle their own Escape locally. The one exception
+ * is a field inside the property panel: there the field *is* the feature session, so Escape
+ * cancels the whole feature rather than just the field.
  */
 export function useEscapeToDeselect() {
   useEffect(() => {
@@ -26,7 +34,8 @@ export function useEscapeToDeselect() {
       if (event.key !== "Escape") return;
 
       const target = event.target as HTMLElement | null;
-      if (target && /^(input|textarea|select)$/i.test(target.tagName)) return;
+      const inFeaturePanel = target?.closest?.("[data-feature-session]") != null;
+      if (target && !inFeaturePanel && /^(input|textarea|select)$/i.test(target.tagName)) return;
 
       const sketchState = useSketchStore.getState();
       if (sketchState.activeSketchId) {
@@ -46,6 +55,14 @@ export function useEscapeToDeselect() {
       }
 
       const documentState = useDocumentStore.getState();
+      if (documentState.featureEdit) {
+        target?.blur?.();
+        useViewportStore.getState().setEdgePickMode(null);
+        useViewportStore.getState().setHolePlacementActive(false);
+        documentState.endFeatureEdit("cancel");
+        return;
+      }
+
       if (documentState.selectedFeatureIds.length > 0) {
         documentState.clearSelection();
       }

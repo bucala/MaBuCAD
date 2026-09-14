@@ -22,7 +22,6 @@ import {
   RotateCw,
   Slice,
   SlidersHorizontal,
-  Trash2,
   Triangle,
   type LucideIcon,
 } from "lucide-react";
@@ -39,6 +38,7 @@ import {
 } from "@/data/holeStandards";
 import { groupTappedBySize, resolveClearanceDiameter, resolveTapDrill } from "@/data/holeResolution";
 import { extractCircles, extractLoops, regionEntityIds, type CircleLoop, type Loop } from "@/kernel/profile";
+import { featureDisplayName } from "@/i18n/featureNames";
 import { fillTemplate, useTranslation } from "@/i18n/useTranslation";
 import { FEATURE_CATALOG } from "@/state/featureCatalog";
 import { useDocumentStore } from "@/state/documentStore";
@@ -46,6 +46,7 @@ import { useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 import type { EndCondition, FeatureKind, FeatureParameters } from "@/types/document";
 
+import { FeatureActionBar } from "./FeatureActionBar";
 import styles from "./PropertyManager.module.css";
 
 /** Feature kinds whose `parents[0]` is a single profile sketch, editable via the
@@ -125,12 +126,13 @@ const PARAMETER_FIELDS: {
 export function PropertyManager() {
   const document = useDocumentStore((state) => state.document);
   const selectedFeatureIds = useDocumentStore((state) => state.selectedFeatureIds);
-  const renameFeature = useDocumentStore((state) => state.renameFeature);
-  const updateParameters = useDocumentStore((state) => state.updateParameters);
-  const setFeatureParent = useDocumentStore((state) => state.setFeatureParent);
+  const renameFeatureRaw = useDocumentStore((state) => state.renameFeature);
+  const updateParametersRaw = useDocumentStore((state) => state.updateParameters);
+  const setFeatureParentRaw = useDocumentStore((state) => state.setFeatureParent);
+  const beginFeatureEdit = useDocumentStore((state) => state.beginFeatureEdit);
+  const endFeatureEdit = useDocumentStore((state) => state.endFeatureEdit);
+  const featureEdit = useDocumentStore((state) => state.featureEdit);
   const sketches = useSketchStore((state) => state.sketches);
-  const toggleSuppressed = useDocumentStore((state) => state.toggleSuppressed);
-  const deleteFeature = useDocumentStore((state) => state.deleteFeature);
   const edgePickModeFeatureId = useViewportStore((state) => state.edgePickModeFeatureId);
   const setEdgePickMode = useViewportStore((state) => state.setEdgePickMode);
 
@@ -138,6 +140,25 @@ export function PropertyManager() {
     selectedFeatureIds.includes(candidate.id),
   );
   const { t } = useTranslation();
+
+  // Editing anything in this panel joins (or opens) that feature's own session, so the whole
+  // edit collapses to one undo step and Cancel can back all of it out at once — see
+  // `documentStore.featureEdit`. Every write below goes through these wrappers rather than
+  // the raw store actions, which is what makes "edit an existing feature" and "tune a
+  // feature that was just created" literally the same flow.
+  const editParameters = (id: string, parameters: FeatureParameters) => {
+    beginFeatureEdit(id);
+    updateParametersRaw(id, parameters);
+  };
+  const editName = (id: string, name: string) => {
+    beginFeatureEdit(id);
+    renameFeatureRaw(id, name);
+  };
+  const editParent = (id: string, index: number, parentId: string) => {
+    beginFeatureEdit(id);
+    setFeatureParentRaw(id, index, parentId);
+  };
+  const updateParameters = editParameters;
 
   // Edge-pick mode is meaningless once its feature is no longer the one showing here —
   // leaving it on would silently keep sending viewport clicks to a feature the user can no
@@ -147,6 +168,29 @@ export function PropertyManager() {
       setEdgePickMode(null);
     }
   }, [feature?.id, edgePickModeFeatureId, setEdgePickMode]);
+
+  // Showing an editable feature's properties *is* editing it: the session opens as soon as
+  // the panel does, so OK/Cancel are live from the first moment rather than appearing only
+  // after the first keystroke. A session that never changes anything pushes no undo entry
+  // and its Cancel restores an identical document, so browsing the tree stays free.
+  const editableFeatureId =
+    feature && !feature.isDefault && feature.kind !== "sketch" ? feature.id : null;
+  useEffect(() => {
+    if (editableFeatureId) beginFeatureEdit(editableFeatureId);
+  }, [editableFeatureId, beginFeatureEdit]);
+
+  // Unmounting this panel — switching to the Feature Manager or Configurations tab, or the
+  // slot being taken over by sketch mode or an Inspect tool — confirms an open session
+  // rather than leaving it armed somewhere its OK/Cancel are no longer on screen: the same
+  // "clicking away confirms" rule the store applies to selection changes. Reads the store
+  // at unmount time (not a closure) so it ends whatever session is actually open then; a
+  // session already ended by OK/Cancel/Delete is a no-op because `featureEdit` is null.
+  useEffect(() => {
+    return () => {
+      const state = useDocumentStore.getState();
+      if (state.featureEdit) state.endFeatureEdit("commit");
+    };
+  }, []);
 
   // Every closed region of the profile sketch, loops and circles alike, in the same order
   // `profileRegions` itself would rank them (largest first) — purely for display; the
@@ -292,11 +336,37 @@ export function PropertyManager() {
     }
   };
 
+  const isSessionOpen = featureEdit?.featureId === feature.id;
+
   return (
-    <div className={styles.manager}>
+    <div
+      className={styles.manager}
+      // Marks this subtree as "a feature session's own fields", which is what lets the global
+      // Escape handler cancel the whole feature from inside one of them instead of taking its
+      // usual "let the field handle its own Escape" exit.
+      data-feature-session={isSessionOpen ? "open" : undefined}
+      // Enter confirms, the way it does in every dialog in the app — pressing it in a depth
+      // field is the same "I'm done with this feature" gesture as clicking OK. Escape is
+      // handled globally instead (`useEscapeToDeselect`), since it has to win over the
+      // panel even when focus is out in the viewport.
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && isSessionOpen && !event.shiftKey) {
+          event.preventDefault();
+          (event.target as HTMLElement).blur();
+          setEdgePickMode(null);
+          endFeatureEdit("commit");
+        }
+      }}
+    >
       <div className={styles.header}>
-        <h2 className={styles.title}>{feature.name}</h2>
+        <h2 className={styles.title}>{featureDisplayName(t, feature)}</h2>
       </div>
+
+      {!feature.isDefault && (
+        <div className={styles.sessionBar}>
+          <FeatureActionBar feature={feature} />
+        </div>
+      )}
 
       <div className={styles.body}>
         <p className={styles.kindDescription}>
@@ -309,7 +379,7 @@ export function PropertyManager() {
             className={styles.input}
             value={feature.name}
             disabled={feature.isDefault}
-            onChange={(event) => renameFeature(feature.id, event.target.value)}
+            onChange={(event) => editName(feature.id, event.target.value)}
           />
         </label>
 
@@ -319,14 +389,14 @@ export function PropertyManager() {
             <select
               className={styles.input}
               value={feature.parents[0] ?? ""}
-              onChange={(event) => setFeatureParent(feature.id, 0, event.target.value)}
+              onChange={(event) => editParent(feature.id, 0, event.target.value)}
             >
               <option value="" disabled>
                 {t("propertyManager.selectSketch", "Select a sketch…")}
               </option>
               {sketchFeatures.map((sketch) => (
                 <option key={sketch.id} value={sketch.id}>
-                  {sketch.name}
+                  {featureDisplayName(t, sketch)}
                 </option>
               ))}
             </select>
@@ -868,28 +938,6 @@ export function PropertyManager() {
           </label>
         ))}
 
-        {!feature.isDefault && (
-          <div className={styles.actions}>
-            <button
-              type="button"
-              className={styles.actionButton}
-              aria-pressed={feature.suppressed}
-              onClick={() => toggleSuppressed(feature.id)}
-            >
-              {feature.suppressed
-                ? t("propertyManager.unsuppress", "Unsuppress")
-                : t("propertyManager.suppress", "Suppress")}
-            </button>
-            <button
-              type="button"
-              className={`${styles.actionButton} ${styles.danger}`}
-              onClick={() => deleteFeature(feature.id)}
-            >
-              <Trash2 size={13} />
-              {t("propertyManager.delete", "Delete")}
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 import { memo, useCallback, useState } from "react";
 import { CircleAlert, Eye, EyeOff, Pencil, Power, PowerOff, Trash2, Undo2 } from "lucide-react";
 
+import { featureDisplayName } from "@/i18n/featureNames";
+import { fillTemplate, useTranslation } from "@/i18n/useTranslation";
 import { featureIcon } from "@/state/featureCatalog";
 import type { Feature } from "@/types/document";
 
@@ -22,6 +24,9 @@ interface FeatureRowProps {
   onToggleVisibility: (id: string) => void;
   onRollbackToBefore: (id: string) => void;
   onEditSketch: (id: string) => void;
+  /** Opens the feature for editing in the property panel — the non-sketch counterpart of
+   * `onEditSketch`, so double-click means "edit this" for every row kind. */
+  onEditFeature: (id: string) => void;
   onContextMenu: (clientX: number, clientY: number) => void;
 }
 
@@ -45,12 +50,17 @@ export const FeatureRow = memo(function FeatureRow({
   onToggleVisibility,
   onRollbackToBefore,
   onEditSketch,
+  onEditFeature,
   onContextMenu,
 }: FeatureRowProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [draftName, setDraftName] = useState(feature.name);
+  const { t } = useTranslation();
 
   const Icon = featureIcon(feature.kind);
+  // The *stored* name is what a rename edits and what the document file keeps; this is only
+  // what the row shows — see `featureDisplayName`'s own doc comment.
+  const label = featureDisplayName(t, feature);
 
   /**
    * Focus and select on mount via a callback ref rather than an effect: an effect runs
@@ -114,7 +124,7 @@ export const FeatureRow = memo(function FeatureRow({
           ref={focusOnMount}
           className={styles.renameInput}
           value={draftName}
-          aria-label={`Rename ${feature.name}`}
+          aria-label={fillTemplate(t("tree.renameAria", "Rename {{name}}"), { name: label })}
           onChange={(event) => setDraftName(event.target.value)}
           onBlur={commitRename}
           onKeyDown={(event) => {
@@ -131,23 +141,26 @@ export const FeatureRow = memo(function FeatureRow({
           className={styles.rowInner}
           title={
             feature.kind === "sketch"
-              ? "Select, then run a Feature command to use this sketch as its input — the same sketch can feed more than one feature"
+              ? t(
+                  "tree.sketchRowHint",
+                  "Select, then run a Feature command to use this sketch as its input — the same sketch can feed more than one feature",
+                )
               : undefined
           }
           onClick={(event) => onSelect(feature.id, event.ctrlKey || event.metaKey)}
           onDoubleClick={() => {
-            // A sketch is edited on double-click, matching SolidWorks; renaming it still
-            // works via F2 or the pencil action. Without this, an exited sketch has no
-            // way back in — it just looks deleted, since its geometry only renders while
-            // it is the active sketch.
+            // Double-click means "edit this" for every row, matching SolidWorks/Fusion:
+            // a sketch reopens in the sketcher, anything else opens its properties ready
+            // to change (which is also where OK/Cancel live — see `FeatureActionBar`).
+            // Renaming stays a deliberate separate gesture, F2 or the pencil button.
             if (feature.kind === "sketch") {
               onEditSketch(feature.id);
             } else if (!feature.isDefault) {
-              beginRename();
+              onEditFeature(feature.id);
             }
           }}
         >
-          <span className={styles.label}>{feature.name}</span>
+          <span className={styles.label}>{label}</span>
         </button>
       )}
 
@@ -160,7 +173,12 @@ export const FeatureRow = memo(function FeatureRow({
       {usedByCount > 0 && (
         <span
           className={styles.usageBadge}
-          title={`Used as input by ${usedByCount} feature${usedByCount === 1 ? "" : "s"}`}
+          title={fillTemplate(
+            usedByCount === 1
+              ? t("tree.usedByOne", "Used as input by {{count}} feature")
+              : t("tree.usedByMany", "Used as input by {{count}} features"),
+            { count: usedByCount },
+          )}
         >
           {usedByCount}
         </span>
@@ -175,8 +193,8 @@ export const FeatureRow = memo(function FeatureRow({
           <button
             type="button"
             className={styles.rowAction}
-            title={isHidden ? "Show" : "Hide"}
-            aria-label={`${isHidden ? "Show" : "Hide"} ${feature.name}`}
+            title={isHidden ? t("tree.show", "Show") : t("tree.hide", "Hide")}
+            aria-label={`${isHidden ? t("tree.show", "Show") : t("tree.hide", "Hide")} ${label}`}
             onClick={() => onToggleVisibility(feature.id)}
           >
             {isHidden ? <EyeOff size={12} /> : <Eye size={12} />}
@@ -187,8 +205,8 @@ export const FeatureRow = memo(function FeatureRow({
               <button
                 type="button"
                 className={styles.rowAction}
-                title="Rename (F2)"
-                aria-label={`Rename ${feature.name}`}
+                title={t("tree.rename", "Rename (F2)")}
+                aria-label={fillTemplate(t("tree.renameAria", "Rename {{name}}"), { name: label })}
                 onClick={beginRename}
               >
                 <Pencil size={12} />
@@ -196,8 +214,16 @@ export const FeatureRow = memo(function FeatureRow({
               <button
                 type="button"
                 className={styles.rowAction}
-                title={feature.suppressed ? "Unsuppress" : "Suppress"}
-                aria-label={`${feature.suppressed ? "Unsuppress" : "Suppress"} ${feature.name}`}
+                title={
+                  feature.suppressed
+                    ? t("feature.unsuppress", "Unsuppress")
+                    : t("feature.suppress", "Suppress")
+                }
+                aria-label={`${
+                  feature.suppressed
+                    ? t("feature.unsuppress", "Unsuppress")
+                    : t("feature.suppress", "Suppress")
+                } ${label}`}
                 onClick={() => onToggleSuppressed(feature.id)}
               >
                 {feature.suppressed ? <Power size={12} /> : <PowerOff size={12} />}
@@ -205,8 +231,10 @@ export const FeatureRow = memo(function FeatureRow({
               <button
                 type="button"
                 className={styles.rowAction}
-                title="Roll back to before this feature"
-                aria-label={`Roll back to before ${feature.name}`}
+                title={t("tree.rollbackToBefore", "Roll back to before this feature")}
+                aria-label={fillTemplate(t("tree.rollbackToBeforeAria", "Roll back to before {{name}}"), {
+                  name: label,
+                })}
                 onClick={() => onRollbackToBefore(feature.id)}
               >
                 <Undo2 size={12} />
@@ -214,8 +242,8 @@ export const FeatureRow = memo(function FeatureRow({
               <button
                 type="button"
                 className={styles.rowAction}
-                title="Delete"
-                aria-label={`Delete ${feature.name}`}
+                title={t("feature.delete", "Delete")}
+                aria-label={fillTemplate(t("tree.deleteAria", "Delete {{name}}"), { name: label })}
                 onClick={() => onDelete(feature.id)}
               >
                 <Trash2 size={12} />
