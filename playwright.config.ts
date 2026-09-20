@@ -12,6 +12,9 @@ import { defineConfig } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "e2e",
+  // The CSP test has its own production-preview config — Vite dev HTML contains an
+  // inline React-refresh preamble that the packaged app's strict CSP correctly rejects.
+  testIgnore: "drawing-model-view.spec.ts",
   timeout: 30_000,
   expect: { timeout: 10_000 },
   retries: process.env.CI ? 2 : 0,

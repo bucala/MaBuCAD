@@ -26,6 +26,103 @@ export class NoGeometryError extends Error {
   }
 }
 
+/** One ISO 10303-21 string literal's contents (without the surrounding apostrophes).
+ *
+ * STEP's exchange-file alphabet is ASCII: apostrophes and reverse solidi are doubled,
+ * while every other non-printable/non-ASCII code point is emitted through the standard
+ * `\X2\` (BMP) or `\X4\` (full Unicode) directive. Keeping ordinary ASCII readable makes
+ * a file header still useful in a text editor, while names such as `Príruba č. 2` remain
+ * lossless when another CAD system reads them.
+ */
+function stepString(value: string): string {
+  const name = value.trim() || "Untitled";
+  let encoded = "";
+
+  for (const character of name) {
+    const codePoint = character.codePointAt(0)!;
+    if (character === "'") {
+      encoded += "''";
+    } else if (character === "\\") {
+      encoded += "\\\\";
+    } else if (codePoint >= 0x20 && codePoint <= 0x7e) {
+      encoded += character;
+    } else if (codePoint <= 0xffff) {
+      encoded += `\\X2\\${codePoint.toString(16).toUpperCase().padStart(4, "0")}\\X0\\`;
+    } else {
+      encoded += `\\X4\\${codePoint.toString(16).toUpperCase().padStart(8, "0")}\\X0\\`;
+    }
+  }
+
+  return encoded;
+}
+
+const STEP_LITERAL = "'(?:''|[^'])*'";
+
+/**
+ * Replaces the plain `STEPControl_Writer`'s generic OpenCASCADE labels with the active
+ * MaBuCAD document name.
+ *
+ * `Shape.blobSTEP()` intentionally remains the writer (see `exportModel` below): unlike
+ * replicad's XCAF-based module helper it releases every OCCT object deterministically and
+ * survives repeated exports. That safe API exposes no product-name option, so naming is a
+ * narrow Part-21 metadata pass over its text result instead:
+ *
+ * - HEADER `FILE_NAME` — what file inspectors and PDM systems show;
+ * - DATA `PRODUCT` id/name — what importing CAD systems use for the part/component name;
+ * - representation and solid names — useful when a downstream system exposes the B-Rep
+ *   representation rather than the product record.
+ *
+ * No entity ids, references, topology or numeric geometry are touched. Throwing when the
+ * two required records disappear is deliberate: an upstream writer-format change must
+ * fail visibly rather than silently regress to the generic translator name again.
+ */
+export function nameStepModel(step: string, modelName: string): string {
+  const literal = `'${stepString(modelName)}'`;
+  let foundFileName = false;
+  let foundProduct = false;
+  // One scan and one output string even for a multi-megabyte STEP file. The alternatives
+  // keep PRODUCT's two string fields together while every other record changes only its
+  // first field.
+  const metadataPattern = new RegExp(
+    [
+      `(\\bFILE_NAME\\s*\\(\\s*)${STEP_LITERAL}`,
+      `(\\bPRODUCT\\s*\\(\\s*)${STEP_LITERAL}(\\s*,\\s*)${STEP_LITERAL}`,
+      `(\\b(?:ADVANCED_BREP_SHAPE_REPRESENTATION|MANIFOLD_SOLID_BREP)\\s*\\(\\s*)${STEP_LITERAL}`,
+    ].join("|"),
+    "g",
+  );
+
+  const named = step.replace(
+    metadataPattern,
+    (
+      _match,
+      fileNamePrefix: string | undefined,
+      productPrefix: string | undefined,
+      productSeparator: string | undefined,
+      shapePrefix: string | undefined,
+    ) => {
+      if (fileNamePrefix) {
+        foundFileName = true;
+        return `${fileNamePrefix}${literal}`;
+      }
+      if (productPrefix) {
+        foundProduct = true;
+        return `${productPrefix}${literal}${productSeparator}${literal}`;
+      }
+      return `${shapePrefix}${literal}`;
+    },
+  );
+
+  if (!foundFileName) {
+    throw new Error("STEP writer output has no FILE_NAME metadata record");
+  }
+  if (!foundProduct) {
+    throw new Error("STEP writer output has no PRODUCT metadata record");
+  }
+
+  return named;
+}
+
 /**
  * Serialises the current model.
  *
@@ -47,7 +144,7 @@ export class NoGeometryError extends Error {
  * `importSTEP`/`importSTL`/`blobSTL` already use. That was verified stable under the same
  * repeated-export-then-forced-GC stress test that broke `exportSTEP()`.
  */
-export async function exportModel(format: ExportFormat): Promise<Blob> {
+export async function exportModel(format: ExportFormat, modelName?: string): Promise<Blob> {
   await initKernel();
 
   const shape = getCurrentShape();
@@ -59,7 +156,11 @@ export async function exportModel(format: ExportFormat): Promise<Blob> {
   };
 
   if (format === "step") {
-    return exportable.blobSTEP();
+    const blob = exportable.blobSTEP();
+    if (!modelName) return blob;
+    return new Blob([nameStepModel(await blob.text(), modelName)], {
+      type: blob.type || "application/step",
+    });
   }
 
   return exportable.blobSTL({

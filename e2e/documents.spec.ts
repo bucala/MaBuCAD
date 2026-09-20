@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { expect, test } from "@playwright/test";
 
-import { ribbonButton } from "./locators";
+import { createRectangleSketch, saveDocumentAs } from "./partWorkflows";
 
 /**
  * Whole-document persistence end to end: draw a profile, exit the sketch, save the file
@@ -16,24 +16,10 @@ test("a drawn sketch survives a save/open round trip as a current-format documen
   await page.goto("/");
 
   // Draw a rectangle, then commit it as a feature so the tree has something to reopen.
-  await page.getByRole("tab", { name: "Sketch" }).click();
-  await ribbonButton(page, "Sketch").click();
-  await expect(page.getByTestId("sketch-entity-count")).toHaveText("0");
-
-  await ribbonButton(page, "Rectangle").click();
-  const canvas = page.locator("canvas").first();
-  await canvas.click({ position: { x: 500, y: 350 } });
-  await canvas.click({ position: { x: 700, y: 500 } });
-  await expect(page.getByTestId("sketch-entity-count")).toHaveText("4");
-
-  await ribbonButton(page, "Exit Sketch").click();
-  await expect(page.getByTestId("sketch-status")).toContainText(/no active sketch/i);
+  await createRectangleSketch(page);
 
   // Save As writes a file; capture the browser download and read its contents back.
-  const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "File" }).click();
-  await page.getByRole("menuitem", { name: "Save As…" }).click();
-  const download = await downloadPromise;
+  const download = await saveDocumentAs(page);
   expect(download.suggestedFilename()).toMatch(/\.mabucad$/i);
 
   // The round trip proves the migration round's format bump: the file claims the current

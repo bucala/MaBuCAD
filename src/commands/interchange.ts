@@ -25,7 +25,7 @@ export async function runExport(format: ExportFormat): Promise<void> {
   const { name } = useDocumentStore.getState().document;
 
   try {
-    const blob = await exportModel(format);
+    const blob = await exportModel(format, name);
     const extension = EXPORT_EXTENSIONS[format];
 
     const saved = await saveBlob(blob, `${name}.${extension}`, [extension]);

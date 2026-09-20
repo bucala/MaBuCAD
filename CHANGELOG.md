@@ -26,6 +26,24 @@ what a machinist expects.
 - `tauri.conf.json`'s `script-src` now includes `'unsafe-eval'` alongside
   `'wasm-unsafe-eval'`, and `kernel/occ.ts` documents why both directives are load-bearing
   (so a future "tighten the CSP" pass doesn't quietly break every OCCT call again).
+- `drawing-model-view.spec.ts` now enforces that exact shipped Tauri CSP against the
+  production frontend build: its positive case builds/saves a Part and successfully
+  inserts the four default Drawing views; its control removes `'unsafe-eval'` and proves
+  the old `Insert Model View failed` path returns. This closes the dev-server blind spot
+  (Vite normally serves no CSP) and pins the fix before every release.
+
+### Fixed — STEP exports now carry the real Part name
+- Safe `Shape.blobSTEP()` export remains in place (the XCAF alternative still has the
+  delayed-finalizer/double-free defect documented in `kernel/io.ts`), then a narrow
+  ISO 10303-21 metadata pass replaces OpenCASCADE's generic `FILE_NAME`, `PRODUCT`,
+  `ADVANCED_BREP_SHAPE_REPRESENTATION` and `MANIFOLD_SOLID_BREP` labels with the active
+  MaBuCAD document name. Entity ids, references, topology and numeric geometry are not
+  touched.
+- STEP strings now escape apostrophes/reverse solidi and encode Unicode names through
+  Part-21 `\X2\`/`\X4\` directives, so names such as `Príruba č. 2` survive external CAD
+  import without making the exchange file invalid. `io.spec.ts` (5 tests) pins the
+  metadata, geometry-preservation, escaping, empty-name fallback and visible failure if a
+  future OCCT writer no longer emits the required records.
 
 ### Changed — every feature confirm/cancel now behaves the same way (v0.19.0's per-keystroke history, gone)
 - Creating or editing a feature is now a *session* (`documentStore.featureEdit`): every
