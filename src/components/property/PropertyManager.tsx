@@ -36,7 +36,12 @@ import {
   type SeatType,
   type TappedStandardId,
 } from "@/data/holeStandards";
-import { groupTappedBySize, resolveClearanceDiameter, resolveTapDrill } from "@/data/holeResolution";
+import {
+  defaultTappedDesignation,
+  groupTappedBySize,
+  resolveClearanceDiameter,
+  resolveTapDrill,
+} from "@/data/holeResolution";
 import { extractCircles, extractLoops, regionEntityIds, type CircleLoop, type Loop } from "@/kernel/profile";
 import { featureDisplayName } from "@/i18n/featureNames";
 import { fillTemplate, useTranslation } from "@/i18n/useTranslation";
@@ -281,6 +286,8 @@ export function PropertyManager() {
       holeFit: fit,
       radius: diameter !== undefined ? diameter / 2 : feature.parameters.radius,
       threadDesignation: undefined,
+      fullDepthThread: undefined,
+      threadDepth: undefined,
     });
   };
 
@@ -297,6 +304,11 @@ export function PropertyManager() {
       holeFit: undefined,
       radius: entry ? entry.tapDrill / 2 : feature.parameters.radius,
       threadDesignation: entry ? `${entry.designation} (${entry.internalClass})` : undefined,
+      // A tapped hole reads as fully threaded unless the user shortens it — the same
+      // default SolidWorks' Hole Wizard opens with. An explicit earlier Full-Depth-off
+      // choice survives a size change; its `threadDepth` stays too (the overlay clamps
+      // any stale value to the new hole's own depth anyway).
+      fullDepthThread: feature.parameters.fullDepthThread ?? true,
     });
   };
 
@@ -321,18 +333,18 @@ export function PropertyManager() {
         holeSize: undefined,
         holeFit: undefined,
         threadDesignation: undefined,
+        fullDepthThread: undefined,
+        threadDepth: undefined,
       });
     } else if (holeType === "clearance") {
       const standardId: ClearanceStandardId = "iso";
       applyClearanceHole(standardId, CLEARANCE_STANDARDS[standardId].sizes[0].size, "normal");
     } else if (holeType === "taper-tapped") {
       const standardId: TappedStandardId = "npt";
-      const firstVariant = groupTappedBySize(standardId)[0].variants[0];
-      applyTappedHole(standardId, firstVariant.designation, "taper-tapped");
+      applyTappedHole(standardId, defaultTappedDesignation(standardId), "taper-tapped");
     } else {
       const standardId: TappedStandardId = "iso-metric";
-      const firstVariant = groupTappedBySize(standardId)[0].variants[0];
-      applyTappedHole(standardId, firstVariant.designation, "tapped");
+      applyTappedHole(standardId, defaultTappedDesignation(standardId), "tapped");
     }
   };
 
@@ -592,7 +604,7 @@ export function PropertyManager() {
                       value={feature.parameters.holeStandard}
                       onChange={(event) => {
                         const standardId = event.target.value as TappedStandardId;
-                        applyTappedHole(standardId, groupTappedBySize(standardId)[0].variants[0].designation, "tapped");
+                        applyTappedHole(standardId, defaultTappedDesignation(standardId), "tapped");
                       }}
                     >
                       {Object.values(TAPPED_STANDARDS)
@@ -686,16 +698,56 @@ export function PropertyManager() {
                   className={styles.actionButton}
                   title={t(
                     "propertyManager.fullDepthHint",
-                    "Full Depth — thread runs the hole's whole depth rather than a shorter engagement length (display only for now, not yet reflected in the model)",
+                    "Full Depth — the thread is drawn the hole's whole depth rather than a shorter engagement length (it drives the drawn thread, not the cut)",
                   )}
                   aria-pressed={feature.parameters.fullDepthThread ?? false}
-                  onClick={() =>
-                    updateParameters(feature.id, { fullDepthThread: !feature.parameters.fullDepthThread })
-                  }
+                  onClick={() => {
+                    const wasFull = feature.parameters.fullDepthThread ?? false;
+                    if (wasFull) {
+                      // Leaving Full Depth seeds a real thread depth the moment the field
+                      // appears: 2× the thread's major diameter is the standard steel
+                      // engagement length, capped by the hole's own depth so a shallow
+                      // hole never shows thread past its bottom.
+                      const entry =
+                        feature.parameters.holeStandard && feature.parameters.holeSize
+                          ? resolveTapDrill(
+                              feature.parameters.holeStandard as TappedStandardId,
+                              feature.parameters.holeSize,
+                            )
+                          : undefined;
+                      const majorDiameter = entry ? entry.nominalSize : 2 * (feature.parameters.radius ?? 3);
+                      updateParameters(feature.id, {
+                        fullDepthThread: false,
+                        threadDepth:
+                          feature.parameters.threadDepth ??
+                          Math.max(0.1, Math.min(feature.parameters.depth ?? 10, majorDiameter * 2)),
+                      });
+                    } else {
+                      updateParameters(feature.id, { fullDepthThread: true, threadDepth: undefined });
+                    }
+                  }}
                 >
                   <ArrowDownToLine size={14} strokeWidth={1.75} />
                   {t("propertyManager.fullDepth", "Full Depth")}
                 </button>
+
+                {feature.parameters.fullDepthThread === false && (
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>
+                      {t("propertyManager.threadDepth", "Thread depth (mm)")}
+                    </span>
+                    <input
+                      className={styles.input}
+                      type="number"
+                      step={0.5}
+                      min={0.1}
+                      value={feature.parameters.threadDepth ?? feature.parameters.depth ?? 10}
+                      onChange={(event) =>
+                        updateParameters(feature.id, { threadDepth: Number(event.target.value) })
+                      }
+                    />
+                  </label>
+                )}
 
                 <p className={styles.sectionHint}>
                   {feature.parameters.threadDesignation ?? "—"}

@@ -7,6 +7,92 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-09-20 — Unified OK/Cancel feature sessions, Drawing CSP fix, exact edge picking, SK feature tree, Hole Wizard thread depth (v0.20.0)
+
+One feedback round spanning two commits (`17bbff8` plus this one). The theme: make the
+feature workflow behave the way a history-based modeller is expected to behave — a feature
+has an OK and a Cancel that work everywhere, clicking picks the thing actually under the
+cursor, the tree speaks the selected language, and the Drawing tool and Hole Wizard match
+what a machinist expects.
+
+### Fixed — Drawing "Insert Model View" and Circular Pattern failed on a CSP violation
+- Both failed with the same console error, and the same error was saved as the Circular
+  Pattern feature's failure message in the supplied `Part2.mabucad`: the OCCT wasm glue
+  (`replicad-opencascadejs`'s Emscripten build) does not just *compile* WebAssembly, it
+  also generates JS invoker functions at runtime (embind's `craftInvokerFunction` /
+  emval method-callers go through `new Function`), so the configured `wasm-unsafe-eval`
+  alone was never enough — drawing projections and circular-pattern geometry construction
+  died the moment the glue generated its first invoker.
+- `tauri.conf.json`'s `script-src` now includes `'unsafe-eval'` alongside
+  `'wasm-unsafe-eval'`, and `kernel/occ.ts` documents why both directives are load-bearing
+  (so a future "tighten the CSP" pass doesn't quietly break every OCCT call again).
+
+### Changed — every feature confirm/cancel now behaves the same way (v0.19.0's per-keystroke history, gone)
+- Creating or editing a feature is now a *session* (`documentStore.featureEdit`): every
+  parameter change during the session collapses into a single undo entry — typing "12.5"
+  into a depth field used to cost three undo steps — and a Cancel restores the exact
+  pre-session document, removing the feature entirely when the session created it, with
+  no history trace left behind (a cancelled edit is not something Undo should have to step
+  through). Selecting another feature, leaving the properties tab, creating another
+  feature, or opening its own panel all commit the open session rather than silently
+  discarding or splitting it.
+- `PropertyManager` renders one shared `FeatureActionBar` — OK / Cancel / Suppress /
+  Delete, the same four with the same icons the tree row actions and the right-click menu
+  use. "Done Selecting" still exits edge-pick mode but confirms nothing; OK (or Enter)
+  is what confirms. Escape cancels the session even while focus is inside one of the
+  panel's own fields, where it previously did nothing at all.
+- Double-clicking a tree row means "edit this" for every row kind — a sketch reopens in
+  the sketcher, anything else opens its properties — matching SolidWorks/Fusion; renaming
+  stays a deliberate separate gesture (F2 or the pencil button) instead of being what a
+  double-click did to a feature.
+- `featureEditSession.spec.ts` (10 tests) pins the semantics: new-feature Cancel removes
+  it with no history trace, a whole edit session is one undo step, existing-feature Cancel
+  restores every value (suppression included) and deselects, browsing costs nothing,
+  selection switches commit, a mid-session keyboard undo ends the session, and deleting
+  the session's feature disarms a later stale Cancel.
+
+### Fixed — edge picking resolved mid-edge clicks to the wrong edge
+- `nearestEdgeGroupId` compared the hit point only against each edge's tessellation
+  *vertices*: a click in the middle of a long edge is equidistant from its endpoints, so
+  every neighbouring edge sharing those endpoints competed on distance-to-endpoint and
+  the pick (and its magenta highlight) landed on whichever edge sat a hair closer. The
+  resolver (extracted to `viewport/model/edgePicking.ts`) now measures point-to-*segment*
+  distance, which makes the edge the point actually lies on win by construction; pinned
+  by `edgePicking.spec.ts` (5 tests).
+- The B-Rep edge overlay's raycast consumed the "Line pick tolerance (px)" setting as
+  *world units* — the native `Line`/`LineSegments` threshold three.js compares in world
+  space — making the default tolerance "6 mm": a click anywhere within 6 mm of any edge
+  registered as an edge hit and swallowed the face pick underneath. `RaycasterTuning`
+  now converts the pixel setting to world units per rendered frame from the camera's
+  distance (pixel-accurate at any zoom, the same behaviour sketch fat-lines always had),
+  keeping both line implementations in their own native unit.
+- Un-picking an edge now resolves by *which edge* the second click landed on rather than a
+  fixed 2 mm same-spot radius, so clicking anywhere along a long already-picked edge
+  removes it at any zoom level instead of sometimes adding a duplicate pick.
+
+### Added — the feature tree follows the EN/SK language switch
+- Tree rows, the tree toolbar, the usage/rollback hints, the context menu and the
+  property panel now localize at render time via `i18n/featureNames.ts`: default
+  reference geometry (Front Plane, Origin, Annotations, …) is mapped by its stable id and
+  auto-generated names ("Boss-Extrude3") by their catalog prefix, while explicitly
+  user-renamed features are deliberately left untouched. The *stored* names stay English,
+  so saved files remain portable and old documents display localized without a migration.
+
+### Changed — Hole Wizard Tapped defaults and a real thread depth
+- Switching a hole to Tapped (or Taper Tapped, or switching the thread standard) used to
+  land on the first row of the thread table — an M1x0.25 instrument thread, or a 1/16-27
+  NPT watch fitting. `defaultTappedDesignation` (pinned by `holeResolution.spec.ts`,
+  3 tests) now picks M6 coarse for metric standards and the middle of the range for ones
+  without an M6 row, the size a typical part actually uses — and the coarse pitch, with
+  fine pitches left for a deliberate choice.
+- Full Depth is now on by default (a tapped hole reads as fully threaded, the same
+  default SolidWorks' Hole Wizard opens with), and turning it off reveals a real
+  **Thread depth** field — seeded at 2× the thread's major diameter capped by the hole's
+  own depth (the standard steel engagement length) instead of the old fixed 55% display
+  fraction — which the cosmetic 3D thread helix now actually draws to, clamped to the
+  hole. A document saved before the field existed keeps its old partial-fraction display
+  until the user touches the toggle.
+
 ## 2026-09-13 — Undo/redo hardening (and a dead point-drag fix), prefix cache for rebuilds (v0.19.0)
 
 Two items in one round: drags and gestures now cost exactly one undo step instead of

@@ -60,8 +60,8 @@ describe("nearestEdgeGroupId", () => {
       [100, 50, 0],
     ];
     const mesh = meshWith([...pairedEdge(short), ...pairedEdge(long)], [
-      { start: 2, count: 2, id: 0 }, // the long edge, listed second — the tie-breaker trap
-      { start: 0, count: 2, id: 1 }, // the short neighbour, listed first
+      { start: 0, count: 2, id: 1 }, // the short neighbour, listed FIRST — the tie-breaker trap
+      { start: 2, count: 2, id: 0 }, // the long edge, the one actually clicked
     ]);
 
     // Exactly on the long edge's midpoint: the neighbour's best vertex distance ties at

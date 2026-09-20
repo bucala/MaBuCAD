@@ -36,6 +36,24 @@ export function groupTappedBySize(standardId: TappedStandardId): TappedSizeGroup
   return [...groups.values()].sort((a, b) => a.nominalSize - b.nominalSize);
 }
 
+/**
+ * The designation the Hole Wizard lands on when a hole first becomes tapped (or the
+ * standard is switched), rather than the smallest row in the standard's table — which is
+ * what "first entry" used to pick: an M1x0.25 watch-instrument thread for ISO metric, a
+ * 1/16-27 NPT for pipe threads. M6 coarse is the everyday size most parts actually use
+ * (and what Inventor's own Hole Wizard opens on); standards without an M6 row (ANSI
+ * Unified, NPT) fall back to the middle of their range, the closest stand-in for "the
+ * size a typical part uses" a thread table can offer.
+ *
+ * Each size group's first variant is the coarse pitch — the everyday thread — with the
+ * finer pitches behind it in the dropdown for when the user deliberately wants one.
+ */
+export function defaultTappedDesignation(standardId: TappedStandardId): string {
+  const groups = groupTappedBySize(standardId);
+  const preferred = groups.find((group) => group.sizeLabel === "M6") ?? groups[Math.floor((groups.length - 1) / 2)];
+  return preferred.variants[0].designation;
+}
+
 /** The tap drill diameter (mm) for one exact thread designation, or `undefined` if unknown. */
 export function resolveTapDrill(standardId: TappedStandardId, designation: string): TappedSizeEntry | undefined {
   return TAPPED_STANDARDS[standardId].entries.find((entry) => entry.designation === designation);

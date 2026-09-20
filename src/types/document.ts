@@ -80,11 +80,17 @@ export interface FeatureParameters {
    * cosmetic threads use. */
   threadDirection?: "right" | "left";
   /** Tapped/taper-tapped only: whether the cosmetic thread (`HoleThreadOverlay.tsx`) is
-   * drawn the full depth it computes, or a shorter engagement length — there is no real
-   * modelled thread length to draw the exact figure from, so `false` just draws visibly
-   * shorter rather than a second exact-but-fabricated measurement. Still display only; the
-   * kernel doesn't read this either. */
+   * drawn the hole's full depth, or the shorter engagement length in `threadDepth` (which
+   * defaults to a fraction of the hole when unset, for documents saved before that field
+   * existed). Still display only; the kernel doesn't read this — it always cuts the hole
+   * at the hole's own `depth` regardless of how deep the thread is drawn. */
   fullDepthThread?: boolean;
+  /** Tapped/taper-tapped only, and only while `fullDepthThread` is `false`: how deep the
+   * cosmetic thread helix is drawn, in mm — the same "thread depth" figure SolidWorks'
+   * Hole Wizard asks for next to its own Full Depth toggle. The kernel still cuts a plain
+   * cylinder of the hole's own `depth`; this only caps `HoleThreadOverlay.tsx`'s drawn
+   * engagement length (clamped to the hole itself). */
+  threadDepth?: number;
   /**
    * A hole's optional counterbore/spotface/countersink recess (`SeatType` from
    * `data/holeStandards.ts`, default/absent means `"none"`) — unlike the thread-display

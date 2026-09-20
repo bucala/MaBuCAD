@@ -35,8 +35,9 @@ const MAX_TURNS = 28;
  * a through-all hole's `extrusionRange` is a deliberately oversized cut (see its own doc
  * comment) that would otherwise demand thousands of turns for no visual benefit. */
 const DEPTH_IN_DIAMETERS = 6;
-/** `fullDepthThread === false` shows a visibly shorter engagement length instead of a second
- * exact-but-unmodelled measurement — there is no real thread-length field to draw from. */
+/** Fallback engagement length for a Full-Depth-off thread with no `threadDepth` value —
+ * only possible in a document saved before the field existed; a fresh toggle-off seeds a
+ * real value (see `PropertyManager.tsx`'s Full Depth handler). */
 const PARTIAL_DEPTH_FRACTION = 0.55;
 
 function threadHelixPoints(
@@ -104,7 +105,13 @@ function buildThreadRuns(features: Feature[], rollbackIndex: number, sketches: R
     const literalDepth = Math.max(Math.abs(feature.parameters.depth ?? 10), 0.01);
     const depthCap = Math.min(majorRadius * 2 * DEPTH_IN_DIAMETERS, literalDepth);
     const availableDepth = Math.min(Math.abs(distance), depthCap);
-    const depth = feature.parameters.fullDepthThread === false ? availableDepth * PARTIAL_DEPTH_FRACTION : availableDepth;
+    // `threadDepth` is the Hole Wizard's own engagement length; clamped to what the hole
+    // actually offers so a stale (pre-size-change) value can never draw thread past the
+    // hole's bottom, and falls back to the pre-field fraction for old documents.
+    const depth =
+      feature.parameters.fullDepthThread === false
+        ? Math.min(feature.parameters.threadDepth ?? availableDepth * PARTIAL_DEPTH_FRACTION, availableDepth)
+        : availableDepth;
     if (depth <= 0) continue;
 
     // Always starts at the sketch plane (`z = 0`) — where the hole's own point sits and
