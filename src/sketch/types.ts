@@ -170,6 +170,13 @@ export interface Dimension {
    * where the plain rim-to-label leader alone doesn't make clear which circle it's
    * measuring. Toggled from the dimension's own right-click menu. */
   extendToCenter?: boolean;
+  /** True for a reference dimension — SolidWorks calls it "driven", Inventor and Onshape
+   * "reference": it measures the geometry instead of constraining it. The solver gives it
+   * no residual equations (it never counts toward the DOF or a conflict), its value is
+   * refreshed from the solved geometry on every solve, and its label renders in
+   * parentheses. Undefined/false = an ordinary driving dimension. Toggled from the
+   * dimension's own right-click menu. */
+  driven?: boolean;
 }
 
 export interface Sketch {

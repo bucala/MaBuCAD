@@ -9,6 +9,7 @@ import {
   MoveVertical,
   Minus,
   MousePointer2,
+  Parentheses,
   Route,
   Scan,
   Square,
@@ -29,7 +30,7 @@ const TOOL_ITEMS: { id: SketchTool; label: string; icon: typeof MousePointer2 }[
 
 /** Rough menu footprint, used to keep it fully on screen without a measure-then-reposition pass. */
 const MENU_WIDTH = 190;
-const MENU_HEIGHT = 250;
+const MENU_HEIGHT = 290;
 
 /**
  * Right-click menu for the sketch canvas.
@@ -62,6 +63,7 @@ export function SketchContextMenu() {
   const toggleRadiusExtendToCenter = useSketchStore((state) => state.toggleRadiusExtendToCenter);
   const flipAngleDimension = useSketchStore((state) => state.flipAngleDimension);
   const setLinearDimensionMode = useSketchStore((state) => state.setLinearDimensionMode);
+  const toggleDimensionDriving = useSketchStore((state) => state.toggleDimensionDriving);
 
   // Only meaningful with exactly one dimension selected — a right-click on a dimension
   // label selects it alone first (see `SketchDimensions.tsx`'s own `onContextMenu`), so
@@ -225,6 +227,25 @@ export function SketchContextMenu() {
           >
             <FlipHorizontal2 size={14} strokeWidth={1.75} />
             Flip Angle
+          </button>
+        </>
+      )}
+
+      {selectedDimension && (
+        <>
+          <div className={styles.divider} />
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={Boolean(selectedDimension.driven)}
+            className={styles.item}
+            onClick={() => {
+              toggleDimensionDriving(selectedDimension.id);
+              closeContextMenu();
+            }}
+          >
+            <Parentheses size={14} strokeWidth={1.75} />
+            {selectedDimension.driven ? "Make Driving" : "Make Driven"}
           </button>
         </>
       )}

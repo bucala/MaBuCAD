@@ -1,6 +1,7 @@
 import {
   buildEntityMap,
   buildLayout,
+  measuredDimensionValue,
   packVariables,
   residualSources,
   sourceResiduals,
@@ -8,7 +9,7 @@ import {
   type ResidualSource,
   type VariableLayout,
 } from "./residuals";
-import type { Sketch, SketchDiagnostics } from "./types";
+import type { Sketch, SketchDiagnostics, SketchEntity } from "./types";
 
 const MAX_ITERATIONS = 60;
 const CONVERGENCE_TOLERANCE = 1e-8;
@@ -287,6 +288,35 @@ function entityFreedom(
   return { underDefinedEntityIds, underDefinedPointIds };
 }
 
+/**
+ * Rewrites every driven (reference) dimension's value to what the solved geometry
+ * actually measures — a driven dimension's value is an output of the solve, not an input
+ * to it, so it follows the geometry exactly the way its parenthesised label claims to
+ * (and keeps following it live during a point drag). Returns the same sketch object when
+ * no value changes, so an otherwise-unchanged solve still compares identity-equal.
+ */
+function refreshDrivenDimensions(
+  sketch: Sketch,
+  entities: Map<string, SketchEntity>,
+  layout: VariableLayout,
+  values: Float64Array,
+): Sketch {
+  if (!sketch.dimensions.some((dimension) => dimension.driven)) return sketch;
+
+  let changed = false;
+  const dimensions = sketch.dimensions.map((dimension) => {
+    if (!dimension.driven) return dimension;
+    const measured = measuredDimensionValue(dimension, entities, values, layout);
+    // Unmeasurable right now (a degenerate angle, a missing reference) — keep the last
+    // value rather than inventing one.
+    if (measured === null || measured === dimension.value) return dimension;
+    changed = true;
+    return { ...dimension, value: measured };
+  });
+
+  return changed ? { ...sketch, dimensions } : sketch;
+}
+
 export interface SolveOutcome {
   sketch: Sketch;
   diagnostics: SketchDiagnostics;
@@ -344,7 +374,7 @@ export function solveSketch(sketch: Sketch, anchorSketch: Sketch = sketch): Solv
     // under-defined — consistent with `dof: layout.size` right beside it.
     const freedom = entityFreedom(sketch, layout, new Array<boolean>(layout.size).fill(true));
     return {
-      sketch,
+      sketch: refreshDrivenDimensions(sketch, entities, layout, values),
       diagnostics: {
         dof: layout.size,
         converged: true,
@@ -411,9 +441,17 @@ export function solveSketch(sketch: Sketch, anchorSketch: Sketch = sketch): Solv
   const finalJacobian = jacobian(sources, layout, bestValues, bestResiduals.length);
   const { rank, mobileColumns } = rankAndMobileColumns(finalJacobian, layout.size);
   const freedom = entityFreedom(sketch, layout, mobileColumns);
+  // Driven dimensions read their value off the *solved* geometry, so the refresh runs on
+  // the unpacked positions — the same `bestValues` the diagnostics were computed from.
+  const solvedSketch = refreshDrivenDimensions(
+    unpackVariables(sketch, layout, bestValues),
+    entities,
+    layout,
+    bestValues,
+  );
 
   return {
-    sketch: unpackVariables(sketch, layout, bestValues),
+    sketch: solvedSketch,
     diagnostics: {
       dof: Math.max(0, layout.size - rank),
       converged,

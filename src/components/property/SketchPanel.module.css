@@ -200,6 +200,15 @@
   text-overflow: ellipsis;
 }
 
+/* A driven (reference) dimension's read-only value — the panel twin of the viewport
+   label's parentheses: measured by the solve, so there is nothing to type. */
+.dimensionDrivenValue {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+
 .dimensionDelete {
   flex: 0 0 auto;
   width: 20px;

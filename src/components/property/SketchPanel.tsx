@@ -95,7 +95,7 @@ const CONSTRAINTS: { kind: GeometricConstraintKind; label: string; icon: LucideI
 
 /**
  * Property manager contents while a sketch is open: tools, constraints, dimensioning and
- * the list of driving dimensions.
+ * the list of dimensions — driving ones editable, driven (reference) ones read-only.
  */
 function isLineCycleTool(tool: SketchTool): tool is (typeof LINE_CYCLE)[number] {
   return (LINE_CYCLE as readonly SketchTool[]).includes(tool);
@@ -434,12 +434,21 @@ export function SketchPanel() {
                   <span className={styles.dimensionKind}>
                     {t(`sketchPanel.dimensionLabel.${dimension.kind}`, DIMENSION_LABEL[dimension.kind])}
                   </span>
-                  <DimensionValueField
-                    dimensionId={dimension.id}
-                    value={dimension.value}
-                    label={`${t(`sketchPanel.dimensionLabel.${dimension.kind}`, DIMENSION_LABEL[dimension.kind])} value`}
-                    onCommit={setDimensionValue}
-                  />
+                  {dimension.driven ? (
+                    // A driven dimension measures rather than constrains — its value is
+                    // the solve's output, so the row shows it read-only and
+                    // parenthesised (the same convention the viewport label uses)
+                    // instead of an editable field whose every edit would be silently
+                    // overwritten by the next solve's refresh.
+                    <span className={styles.dimensionDrivenValue}>({dimension.value.toFixed(2)})</span>
+                  ) : (
+                    <DimensionValueField
+                      dimensionId={dimension.id}
+                      value={dimension.value}
+                      label={`${t(`sketchPanel.dimensionLabel.${dimension.kind}`, DIMENSION_LABEL[dimension.kind])} value`}
+                      onCommit={setDimensionValue}
+                    />
+                  )}
                   <button
                     type="button"
                     className={styles.dimensionDelete}

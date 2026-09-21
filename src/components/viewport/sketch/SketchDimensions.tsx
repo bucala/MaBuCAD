@@ -225,6 +225,9 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
   // since that also drives the ordinate-only purple colour, which these two don't get.
   const isAxisLockedDistance = dimension.kind === "horizontal-distance" || dimension.kind === "vertical-distance";
   const isConflicting = conflictingIds.includes(dimension.id);
+  // A driven (reference) dimension: measures instead of constrains, value refreshed by
+  // the solve, rendered in parentheses — the convention every mainstream sketcher shares.
+  const isDriven = Boolean(dimension.driven);
   const color = isConflicting ? CONFLICT_COLOR : isSelected ? accent : isOrdinate ? ORDINATE_COLOR : DIMENSION_COLOR;
 
   const first = dimension.points[0] ? pointById(sketch, dimension.points[0]) : undefined;
@@ -464,6 +467,11 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
 
   if (!text) return null;
 
+  // The reference-dimension convention (SolidWorks, Inventor, Onshape): a driven
+  // dimension's value renders in parentheses, marking "this measures the geometry, it
+  // doesn't drive it" at a glance.
+  if (isDriven) text = `(${text})`;
+
   return (
     <group>
       {leader.length >= 2 && (
@@ -492,11 +500,13 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
             style={isSelectMode ? undefined : { pointerEvents: "none" }}
             data-dimension-id={dimension.id}
             title={
-              dimension.kind === "radius" || dimension.kind === "diameter"
-                ? "Drag to move, double-click to edit the value, right-click for Radius/Diameter or to extend to centre"
-                : dimension.kind === "angle"
-                  ? "Drag to move, double-click to edit the value, right-click to flip the angle"
-                  : "Drag to move, double-click to edit the value"
+              isDriven
+                ? "Reference dimension — measures without constraining. Drag to move, right-click to make driving"
+                : dimension.kind === "radius" || dimension.kind === "diameter"
+                  ? "Drag to move, double-click to edit the value, right-click for Radius/Diameter or to extend to centre"
+                  : dimension.kind === "angle"
+                    ? "Drag to move, double-click to edit the value, right-click to flip the angle"
+                    : "Drag to move, double-click to edit the value"
             }
             onClick={(event) => {
               event.stopPropagation();
@@ -508,7 +518,9 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
             }}
             onDoubleClick={(event) => {
               event.stopPropagation();
-              setIsEditing(true);
+              // A driven dimension's value is measured, not typed — the editor never
+              // opens for one (right-click ▸ Make Driving to type a value again).
+              if (!isDriven) setIsEditing(true);
             }}
             onContextMenu={(event) => {
               event.preventDefault();

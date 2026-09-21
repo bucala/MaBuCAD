@@ -393,77 +393,108 @@ function geometricResiduals(
   }
 }
 
-/** Residual for one dimension. Driving dimensions are equations like any other. */
+/**
+ * What a dimension currently measures at a given value vector, in the dimension's own
+ * unit — millimetres, or degrees for angles (the number its label shows).
+ *
+ * The single source of the measured quantity: a *driving* dimension's residual is exactly
+ * `measured - value` (see `dimensionResiduals` below), and a *driven* (reference)
+ * dimension's refreshed value is `measured` itself (see `solver.ts`'s
+ * `refreshDrivenDimensions`), so the equation a driving dimension enforces and the label
+ * a reference dimension shows can never disagree about what the same dimension measures.
+ *
+ * Null when the measurement is unavailable — a missing line or radius slot, or an angle
+ * between degenerate (zero-length) lines with no direction to measure. A driving
+ * dimension then contributes no residual (exactly the pre-existing guard behaviour), and
+ * a driven dimension keeps its last value rather than inventing one.
+ */
+export function measuredDimensionValue(
+  dimension: Dimension,
+  entities: Map<string, SketchEntity>,
+  values: Float64Array,
+  layout: VariableLayout,
+): number | null {
+  switch (dimension.kind) {
+    case "distance": {
+      const p = readPoint(values, layout, dimension.points[0]);
+      const q = readPoint(values, layout, dimension.points[1]);
+      return length(direction(p, q));
+    }
+
+    case "point-line-distance": {
+      const ends = lineEnds(entities, values, layout, dimension.entities[0]);
+      if (!ends) return null;
+      const p = readPoint(values, layout, dimension.points[0]);
+      const u = direction(ends.a, ends.b);
+      const scale = Math.max(length(u), MIN_LENGTH);
+      // Unsigned perpendicular distance from the point to the line's own infinite
+      // extension — `Math.abs` because a dimension's target is always a positive span,
+      // same as `distance`'s own `length()` never goes negative; which side of the line
+      // the point sits on isn't something this dimension records.
+      return Math.abs(cross(u, direction(ends.a, p))) / scale;
+    }
+
+    // Ordinate dimensions are signed axis distances from a datum, which is exactly what
+    // makes a chain of them share one zero.
+    case "horizontal-distance":
+    case "ordinate-x":
+      return readPoint(values, layout, dimension.points[1]).x - readPoint(values, layout, dimension.points[0]).x;
+
+    case "vertical-distance":
+    case "ordinate-y":
+      return readPoint(values, layout, dimension.points[1]).y - readPoint(values, layout, dimension.points[0]).y;
+
+    case "radius": {
+      const index = layout.radiusIndex.get(dimension.entities[0]);
+      return index === undefined ? null : values[index];
+    }
+
+    case "diameter": {
+      const index = layout.radiusIndex.get(dimension.entities[0]);
+      return index === undefined ? null : 2 * values[index];
+    }
+
+    case "angle": {
+      const first = lineEnds(entities, values, layout, dimension.entities[0]);
+      const second = lineEnds(entities, values, layout, dimension.entities[1]);
+      if (!first || !second) return null;
+      const u = direction(first.a, first.b);
+      const v = direction(second.a, second.b);
+      // A degenerate (zero-length) line has no angle to anything — `atan2(0, 0)` is 0 and
+      // its finite-difference derivative near the origin is both large and noisy, which
+      // would poison the Jacobian. The measurement sits out until some other constraint
+      // has given the line actual extent, the same guard every scaled residual already
+      // applies.
+      if (length(u) < MIN_LENGTH || length(v) < MIN_LENGTH) return null;
+      const radians = Math.atan2(Math.abs(cross(u, v)), dot(u, v));
+      return (radians * 180) / Math.PI;
+    }
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * Residual for one dimension. Driving dimensions are equations like any other: what the
+ * geometry currently measures (`measuredDimensionValue`) minus the target value. A
+ * *driven* dimension never reaches this function — `residualSources` gives it no rows at
+ * all, so it constrains nothing.
+ */
 function dimensionResiduals(
   dimension: Dimension,
   entities: Map<string, SketchEntity>,
   values: Float64Array,
   layout: VariableLayout,
 ): number[] {
-  switch (dimension.kind) {
-    case "distance": {
-      const p = readPoint(values, layout, dimension.points[0]);
-      const q = readPoint(values, layout, dimension.points[1]);
-      return [length(direction(p, q)) - dimension.value];
-    }
-
-    case "point-line-distance": {
-      const ends = lineEnds(entities, values, layout, dimension.entities[0]);
-      if (!ends) return [];
-      const p = readPoint(values, layout, dimension.points[0]);
-      const u = direction(ends.a, ends.b);
-      const scale = Math.max(length(u), MIN_LENGTH);
-      // Unsigned perpendicular distance from the point to the line's own infinite
-      // extension — `Math.abs` because a driving dimension's target is always a positive
-      // span, same as `distance`'s own `length()` never goes negative; which side of the
-      // line the point sits on isn't something this dimension records.
-      return [Math.abs(cross(u, direction(ends.a, p))) / scale - dimension.value];
-    }
-
-    // Ordinate dimensions are signed axis distances from a datum, which is exactly what
-    // makes a chain of them share one zero.
-    case "horizontal-distance":
-    case "ordinate-x": {
-      const datum = readPoint(values, layout, dimension.points[0]);
-      const target = readPoint(values, layout, dimension.points[1]);
-      return [target.x - datum.x - dimension.value];
-    }
-
-    case "vertical-distance":
-    case "ordinate-y": {
-      const datum = readPoint(values, layout, dimension.points[0]);
-      const target = readPoint(values, layout, dimension.points[1]);
-      return [target.y - datum.y - dimension.value];
-    }
-
-    case "radius": {
-      const index = layout.radiusIndex.get(dimension.entities[0]);
-      return index === undefined ? [] : [values[index] - dimension.value];
-    }
-
-    case "diameter": {
-      const index = layout.radiusIndex.get(dimension.entities[0]);
-      return index === undefined ? [] : [2 * values[index] - dimension.value];
-    }
-
-    case "angle": {
-      const first = lineEnds(entities, values, layout, dimension.entities[0]);
-      const second = lineEnds(entities, values, layout, dimension.entities[1]);
-      if (!first || !second) return [];
-      const u = direction(first.a, first.b);
-      const v = direction(second.a, second.b);
-      // A degenerate (zero-length) line has no angle to anything — `atan2(0, 0)` is 0 and
-      // its finite-difference derivative near the origin is both large and noisy, which
-      // would poison the Jacobian. The dimension sits out until some other constraint has
-      // given the line actual extent, the same guard every scaled residual already applies.
-      if (length(u) < MIN_LENGTH || length(v) < MIN_LENGTH) return [];
-      const current = Math.atan2(Math.abs(cross(u, v)), dot(u, v));
-      return [current - (dimension.value * Math.PI) / 180];
-    }
-
-    default:
-      return [];
+  const measured = measuredDimensionValue(dimension, entities, values, layout);
+  if (measured === null) return [];
+  // Angles measure in degrees but solve in radians — the same conversion `Dimension.value`'s
+  // own doc comment promises.
+  if (dimension.kind === "angle") {
+    return [(measured * Math.PI) / 180 - (dimension.value * Math.PI) / 180];
   }
+  return [measured - dimension.value];
 }
 
 /**
@@ -640,6 +671,11 @@ function dimensionVariables(
   layout: VariableLayout,
   entities: Map<string, SketchEntity>,
 ): number[] {
+  // A driven dimension contributes no equations (see `residualSources`), so it probes no
+  // variables either — a zero-row block with a non-empty variable list would have the
+  // Jacobian write into rows the next block owns.
+  if (dimension.driven) return [];
+
   switch (dimension.kind) {
     case "distance":
     case "horizontal-distance":
@@ -696,6 +732,14 @@ export function residualSources(
   }
 
   for (const dimension of sketch.dimensions) {
+    // A driven (reference) dimension measures rather than constrains: a zero-row,
+    // zero-variable block. It never counts toward the rank/DOF, never appears in a
+    // conflict scan (removing it changes nothing), and its value is refreshed from the
+    // solved geometry instead (see `solver.ts`'s `refreshDrivenDimensions`).
+    if (dimension.driven) {
+      sources.push({ rowStart, variables: [], evaluate: () => [] });
+      continue;
+    }
     const evaluate = (probe: Float64Array) =>
       dimensionResiduals(dimension, entities, probe, layout);
     sources.push({ rowStart, variables: dimensionVariables(dimension, layout, entities), evaluate });

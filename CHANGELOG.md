@@ -7,6 +7,43 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-09-21 — Driving vs reference (driven) dimensions (v0.23.0)
+
+The second Phase 2 round of the cross-CAD comparison roadmap: the sketcher's dimensions
+split into driving (constrain the geometry) and driven/reference (measure it) — the
+distinction SolidWorks calls Driving/Driven and Inventor and Onshape call
+driving/reference.
+
+### Added — `Dimension.driven`: a dimension that measures instead of constrains
+- A driven dimension contributes zero equations to the solver: it never counts toward
+  the DOF readout, never appears in a conflict scan, and never turns the sketch red. The
+  measured quantity itself is one shared function (`residuals.ts`'s
+  `measuredDimensionValue`) for both roles — a driving dimension's residual is exactly
+  `measured - value`, and a driven dimension's refreshed value is `measured` — so the
+  equation a driving dimension enforces and the label a reference dimension shows can
+  never disagree about what the same dimension measures.
+- A driven dimension's value is an output, not an input: every solve rewrites it from
+  the solved geometry (`solver.ts`'s `refreshDrivenDimensions`), so the label tracks the
+  geometry live — including mid-drag. Unmeasurable right now (a degenerate angle between
+  zero-length lines), it keeps its last value instead of inventing one.
+- The label renders in parentheses — the convention every mainstream sketcher shares —
+  and is read-only: no double-click editor, and the property panel's dimension row shows
+  the value as text instead of a field. Toggling lives on the dimension's own right-click
+  menu (Make Driven / Make Driving) and is one undo step either way.
+- The SolidWorks "make dimension driven?" prompt, decided automatically: a Smart
+  Dimension or Ordinate commit that would be *the* relation tipping an already-pinned
+  sketch over-defined lands as a reference dimension instead of throwing the whole
+  sketch red — the offender scan already knows exactly which relation is responsible, so
+  the decision reuses it. Any other over-defined cause (a pre-existing conflict, an
+  unrelated offender) passes through untouched.
+- Making a dimension driven frees exactly the geometry it was pinning (and last round's
+  blue/black colouring shows the freed entities immediately); making it driving again
+  pins the geometry to its last measured value, which it already satisfies.
+- Six solver-level pins (`drivenDimensions.spec.ts`: no-equations, never-an-offender,
+  length/radius/angle refresh in degrees, keep-last-value-when-unmeasurable) and three
+  store-level pins (the toggle flips the DOF, the auto-driven commit on a pinned sketch,
+  the value follows a live drag). 163 unit tests total, up from 154.
+
 ## 2026-09-21 — Blue/black sketch entity colouring, the cross-CAD convention (v0.22.0)
 
 The first Phase 2 round of the cross-CAD comparison roadmap: the most recognizable CAD

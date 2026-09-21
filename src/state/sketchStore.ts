@@ -264,6 +264,11 @@ interface SketchStore {
    * two visual quadrants are one of these two values again, by vertical angles. A no-op
    * for any other dimension kind. */
   flipAngleDimension: (dimensionId: string) => void;
+  /** Flips a dimension between driving (an equation that constrains the geometry) and
+   * driven/reference (a measurement that follows it — no equations, value refreshed from
+   * the solved geometry, label in parentheses). Toggled from the dimension's own
+   * right-click menu. */
+  toggleDimensionDriving: (dimensionId: string) => void;
 
   /** Arms a point-drag (or dimension-label drag) gesture — the gesture's first *changing*
    * frame snapshots the pre-gesture sketch as the single undo entry for the whole drag, so
@@ -345,6 +350,33 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     underDefinedEntityIds: [...outcome.underDefinedEntityIds],
     underDefinedPointIds: [...outcome.underDefinedPointIds],
   });
+
+  /**
+   * The SolidWorks "make dimension driven?" prompt, decided automatically: any *new*
+   * dimension whose addition is what tips the sketch over-defined — the geometry it
+   * measures is already pinned, and removing it clears the conflict — lands as a
+   * reference dimension instead, parenthesised and non-constraining, rather than throwing
+   * the whole sketch red over a dimension the user almost certainly meant as a
+   * measurement. Any other over-defined cause (a pre-existing conflict, an unrelated
+   * offender) passes through untouched. One extra solve per commit, plus the
+   * O(constraints) conflict scan only in the over-defined case — click-time cost, never
+   * per-frame.
+   */
+  const autoDriveNewDimensions = (candidate: Sketch, newDimensionIds: string[]): Sketch => {
+    if (newDimensionIds.length === 0) return candidate;
+    if (sketchStatusFromDiagnostics(solveSketch(candidate).diagnostics) !== "over-defined") {
+      return candidate;
+    }
+    const offenders = findConflictingConstraints(candidate);
+    const toDrive = new Set(newDimensionIds.filter((id) => offenders.has(id)));
+    if (toDrive.size === 0) return candidate;
+    return {
+      ...candidate,
+      dimensions: candidate.dimensions.map((dimension) =>
+        toDrive.has(dimension.id) ? { ...dimension, driven: true } : dimension,
+      ),
+    };
+  };
 
   /**
    * `dragPoint`'s own `conflictsFor`, throttled: an over-defined sketch's brute-force
@@ -879,18 +911,22 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           ? { x: position.x - anchor.x, y: position.y - anchor.y }
           : { x: 0, y: 0 };
 
-        const withDimension = addDimension(
+        const { sketch: withDimension, dimensionId } = addDimension(
           sketch,
           pendingDimension.kind,
           pendingDimension.value,
           pendingDimension.points,
           pendingDimension.entities,
           labelOffset,
-        ).sketch;
+        );
 
-        return pendingDimension.alsoConstrainParallel
+        const candidate = pendingDimension.alsoConstrainParallel
           ? addConstraint(withDimension, "parallel", pendingDimension.alsoConstrainParallel, [])
           : withDimension;
+
+        // A dimension that would over-define an already-pinned sketch lands as a
+        // reference dimension instead — see `autoDriveNewDimensions`.
+        return autoDriveNewDimensions(candidate, [dimensionId]);
       });
 
       set({ selection: [], pendingDimension: null });
@@ -923,14 +959,20 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const kinds: DimensionKind[] =
         axis === "both" ? ["ordinate-x", "ordinate-y"] : axis === "x" ? ["ordinate-x"] : ["ordinate-y"];
 
-      edit((current) =>
-        dimensioned.reduce((accumulated, target) => {
+      edit((current) => {
+        const newDimensionIds: string[] = [];
+        const candidate = dimensioned.reduce((accumulated, target) => {
           return kinds.reduce((inner, kind) => {
             const value = roundDimensionValue(measure(inner, kind, [datum, target], []));
-            return addDimension(inner, kind, value, [datum, target], []).sketch;
+            const { sketch: withDimension, dimensionId } = addDimension(inner, kind, value, [datum, target], []);
+            newDimensionIds.push(dimensionId);
+            return withDimension;
           }, accumulated);
-        }, current),
-      );
+        }, current);
+        // Ordinate dimensions on already-pinned geometry land as reference dimensions —
+        // see `autoDriveNewDimensions`.
+        return autoDriveNewDimensions(candidate, newDimensionIds);
+      });
 
       set({ selection: [] });
       return true;
@@ -939,9 +981,16 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     setDimensionValue: (dimensionId, value) =>
       edit((sketch) => ({
         ...sketch,
-        dimensions: sketch.dimensions.map((dimension) =>
-          dimension.id === dimensionId ? { ...dimension, value } : dimension,
-        ),
+        dimensions: sketch.dimensions.map((dimension) => {
+          if (dimension.id !== dimensionId) return dimension;
+          // A driven dimension's value is an output of the solve — a typed one would be
+          // overwritten by this very edit's refresh. The UI never offers the field for a
+          // driven dimension (the viewport label and the panel row both render it
+          // read-only); this guard is the store-side backstop. Make it driving first
+          // (right-click ▸ Make Driving) to type a value.
+          if (dimension.driven) return dimension;
+          return { ...dimension, value };
+        }),
       })),
 
     // Repositioning a label is display-only — it does not change what the dimension
@@ -1020,6 +1069,20 @@ export const useSketchStore = create<SketchStore>((set, get) => {
           dimension.id === dimensionId && dimension.kind === "angle"
             ? { ...dimension, value: 180 - dimension.value }
             : dimension,
+        ),
+      })),
+
+    // Driving -> driven: the dimension stops constraining (the sketch may gain degrees of
+    // freedom — the freed entities render blue), and the same edit's solve refreshes its
+    // value to what the geometry measures, so the label doesn't jump. Driven -> driving:
+    // the last measured value becomes the target, which the geometry already satisfies —
+    // unless other constraints have since pinned it elsewhere, in which case the solve
+    // reports the conflict the way any redundant relation would.
+    toggleDimensionDriving: (dimensionId) =>
+      edit((sketch) => ({
+        ...sketch,
+        dimensions: sketch.dimensions.map((dimension) =>
+          dimension.id === dimensionId ? { ...dimension, driven: !dimension.driven } : dimension,
         ),
       })),
 
