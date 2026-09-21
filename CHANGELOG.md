@@ -7,6 +7,42 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-09-21 — Automatic Drawing Hole Callouts from Hole Wizard metadata (v0.21.0)
+
+One feedback round. The theme: a Drawing can now carry real hole notes — click a projected
+Hole Wizard circle and get a standards-aware, leadered callout whose facts come from the
+feature itself, not from retyping.
+
+### Added — `annotation.hole-callout`: pick a projected circle, get the hole's story
+- Projection (`kernel/drawingProjection.ts`) snapshots every built Hole Wizard feature
+  (suppressed/rolled-back ones excluded) into structured `DrawingHoleCalloutMetadata` —
+  hole type, drilled diameter/depth, end condition, designation, thread class/direction/
+  depth semantics, and the counterbore/spotface/countersink seat — and caches one
+  `DrawingHoleTargetData` pick target per projected circle that matches the feature's real
+  cut radius. A tapped hole's ISO 6410 major-diameter arc comes from the same single pass
+  (`holeDecorationsFor`), so each view's paths are parsed and circle-fitted once, not
+  once per decoration.
+- Targets survive every flow that rewrites view geometry: Update Views, Projected View
+  creation, and the initial Insert Model View layout (`drawingViewLayout.ts` — the path
+  that first dropped them).
+- The picker (`commands/holeCallout.ts`) snaps to the nearest projected *circumference*,
+  not circle centre, so it behaves like a CAD edge picker; its view-local → sheet-mm
+  transform is the shared `viewPointToSheet` (`kernel/drawingGeometry.ts`), the same
+  single source of truth `viewVertices` uses, so picking can never drift from rendering.
+- The callout itself is a leadered SVG annotation: seat line first (ISO 15786's ⌴/⌵),
+  then the designation/class line, then depth/through semantics. Right-hand threads carry
+  no direction token (ISO/ASME annotate only LH), a shortened thread with no real
+  engagement length on record reports the drilled depth instead of inventing one, and the
+  words ("THRU"/"CEZ", …) come from the translation dictionaries via the new non-hook
+  `translateFor` (`i18n/useTranslation.ts`) — adding the next language means adding
+  dictionary keys, not editing the formatter. Callouts are selectable, deletable,
+  drag-batched into one undo entry per drag, move with their parent view, and persist in
+  the saved Drawing.
+- Tests: `holeCallout.spec.ts` (12 — formatting, seats, LH-only, no invented depths,
+  circumference picking), `drawingHoleCallout.spec.ts` (2 — CRUD/undo/view motion), and
+  `drawingProjection.spec.ts` (2 — real-WASM projection of a tapped hole, and of a
+  counterbored hole whose wider seat circle is correctly *not* a pick target).
+
 ## 2026-09-20 — Unified OK/Cancel feature sessions, Drawing CSP fix, exact edge picking, SK feature tree, Hole Wizard thread depth (v0.20.0)
 
 One feedback round spanning two commits (`17bbff8` plus this one). The theme: make the

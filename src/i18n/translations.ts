@@ -18,7 +18,8 @@
  *
  * Scope: the ribbon (every tab, group, command label *and hover tooltip*), the menu bar,
  * the status bar, the Settings dialog's tab strip, the New Document dialog, the document
- * tabs, the drawing sheet's chrome and the three manager dock panels (SketchPanel,
+ * tabs, the drawing sheet's chrome, the hole-callout note it renders, and the three
+ * manager dock panels (SketchPanel,
  * InspectPanel, PropertyManager, including the feature-catalog descriptions they show),
  * and the Feature Manager tree — its chrome (toolbar, rollback bar, tooltips, empty state),
  * its right-click menu, and the row *names* that are not user data: the default reference
@@ -161,6 +162,7 @@ export const sk: Record<string, string> = {
   "annotation.smart-dimension": "Inteligentná kóta",
   "annotation.ordinate": "Súradnicová kóta",
   "annotation.note": "Poznámka",
+  "annotation.hole-callout": "Popis diery",
   "annotation.datum": "Referenčný prvok",
   "annotation.gdt": "Geometrická tolerancia",
   "annotation.surface-finish": "Drsnosť povrchu",
@@ -233,6 +235,14 @@ export const sk: Record<string, string> = {
   "drawing.empty": "Vložením pohľadu na model zobrazíte premietnuté pohľady uloženého dielu.",
   "drawing.edit-resources": "Upraviť rámiky a titulné bloky",
   "drawing.delete-selected": "Odstrániť",
+
+  // ------------------------------------------------------------- hole callout (drawing)
+  // The manufacturing note the sheet renders from a projected Hole Wizard circle.
+  // Words only — the ⌀/↧/×/⌴/⌵ symbols are the drawing standards' own and never
+  // translate — kept in the terse register a real drawing uses.
+  "holeCallout.thru": "CEZ",
+  "holeCallout.threadDepth": "HĽBKA ZÁVITU",
+  "holeCallout.fullThread": "PLNÝ ZÁVIT",
 
   // ---------------------------------------------------------- drawing resources / templates
   "templates.title": "Zdroje výkresu",
@@ -363,6 +373,7 @@ export const sk: Record<string, string> = {
   "annotation.smart-dimension.description": "Okótovať geometriu výkresu",
   "annotation.ordinate.description": "Súradnicové kóty od spoločného bodu",
   "annotation.note.description": "Umiestniť poznámku s odkazovacou čiarou",
+  "annotation.hole-callout.description": "Vytvoriť normalizovaný popis z premietnutej kružnice Sprievodcu dierou",
   "annotation.datum.description": "Umiestniť značku referenčného prvku",
   "annotation.gdt.description": "Umiestniť rámček geometrickej tolerancie",
   "annotation.surface-finish.description": "Umiestniť značku drsnosti povrchu",

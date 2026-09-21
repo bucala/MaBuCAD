@@ -6,7 +6,7 @@ import { create } from "zustand";
  * 3D/sketch side of the app, scoped instead to `DrawingSheet.tsx`.
  *
  * "select" (the default) is plain click-to-select/drag-to-move on views, notes and title
- * block fields. "note", "datum", "gdt", "surface-finish" and "weld" each place one
+ * block fields. "note", "hole-callout", "datum", "gdt", "surface-finish" and "weld" each place one
  * annotation on the next sheet click and self-disarm back to "select" (see
  * `DrawingSheet.tsx`'s `handleBackgroundClick`). "section" and "detail" each need a source
  * view picked first, then a cut line / crop circle dragged into place before confirming.
@@ -16,6 +16,7 @@ import { create } from "zustand";
 export type DrawingTool =
   | "select"
   | "note"
+  | "hole-callout"
   | "section"
   | "detail"
   | "projected"

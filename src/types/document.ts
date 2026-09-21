@@ -105,8 +105,10 @@ export interface FeatureParameters {
    * size (typed directly rather than picked from the standard) is possible later without a
    * kernel change. */
   seatDiameter?: number;
-  /** Seat recess depth in mm (counterbore/spotface) or half-angle in degrees (countersink,
-   * conventionally 90° full angle, so 45° half-angle) — which one depends on `seatType`. */
+  /** Seat recess depth in mm (counterbore/spotface) or included angle in degrees
+   * (countersink, conventionally 90°) — which one depends on `seatType`. Matches
+   * `data/holeStandards.ts`'s own `depthOrAngle` semantics; `kernel/rebuild.ts`'s
+   * `buildSeatTool` halves it into the half-angle the cone actually needs. */
   seatDepthOrAngle?: number;
   /**
    * A blind hole's bottom profile: `"flat"` (the kernel's original, unchanged behaviour —
@@ -230,6 +232,75 @@ export type DrawingProjectionKind = StandardProjectionKind;
 export type DrawingViewKind = "standard" | "section" | "detail";
 
 /**
+ * The Hole Wizard facts a Drawing Hole Callout needs, snapshotted at projection time.
+ *
+ * Kept structured rather than as the final displayed sentence so the renderer can localise
+ * "THRU"/"CEZ" and the thread-depth labels without rewriting a saved drawing, and so a
+ * later formatter can improve the standard wording without a document migration. Values
+ * intentionally describe the *whole* hole feature (for example `holeDepth` is the drilled
+ * depth, while `threadDepth` is the possibly shorter cosmetic-thread engagement), not just
+ * whichever circular edge the user happened to pick.
+ */
+export interface DrawingHoleCalloutMetadata {
+  /** Stable id of the source Hole feature this metadata was captured from. */
+  sourceFeatureId: string;
+  holeType: NonNullable<FeatureParameters["holeType"]>;
+  /** Final cut diameter in mm — the clearance/simple-hole diameter, or a tapped hole's tap
+   * drill diameter (the kernel only models the drilled cylinder, never thread crests). */
+  diameter: number;
+  /** Literal drilled depth in mm. For `endCondition: "through-all"` this is only the
+   * user-entered reference value; the callout displays THRU instead of treating the
+   * kernel's deliberately oversized cut as a real depth. */
+  holeDepth: number;
+  endCondition: EndCondition;
+  /** Tapped/taper-tapped: the bare thread designation (e.g. "M6×1"), with any class
+   * suffix carried separately in `threadClass`. Clearance: the nominal fastener size. */
+  designation?: string;
+  holeStandard?: string;
+  holeSize?: string;
+  holeFit?: FeatureParameters["holeFit"];
+  /** Internal thread class from the selected standard row (e.g. "6H"/"2B"). */
+  threadClass?: string;
+  threadDirection?: FeatureParameters["threadDirection"];
+  fullDepthThread?: boolean;
+  threadDepth?: number;
+  /** The counterbore/spotface/countersink recess the kernel stacked above the hole, if
+   * any — snapshotted from the feature's own seat fields so the callout can spell the seat
+   * out (ISO 15786's ⌴/⌵ lines) rather than report only the drilled cylinder beneath it.
+   * Absent means "no seat", matching the feature. */
+  seatType?: FeatureParameters["seatType"];
+  seatDiameter?: number;
+  seatDepthOrAngle?: number;
+}
+
+/** One projected circular Hole Wizard edge a Hole Callout pick can snap to — cached with
+ * the view, in the same unscaled raw projection coordinates as `visiblePaths`. */
+export interface DrawingHoleTargetData {
+  id: string;
+  cx: number;
+  cy: number;
+  radius: number;
+  metadata: DrawingHoleCalloutMetadata;
+}
+
+/** A standards-aware, leadered hole note — `annotation.hole-callout`'s own data. */
+export interface DrawingHoleCalloutData {
+  id: string;
+  /** Which placed view this callout is bound to — always set by the picker, because a
+   * callout is only created from a projected hole edge. */
+  parentViewId?: string;
+  /** The cached `DrawingHoleTargetData.id` it was created from — diagnostic/traceability
+   * only; the callout keeps a full metadata snapshot so it still renders after the source
+   * part changes or its views are refreshed. */
+  sourceTargetId: string;
+  anchorX: number;
+  anchorY: number;
+  labelX: number;
+  labelY: number;
+  metadata: DrawingHoleCalloutMetadata;
+}
+
+/**
  * A leadered/measured annotation (dimension, ordinate chain, datum, GD&T frame, surface
  * finish, weld) can carry `parentViewId`, pointing at one of `DrawingSheetData.views` —
  * `DrawingSheet.tsx`'s own "bound annotations" feature. An annotation gets bound two ways:
@@ -277,6 +348,11 @@ export interface DrawingViewData {
    * `visiblePaths`/`hiddenPaths` (see `kernel/drawingProjection.ts`'s `threadOverlaysFor`).
    * Absent/empty means either no tapped holes, or none of them viewed down their own axis. */
   threadPaths?: string[];
+  /** Projected circular edges known to belong to Hole Wizard features — the picking cache
+   * behind `annotation.hole-callout`. Computed alongside `threadPaths` and stored with the
+   * view so a saved-and-reopened drawing can place a callout without first re-reading its
+   * referenced part. */
+  holeTargets?: DrawingHoleTargetData[];
   /** Absent for a `"standard"` view — see `DrawingViewKind`'s own doc comment. */
   kind?: DrawingViewKind;
   /** Section view only: the world-space cut plane used to produce it, plus enough of the
@@ -638,6 +714,8 @@ export interface DrawingSheetData {
   gdtFrames?: DrawingGdtData[];
   surfaceFinishes?: DrawingSurfaceFinishData[];
   welds?: DrawingWeldData[];
+  /** Hole Wizard callouts picked from a view's cached `holeTargets`. */
+  holeCallouts?: DrawingHoleCalloutData[];
   tables?: DrawingTableData[];
 }
 

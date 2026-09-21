@@ -6,6 +6,7 @@ import type {
   DrawingDatumData,
   DrawingDimensionData,
   DrawingGdtData,
+  DrawingHoleCalloutData,
   DrawingNoteData,
   DrawingOrdinateChainData,
   DrawingSheetData,
@@ -288,6 +289,11 @@ interface DocumentStore {
   addDrawingWeld: (weld: Omit<DrawingWeldData, "id">) => string;
   updateDrawingWeld: (id: string, patch: Partial<Omit<DrawingWeldData, "id">>) => void;
   deleteDrawingWeld: (id: string) => void;
+
+  /** `annotation.hole-callout`'s standards-aware leader data. */
+  addDrawingHoleCallout: (callout: Omit<DrawingHoleCalloutData, "id">) => string;
+  updateDrawingHoleCallout: (id: string, patch: Partial<Omit<DrawingHoleCalloutData, "id">>) => void;
+  deleteDrawingHoleCallout: (id: string) => void;
 
   /** `table.bom`/`table.hole`'s own data. */
   addDrawingTable: (table: Omit<DrawingTableData, "id">) => string;
@@ -796,6 +802,13 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
               labelX: weld.labelX + dx,
               labelY: weld.labelY + dy,
             })),
+            holeCallouts: shiftBound(drawing.holeCallouts, (callout) => ({
+              ...callout,
+              anchorX: callout.anchorX + dx,
+              anchorY: callout.anchorY + dy,
+              labelX: callout.labelX + dx,
+              labelY: callout.labelY + dy,
+            })),
           },
         };
       }),
@@ -1076,6 +1089,47 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
           drawing: {
             ...document.drawing,
             welds: (document.drawing.welds ?? []).filter((weld) => weld.id !== id),
+          },
+        };
+      }),
+
+    addDrawingHoleCallout: (callout) => {
+      const id = nextId("hole-callout");
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            holeCallouts: [...(document.drawing.holeCallouts ?? []), { ...callout, id }],
+          },
+        };
+      });
+      return id;
+    },
+
+    updateDrawingHoleCallout: (id, patch) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            holeCallouts: (document.drawing.holeCallouts ?? []).map((callout) =>
+              callout.id === id ? { ...callout, ...patch } : callout,
+            ),
+          },
+        };
+      }),
+
+    deleteDrawingHoleCallout: (id) =>
+      commit((document) => {
+        if (!document.drawing) return document;
+        return {
+          ...document,
+          drawing: {
+            ...document.drawing,
+            holeCallouts: (document.drawing.holeCallouts ?? []).filter((callout) => callout.id !== id),
           },
         };
       }),

@@ -12,13 +12,18 @@ const DICTIONARIES: Partial<Record<Language, Record<string, string>>> = { sk };
  * so a partially-translated language degrades to English piece by piece rather than
  * showing a blank string or a raw key.
  */
+/** The same key lookup `useTranslation` returns, as a plain function for render-time
+ * helpers that run outside a component body — the drawing sheet's hole-callout formatter
+ * runs during render but takes `language` as a parameter, so it calls this instead of
+ * the hook. */
+export function translateFor(language: Language): (key: string, englishText: string) => string {
+  const dictionary = DICTIONARIES[language];
+  return (key, englishText) => dictionary?.[key] ?? englishText;
+}
+
 export function useTranslation() {
   const language = useSettingsStore((state) => state.language);
-  const dictionary = DICTIONARIES[language];
-
-  const t = (key: string, englishText: string): string => dictionary?.[key] ?? englishText;
-
-  return { t, language };
+  return { t: translateFor(language), language };
 }
 
 /** Fills `{{placeholder}}` tokens in a translated string. A dictionary value is a static

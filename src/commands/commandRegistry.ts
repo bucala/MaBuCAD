@@ -371,6 +371,7 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "drawing.detail": () => useDrawingToolStore.getState().setTool("detail"),
   "drawing.projected": () => useDrawingToolStore.getState().setTool("projected"),
   "annotation.note": () => useDrawingToolStore.getState().setTool("note"),
+  "annotation.hole-callout": () => useDrawingToolStore.getState().setTool("hole-callout"),
   "annotation.smart-dimension": () => useDrawingToolStore.getState().setTool("smart-dimension"),
   "annotation.ordinate": () => useDrawingToolStore.getState().setTool("ordinate"),
   "annotation.datum": () => useDrawingToolStore.getState().setTool("datum"),

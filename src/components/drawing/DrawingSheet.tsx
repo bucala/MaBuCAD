@@ -4,6 +4,7 @@ import { FileUp, Frame, Maximize, RotateCw, Settings2, Trash2, ZoomIn, ZoomOut }
 import { runCommand } from "@/commands/commandRegistry";
 import { runCreateProjectedView, runToggleProjectionMethod } from "@/commands/drawingCommands";
 import { DEFAULT_PROJECTION_METHOD } from "@/commands/drawingViewLayout";
+import { nearestHoleTarget } from "@/commands/holeCallout";
 import { useTranslation } from "@/i18n/useTranslation";
 import { nearestVertex, viewScaleFor } from "@/kernel/drawingGeometry";
 import { sectionArrowSign, type OrthoProjection } from "@/kernel/drawingProjection";
@@ -17,6 +18,7 @@ import type { DrawingNoteData, DrawingViewData } from "@/types/document";
 import { DetailOverlay } from "./DetailOverlay";
 import { DimensionView, OrdinateChainView } from "./DimensionAnnotations";
 import styles from "./DrawingSheet.module.css";
+import { HoleCalloutView } from "./HoleCalloutAnnotations";
 import { SectionOverlay } from "./SectionOverlay";
 import { DatumView, GdtView, SurfaceFinishView } from "./SymbolAnnotations";
 import { TableView } from "./TableAnnotations";
@@ -32,6 +34,7 @@ const PICK_TOLERANCE = 3;
  * select/drag — used only to pick the crosshair cursor. */
 const PICKING_TOOLS = new Set([
   "note",
+  "hole-callout",
   "datum",
   "gdt",
   "surface-finish",
@@ -47,7 +50,7 @@ const PICKING_TOOLS = new Set([
  * do — `PlacedView` must not render its own interactive rect for these, or a click over any
  * view's bounding box would claim the click for "select this view" before it ever reaches
  * `handleBackgroundClick`. */
-const PASSTHROUGH_TOOLS = new Set(["note", "datum", "gdt", "surface-finish", "weld", "smart-dimension", "ordinate"]);
+const PASSTHROUGH_TOOLS = new Set(["note", "hole-callout", "datum", "gdt", "surface-finish", "weld", "smart-dimension", "ordinate"]);
 
 /** px per sheet-mm the outer sheet `<svg>` is rendered at — every drag handler in this
  * file (views, notes) converts screen-pixel deltas back to sheet-mm by dividing by this. */
@@ -787,12 +790,15 @@ export function DrawingSheet() {
   const addDrawingWeld = useDocumentStore((state) => state.addDrawingWeld);
   const updateDrawingWeld = useDocumentStore((state) => state.updateDrawingWeld);
   const deleteDrawingWeld = useDocumentStore((state) => state.deleteDrawingWeld);
+  const addDrawingHoleCallout = useDocumentStore((state) => state.addDrawingHoleCallout);
+  const updateDrawingHoleCallout = useDocumentStore((state) => state.updateDrawingHoleCallout);
+  const deleteDrawingHoleCallout = useDocumentStore((state) => state.deleteDrawingHoleCallout);
   const updateDrawingTable = useDocumentStore((state) => state.updateDrawingTable);
   const deleteDrawingTable = useDocumentStore((state) => state.deleteDrawingTable);
   const sheetFormats = useTemplateStore((state) => state.sheetFormats);
   const borders = useTemplateStore((state) => state.borders);
   const titleBlocks = useTemplateStore((state) => state.titleBlocks);
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
 
   const tool = useDrawingToolStore((state) => state.tool);
   const setTool = useDrawingToolStore((state) => state.setTool);
@@ -825,7 +831,7 @@ export function DrawingSheet() {
    * every consumer (Delete key, toolbar's Delete button) needs to branch on "which kind"
    * anyway. */
   const [selectedAnnotation, setSelectedAnnotation] = useState<
-    { kind: "dimension" | "ordinate" | "datum" | "gdt" | "surfaceFinish" | "weld" | "table"; id: string } | null
+    { kind: "dimension" | "ordinate" | "datum" | "gdt" | "surfaceFinish" | "weld" | "holeCallout" | "table"; id: string } | null
   >(null);
   const sheetRef = useRef<SVGSVGElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -839,6 +845,7 @@ export function DrawingSheet() {
   const gdtFrames = drawing?.gdtFrames ?? [];
   const surfaceFinishes = drawing?.surfaceFinishes ?? [];
   const welds = drawing?.welds ?? [];
+  const holeCallouts = drawing?.holeCallouts ?? [];
   const tables = drawing?.tables ?? [];
   const sourcePart = drawing?.sourcePart ?? null;
   const titleBlockValues = drawing?.titleBlockValues ?? {};
@@ -855,7 +862,7 @@ export function DrawingSheet() {
   };
 
   const selectAnnotation = (
-    kind: "dimension" | "ordinate" | "datum" | "gdt" | "surfaceFinish" | "weld" | "table",
+    kind: "dimension" | "ordinate" | "datum" | "gdt" | "surfaceFinish" | "weld" | "holeCallout" | "table",
     id: string,
   ) => {
     setSelectedAnnotation({ kind, id });
@@ -887,6 +894,9 @@ export function DrawingSheet() {
       case "weld":
         deleteDrawingWeld(selectedAnnotation.id);
         break;
+      case "holeCallout":
+        deleteDrawingHoleCallout(selectedAnnotation.id);
+        break;
       case "table":
         deleteDrawingTable(selectedAnnotation.id);
         break;
@@ -900,6 +910,7 @@ export function DrawingSheet() {
     deleteDrawingGdt,
     deleteDrawingSurfaceFinish,
     deleteDrawingWeld,
+    deleteDrawingHoleCallout,
     deleteDrawingTable,
     setSelectedAnnotation,
   ]);
@@ -1018,6 +1029,25 @@ export function DrawingSheet() {
       const id = addDrawingNote({ x: local.x, y: local.y, text: "", fontSize: 4 });
       setEditingNoteId(id);
       setSelectedNoteId(id);
+      setTool("select");
+      return;
+    }
+
+    if (tool === "hole-callout") {
+      const local = sheetPointFromEvent(event);
+      if (!local) return;
+      const match = nearestHoleTarget(views, local, PICK_TOLERANCE);
+      if (!match) return;
+      const id = addDrawingHoleCallout({
+        parentViewId: match.viewId,
+        sourceTargetId: match.target.id,
+        anchorX: match.x,
+        anchorY: match.y,
+        labelX: match.x + 12,
+        labelY: match.y - 10,
+        metadata: match.target.metadata,
+      });
+      selectAnnotation("holeCallout", id);
       setTool("select");
       return;
     }
@@ -1435,6 +1465,17 @@ export function DrawingSheet() {
               onMove={(labelX, labelY) => updateDrawingWeld(weld.id, { labelX, labelY })}
               onMoveAnchor={(x, y) => updateDrawingWeld(weld.id, anchorMovePatch(x, y))}
               onEdit={(patch) => updateDrawingWeld(weld.id, patch)}
+            />
+          ))}
+
+          {holeCallouts.map((callout) => (
+            <HoleCalloutView
+              key={callout.id}
+              callout={callout}
+              language={language}
+              selected={selectedAnnotation?.kind === "holeCallout" && selectedAnnotation.id === callout.id}
+              onSelect={() => selectAnnotation("holeCallout", callout.id)}
+              onMove={(labelX, labelY) => updateDrawingHoleCallout(callout.id, { labelX, labelY })}
             />
           ))}
 

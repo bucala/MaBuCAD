@@ -184,6 +184,7 @@ export async function runUpdateViews(): Promise<void> {
         originX: next.originX,
         originY: next.originY,
         threadPaths: next.threadPaths,
+        holeTargets: next.holeTargets,
       };
     });
 
@@ -376,6 +377,7 @@ export async function runCreateProjectedView(sourceView: DrawingViewData): Promi
       originX: targetGeometry.originX,
       originY: targetGeometry.originY,
       threadPaths: targetGeometry.threadPaths,
+      holeTargets: targetGeometry.holeTargets,
     };
 
     useDocumentStore.getState().addDrawingView(newView);

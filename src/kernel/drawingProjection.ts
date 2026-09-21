@@ -4,7 +4,13 @@ import type { AnyShape, Face, PlaneName, ProjectionPlane, Wire } from "replicad"
 import { resolveTapDrill } from "@/data/holeResolution";
 import type { TappedStandardId } from "@/data/holeStandards";
 import type { Sketch } from "@/sketch/types";
-import type { CadDocument, DrawingProjectionKind, StandardProjectionKind } from "@/types/document";
+import type {
+  CadDocument,
+  DrawingHoleCalloutMetadata,
+  DrawingHoleTargetData,
+  DrawingProjectionKind,
+  StandardProjectionKind,
+} from "@/types/document";
 
 import { fitCircle } from "./drawingGeometry";
 import { getCurrentShape, rebuildDocument } from "./rebuild";
@@ -26,6 +32,9 @@ export interface ProjectedGeometry {
    * that match is made. Absent/empty when the part has no tapped holes, or none of them
    * happen to be viewed straight down their own axis. */
   threadPaths?: string[];
+  /** Hole Wizard circles found in this view, with enough structured metadata for the
+   * drawing's Hole Callout tool to write a standards-aware note from one pick. */
+  holeTargets?: DrawingHoleTargetData[];
 }
 
 export type ProjectedViews = Record<StandardProjectionKind, ProjectedGeometry>;
@@ -111,31 +120,72 @@ async function rebuildPartShape(
   return { shape: shape as unknown as AnyShape, errors: result.errors };
 }
 
-/** A tapped hole's own two ISO 6410-relevant radii — the drilled (tap drill / minor
- * diameter) circle the plain-cylinder cut geometry actually projects as, and the thread's
- * own major (nominal) diameter the standard draws as a thin broken circle around it. */
-interface ThreadRadii {
-  minorRadius: number;
-  majorRadius: number;
+/** One Hole Wizard feature reduced to what view projection needs: the radius the kernel
+ * actually cuts (what the projected circle will measure), the cosmetic thread's major
+ * radius when tapped, and the structured callout metadata the drawing stores per target. */
+interface HoleProjectionSource {
+  sourceFeatureId: string;
+  cutRadius: number;
+  threadMajorRadius?: number;
+  metadata: DrawingHoleCalloutMetadata;
 }
 
-/** Every tapped/taper-tapped Hole Wizard feature actually built in `document`
- * (suppressed/rolled-back ones excluded, the same filter `commands/drawingCommands.ts`'s
- * Hole Table already uses), reduced to the two radii `threadOverlaysFor` needs — one entry
- * per feature, not per placement point, since every point a single feature places shares
- * the same thread size. */
-function tappedHoleRadii(document: CadDocument): ThreadRadii[] {
-  const radii: ThreadRadii[] = [];
+function stripThreadClass(designation: string): string {
+  return designation.replace(/\s*\([^)]*\)\s*$/, "");
+}
+
+function threadClassFromDisplay(designation: string | undefined): string | undefined {
+  return designation?.match(/\(([^)]+)\)\s*$/)?.[1];
+}
+
+/** Every Hole Wizard feature actually built in `document` (suppressed/rolled-back ones
+ * excluded, matching the Hole Table's own "the rollback bar is the truth" convention),
+ * reduced to one projection source per feature. A feature's multiple placement points all
+ * share this metadata; the per-circle distinction is made later from the projected paths. */
+function holeProjectionSources(document: CadDocument): HoleProjectionSource[] {
+  const sources: HoleProjectionSource[] = [];
+
   for (const feature of document.features.slice(0, document.rollbackIndex)) {
     if (feature.kind !== "hole" || feature.suppressed) continue;
-    const { holeType, holeStandard, holeSize } = feature.parameters;
-    if (holeType !== "tapped" && holeType !== "taper-tapped") continue;
-    if (!holeStandard || !holeSize) continue;
-    const entry = resolveTapDrill(holeStandard as TappedStandardId, holeSize);
-    if (!entry) continue;
-    radii.push({ minorRadius: entry.tapDrill / 2, majorRadius: entry.nominalSize / 2 });
+
+    const parameters = feature.parameters;
+    const cutRadius = parameters.radius ?? 3;
+    if (!Number.isFinite(cutRadius) || cutRadius <= 0) continue;
+
+    const isTapped = parameters.holeType === "tapped" || parameters.holeType === "taper-tapped";
+    const tappedEntry =
+      isTapped && parameters.holeStandard && parameters.holeSize
+        ? resolveTapDrill(parameters.holeStandard as TappedStandardId, parameters.holeSize)
+        : undefined;
+    const rawDesignation = tappedEntry?.designation ?? parameters.holeSize ?? parameters.threadDesignation;
+    const designation = rawDesignation ? stripThreadClass(rawDesignation) : undefined;
+
+    sources.push({
+      sourceFeatureId: feature.id,
+      cutRadius,
+      threadMajorRadius: tappedEntry ? tappedEntry.nominalSize / 2 : undefined,
+      metadata: {
+        sourceFeatureId: feature.id,
+        holeType: parameters.holeType ?? "simple",
+        diameter: cutRadius * 2,
+        holeDepth: Math.abs(parameters.depth ?? 10),
+        endCondition: parameters.endCondition ?? "through-all",
+        designation,
+        holeStandard: parameters.holeStandard,
+        holeSize: parameters.holeSize,
+        holeFit: parameters.holeFit,
+        threadClass: tappedEntry?.internalClass ?? threadClassFromDisplay(parameters.threadDesignation),
+        threadDirection: parameters.threadDirection,
+        fullDepthThread: parameters.fullDepthThread,
+        threadDepth: parameters.threadDepth,
+        seatType: parameters.seatType,
+        seatDiameter: parameters.seatDiameter,
+        seatDepthOrAngle: parameters.seatDepthOrAngle,
+      },
+    });
   }
-  return radii;
+
+  return sources;
 }
 
 /** ISO 6410's own thread-major-diameter symbol: a thin circle broken over a 90° gap (the
@@ -156,29 +206,74 @@ function threadArcPath(cx: number, cy: number, r: number): string {
   return `M ${startX} ${startY} A ${r} ${r} 0 ${largeArcFlag} 1 ${endX} ${endY}`;
 }
 
+function nearestHoleSource(circleRadius: number, sources: HoleProjectionSource[]): HoleProjectionSource | null {
+  let best: HoleProjectionSource | null = null;
+  let bestDelta = Number.POSITIVE_INFINITY;
+  for (const source of sources) {
+    const tolerance = Math.max(source.cutRadius * 0.05, 0.05);
+    const delta = Math.abs(circleRadius - source.cutRadius);
+    if (delta < tolerance && delta < bestDelta) {
+      best = source;
+      bestDelta = delta;
+    }
+  }
+  return best;
+}
+
+interface HoleProjectionDecoration {
+  threadPaths: string[];
+  holeTargets: DrawingHoleTargetData[];
+}
+
 /**
- * Finds every circle in `geometry`'s own cached edges that's really a tapped hole's minor-
- * diameter (tap drill) circle — the plain-cylinder cut this app's kernel actually builds
- * for a tapped hole (`kernel/rebuild.ts`'s `buildHoleSolid`, real B-Rep geometry only ever
- * matches the *drilled* diameter, never the thread's own crest) — matched purely by radius
- * against `radii`'s own known tap-drill sizes, since resolving a hole feature's real
- * world-space placement (which could sit on any reference plane, not just the default one)
- * would need a much larger geometric undertaking for comparatively little extra payoff:
- * a coincidental radius match is cosmetically harmless (one extra thin circle), while a
- * real tapped hole not viewed straight down its own axis (i.e. it doesn't project as a
- * circle at all in this view) is correctly left undecorated either way.
+ * One pass over `geometry`'s cached paths produces both Hole Wizard decorations: the
+ * pickable callout targets for every hole that projects as a circle, and ISO 6410's
+ * major-diameter arc for whichever of those circles is a tapped hole's drilled minor
+ * diameter. Both consumers need exactly the same expensive `fitCircle` parse, so they
+ * share it rather than scanning the view twice.
+ *
+ * Matching is deliberately geometric rather than feature-order-based: a circle is only a
+ * hole target in views where it projects as a circle (straight down its own axis), and
+ * duplicate visible/hidden loops for the same physical edge collapse to one target. Two
+ * distinct hole features with identical radii remain geometrically ambiguous; the
+ * closest/earliest source wins, with the saved callout still carrying its full snapshot.
  */
-function threadOverlaysFor(geometry: { visiblePaths: string[]; hiddenPaths: string[] }, radii: ThreadRadii[]): string[] {
-  if (radii.length === 0) return [];
-  const overlays: string[] = [];
+function holeDecorationsFor(
+  geometry: { visiblePaths: string[]; hiddenPaths: string[] },
+  sources: HoleProjectionSource[],
+  projection: StandardProjectionKind,
+): HoleProjectionDecoration {
+  const decoration: HoleProjectionDecoration = { threadPaths: [], holeTargets: [] };
+  if (sources.length === 0) return decoration;
+
+  const seenTargets = new Set<string>();
+  const seenThreads = new Set<string>();
   for (const d of [...geometry.visiblePaths, ...geometry.hiddenPaths]) {
     const circle = fitCircle(d);
     if (!circle) continue;
-    const match = radii.find((entry) => Math.abs(circle.r - entry.minorRadius) < Math.max(entry.minorRadius * 0.05, 0.05));
-    if (!match) continue;
-    overlays.push(threadArcPath(circle.cx, circle.cy, match.majorRadius));
+    const source = nearestHoleSource(circle.r, sources);
+    if (!source) continue;
+
+    const targetKey = [circle.cx, circle.cy, circle.r].map((value) => value.toFixed(4)).join("|");
+    if (!seenTargets.has(targetKey)) {
+      seenTargets.add(targetKey);
+      decoration.holeTargets.push({
+        id: `${projection}-${source.sourceFeatureId}-${decoration.holeTargets.length}`,
+        cx: circle.cx,
+        cy: circle.cy,
+        radius: circle.r,
+        metadata: source.metadata,
+      });
+    }
+
+    if (!source.threadMajorRadius) continue;
+    const threadKey = [circle.cx, circle.cy, source.threadMajorRadius].map((value) => value.toFixed(4)).join("|");
+    if (seenThreads.has(threadKey)) continue;
+    seenThreads.add(threadKey);
+    decoration.threadPaths.push(threadArcPath(circle.cx, circle.cy, source.threadMajorRadius));
   }
-  return overlays;
+
+  return decoration;
 }
 
 export async function rebuildAndProjectPart(
@@ -204,10 +299,15 @@ export async function rebuildAndProjectPart(
     iso: projectOne(built.shape, iso),
   };
 
-  const radii = tappedHoleRadii(document);
-  if (radii.length > 0) {
+  const holeSources = holeProjectionSources(document);
+  if (holeSources.length > 0) {
     for (const key of Object.keys(views) as StandardProjectionKind[]) {
-      views[key] = { ...views[key], threadPaths: threadOverlaysFor(views[key], radii) };
+      const decoration = holeDecorationsFor(views[key], holeSources, key);
+      views[key] = {
+        ...views[key],
+        threadPaths: decoration.threadPaths,
+        holeTargets: decoration.holeTargets,
+      };
     }
   }
 

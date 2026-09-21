@@ -323,6 +323,7 @@ export const RIBBON_TABS: RibbonTab[] = [
           { id: "annotation.smart-dimension", label: "Smart Dimension", icon: Ruler, size: "large", description: "Dimension drawing geometry" },
           { id: "annotation.ordinate", label: "Ordinate", icon: Grid3x3, size: "large", description: "Ordinate dimensions from a single datum" },
           { id: "annotation.note", label: "Note", icon: Type, size: "small", description: "Place a note with optional leader" },
+          { id: "annotation.hole-callout", label: "Hole Callout", icon: CircleDot, size: "small", description: "Create a standards-aware callout from a projected Hole Wizard circle" },
           { id: "annotation.datum", label: "Datum Feature", icon: Anchor, size: "small", description: "Place a datum feature symbol" },
           { id: "annotation.gdt", label: "Geometric Tolerance", icon: Shapes, size: "small", description: "Place a feature control frame" },
           { id: "annotation.surface-finish", label: "Surface Finish", icon: Waves, size: "small", description: "Place a surface finish symbol" },

@@ -81,28 +81,25 @@ export interface DrawingVertex extends Point {
 }
 
 /**
- * `view`'s own projected vertices, in sheet-mm.
- *
- * Mirrors the exact transform `DrawingSheet.tsx`'s `View` component renders with — a path's
- * raw coordinate `(px, py)` (replicad's own SVG-mirrored range `[-height, 0]`, see `View`'s
- * own doc comment) is shifted to `(px, py + view.height)` by the view's own
- * `translate(0, height)`, then that viewBox-space point scales and translates into the
- * sheet the same way the view's outer `<svg x y width height>` does. Any drift between this
- * and that render transform would make picked points land visibly off the geometry they're
- * meant to snap to, so the two must be kept in lockstep.
+ * Converts one raw projected point (replicad's own SVG-mirrored range `[-height, 0]`) into
+ * the sheet-mm space every placed annotation uses. This is the single source of truth for
+ * the exact transform `DrawingSheet.tsx`'s `View` component renders with: shift Y by the
+ * view height, scale, then translate into the view's own outer `<svg>` origin. Any drift
+ * between this and that render transform would make picked points land visibly off the
+ * geometry they're meant to snap to, so every picking helper goes through here.
  */
-export function viewVertices(view: DrawingViewData): DrawingVertex[] {
+export function viewPointToSheet(view: DrawingViewData, point: Point): Point {
   const width = view.width * view.scale;
   const height = view.height * view.scale;
-  const originX = view.x - width / 2;
-  const originY = view.y - height / 2;
+  return {
+    x: view.x - width / 2 + point.x * view.scale,
+    y: view.y - height / 2 + (point.y + view.height) * view.scale,
+  };
+}
 
-  const toSheet = (point: Point): DrawingVertex => ({
-    x: originX + point.x * view.scale,
-    y: originY + (point.y + view.height) * view.scale,
-    viewId: view.id,
-  });
-
+/** `view`'s own projected path endpoints, in sheet-mm via `viewPointToSheet`. */
+export function viewVertices(view: DrawingViewData): DrawingVertex[] {
+  const toSheet = (point: Point): DrawingVertex => ({ ...viewPointToSheet(view, point), viewId: view.id });
   const paths = [...view.visiblePaths, ...view.hiddenPaths];
   return paths.flatMap((d) => pathEndpoints(d).map(toSheet));
 }

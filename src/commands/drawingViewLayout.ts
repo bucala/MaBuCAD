@@ -1,4 +1,4 @@
-import type { DrawingViewData, ProjectionMethod, StandardProjectionKind } from "@/types/document";
+import type { DrawingHoleTargetData, DrawingViewData, ProjectionMethod, StandardProjectionKind } from "@/types/document";
 
 /**
  * Pure sheet-position math for the standard six-view (plus Isometric) layout — factored out
@@ -90,6 +90,7 @@ interface InitialViewGeometry extends SizedView {
   originX: number;
   originY: number;
   threadPaths?: string[];
+  holeTargets?: DrawingHoleTargetData[];
 }
 
 /**
@@ -231,6 +232,7 @@ export function layoutInitialViews(
       originX: view.originX,
       originY: view.originY,
       threadPaths: view.threadPaths,
+      holeTargets: view.holeTargets,
       kind: "standard" as const,
     };
   });

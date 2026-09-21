@@ -466,6 +466,28 @@
   stroke-width: 0.3;
 }
 
+.holeCalloutBg {
+  fill: #fff;
+  stroke: transparent;
+  stroke-width: 0.35;
+  cursor: move;
+}
+
+.dimensionSelected .holeCalloutBg {
+  stroke: var(--accent, #0078d4);
+}
+
+.holeCalloutText {
+  fill: #1a1a1a;
+  font-size: 3.2px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.holeCalloutArrow {
+  fill: #1a1a1a;
+}
+
 .weldReferenceLine {
   stroke: #1a1a1a;
   stroke-width: 0.35;
