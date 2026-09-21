@@ -7,6 +7,34 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-09-21 — Blue/black sketch entity colouring, the cross-CAD convention (v0.22.0)
+
+The first Phase 2 round of the cross-CAD comparison roadmap: the most recognizable CAD
+idiom MaBuCAD was missing — sketch geometry that shows its own constraint state at a
+glance, the way SolidWorks, Fusion 360 and Onshape all document it.
+
+### Added — under-defined entities render blue, fully-defined black
+- Sketch entity strokes and point dots now carry the classic constraint-state colouring:
+  blue while the entity can still move, the theme's near-black/near-white once every
+  variable that shapes it is pinned. The colouring comes out of the same Gaussian
+  elimination that already counted the DOF (`solver.ts`'s `rankAndMobileColumns`): a
+  variable is mobile when its Jacobian column is free *or* co-moves with a free one, so
+  the strokes a user sees can never disagree with the status bar's Fully/Under Defined
+  readout — both come from one solve.
+- The subtle case is handled honestly: a coincident, otherwise unconstrained point pair
+  pivots its own columns (they look "pinned" column-by-column) but drags its partner
+  along, so both points render blue. Counting free columns alone would have called the
+  first point fully defined while it visibly slides around the sketch; the back-substitution
+  null-space check catches the coupling. `entityStatus.spec.ts` pins that case and seven
+  others (pinned-through-a-partner, a centre-pinned circle with a free radius, mixed
+  fixed/free sketches, the horizontal-coupled line) so the colouring can't silently
+  regress.
+- Precedence, most to least: conflict red, selection accent, then blue/black. Construction
+  and axis lines keep their own type colours — their dash pattern and amber/teal hue carry
+  "this is reference geometry", which matters more than their constraint state — and the
+  origin keeps its landmark red. Over-defined sketches show the conflict red exactly as
+  before; the new colouring only claims the healthy fully/under-defined states.
+
 ## 2026-09-21 — Standards-accuracy corrections from the cross-CAD comparison (v0.21.1)
 
 A documentation/data-accuracy round that came out of a principle-level comparison of MaBuCAD

@@ -15,6 +15,12 @@ import { useScreenSpacePixelScale } from "./screenSpaceScale";
 const STATIC_COLORS = {
   geometry: "#1a1a1a",
   geometryDark: "#e8e8e8",
+  /** The blue of the classic CAD under-defined convention — SolidWorks, Fusion and
+   * Onshape all draw unconstrained sketch geometry blue and fully-defined geometry black
+   * (near-white in dark themes). A mid blue for the light theme, a brighter one for the
+   * dark, mirroring the geometry/geometryDark pair. */
+  underDefined: "#1f6feb",
+  underDefinedDark: "#6cb2ff",
   construction: "#c48b1a",
   axis: "#0891b2",
   point: "#4a4a4a",
@@ -57,6 +63,8 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   const isPickMode = tool === "select" || tool === "smart-dimension" || tool === "fillet";
   const isTrimMode = tool === "trim";
   const conflictingIds = useSketchStore((state) => state.conflictingIds);
+  const underDefinedEntityIds = useSketchStore((state) => state.underDefinedEntityIds);
+  const underDefinedPointIds = useSketchStore((state) => state.underDefinedPointIds);
 
   // Every entity/point id a conflicting constraint or dimension directly references —
   // computed once per conflict/geometry change rather than per entity, since several
@@ -78,6 +86,16 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
     }
     return ids;
   }, [conflictingIds, sketch.constraints, sketch.dimensions]);
+
+  // Blue/black constraint-state colouring: the same solve that reported the DOF also
+  // reported which entities and points can still move (`solveSketch`'s freedom sets), so
+  // what a user sees always agrees with the status bar by construction. Blue while
+  // under-defined, the theme's near-black/near-white once every variable that shapes the
+  // entity is pinned. Construction and axis lines keep their own type colours — their
+  // dash pattern and hue carry "this is reference geometry", which matters more than
+  // their constraint state.
+  const underDefinedEntities = useMemo(() => new Set(underDefinedEntityIds), [underDefinedEntityIds]);
+  const underDefinedPoints = useMemo(() => new Set(underDefinedPointIds), [underDefinedPointIds]);
 
   // Smart Dimension stays armed after use (see commandRegistry.ts's own note). Unlike
   // Select, a pick here always accumulates (see `pickForSmartDimension`'s own doc
@@ -133,6 +151,7 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   }, [sketch.points]);
 
   const baseColor = isDark ? STATIC_COLORS.geometryDark : STATIC_COLORS.geometry;
+  const underDefinedColor = isDark ? STATIC_COLORS.underDefinedDark : STATIC_COLORS.underDefined;
 
   return (
     <group>
@@ -144,12 +163,24 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
         const isEntitySelected = selection.includes(entity.id) || entity.id === pendingFilletLineId;
         const isEntityConflicting =
           conflictingGeometryIds.has(entity.id) || entityPoints(entity).some((id) => conflictingGeometryIds.has(id));
+        // Conflict red and selection accent outrank the constraint-state colour — an
+        // over-defined contour must read as the error it is, and a picked entity must
+        // read as picked, before either shows its blue/black freedom state.
+        const isEntityUnderDefined = underDefinedEntities.has(entity.id);
         return (
           <EntityView
             key={entity.id}
             entity={entity}
             readPoint={readPoint}
-            color={isEntityConflicting ? CONFLICT_COLOR : isEntitySelected ? accent : baseColor}
+            color={
+              isEntityConflicting
+                ? CONFLICT_COLOR
+                : isEntitySelected
+                  ? accent
+                  : isEntityUnderDefined
+                    ? underDefinedColor
+                    : baseColor
+            }
             isSelected={isEntitySelected}
             isSelectMode={isPickMode}
             onSelect={pick}
@@ -170,8 +201,10 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
           isOrigin={point.id === `${sketch.id}-origin`}
           isSelected={selection.includes(point.id)}
           isConflicting={conflictingGeometryIds.has(point.id)}
+          isUnderDefined={underDefinedPoints.has(point.id)}
           isPickMode={isPickMode}
           accent={accent}
+          underDefinedColor={underDefinedColor}
           onPick={pick}
         />
       ))}
@@ -198,16 +231,23 @@ const SketchPointDot = memo(function SketchPointDot({
   isOrigin,
   isSelected,
   isConflicting,
+  isUnderDefined,
   isPickMode,
   accent,
+  underDefinedColor,
   onPick,
 }: {
   point: { id: string; x: number; y: number };
   isOrigin: boolean;
   isSelected: boolean;
   isConflicting: boolean;
+  /** The point's own x/y can still move — joins the entity strokes' blue/black
+   * constraint-state convention (the origin keeps its landmark red either way). */
+  isUnderDefined: boolean;
   isPickMode: boolean;
   accent: string;
+  /** Theme-appropriate blue, precomputed by the parent alongside `baseColor`. */
+  underDefinedColor: string;
   /** Which point was picked — the shared, stable callback receives it as its first argument. */
   onPick: (id: string, additive: boolean) => void;
 }) {
@@ -265,7 +305,17 @@ const SketchPointDot = memo(function SketchPointDot({
       <mesh ref={dotRef} raycast={() => null}>
         <circleGeometry args={[1, 12]} />
         <meshBasicMaterial
-          color={isConflicting ? CONFLICT_COLOR : isSelected ? accent : isOrigin ? STATIC_COLORS.origin : STATIC_COLORS.point}
+          color={
+            isConflicting
+              ? CONFLICT_COLOR
+              : isSelected
+                ? accent
+                : isOrigin
+                  ? STATIC_COLORS.origin
+                  : isUnderDefined
+                    ? underDefinedColor
+                    : STATIC_COLORS.point
+          }
           depthTest={false}
         />
       </mesh>

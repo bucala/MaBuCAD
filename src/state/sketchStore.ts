@@ -30,6 +30,7 @@ import {
 } from "@/sketch/sketchModel";
 import type { DragSnapSuggestion, PatternOptions } from "@/sketch/sketchModel";
 import { findConflictingConstraints, sketchStatusFromDiagnostics, solveSketch } from "@/sketch/solver";
+import type { SolveOutcome } from "@/sketch/solver";
 import type {
   DimensionKind,
   GeometricConstraintKind,
@@ -113,6 +114,16 @@ interface SketchStore {
    * error-red highlighting on their own glyphs (`SketchConstraintGlyphs.tsx`) and on the
    * sketch contours they touch (`SketchGeometry.tsx`). */
   conflictingIds: string[];
+  /** Entity ids the solve's freedom analysis (`solveSketch`'s `underDefinedEntityIds`)
+   * found still movable — the blue of the classic CAD blue/black sketch colouring that
+   * SolidWorks, Fusion and Onshape all document, where fully-defined geometry renders
+   * black (near-white in the dark theme). Kept beside `diagnostics` because both come out
+   * of the same solve; arrays rather than the solver's Sets so the store stays
+   * plain-data. */
+  underDefinedEntityIds: string[];
+  /** Point ids (endpoints, centres, standalone) whose own x/y can still move — the point
+   * dots join the entity strokes in the same blue/black convention. */
+  underDefinedPointIds: string[];
   tool: SketchTool;
   /** Entity and point ids selected inside the sketch. */
   selection: string[];
@@ -326,6 +337,15 @@ export const useSketchStore = create<SketchStore>((set, get) => {
   const conflictsFor = (sketch: Sketch, diagnostics: SketchDiagnostics): string[] =>
     sketchStatusFromDiagnostics(diagnostics) === "over-defined" ? [...findConflictingConstraints(sketch)] : [];
 
+  /** A solve outcome's freedom sets as store-ready arrays — every path that stores
+   * `diagnostics` stores these beside it, since both describe the same solve. */
+  const freedomOf = (
+    outcome: SolveOutcome,
+  ): Pick<SketchStore, "underDefinedEntityIds" | "underDefinedPointIds"> => ({
+    underDefinedEntityIds: [...outcome.underDefinedEntityIds],
+    underDefinedPointIds: [...outcome.underDefinedPointIds],
+  });
+
   /**
    * `dragPoint`'s own `conflictsFor`, throttled: an over-defined sketch's brute-force
    * search would otherwise run once per pointermove, so mid-drag it is deferred to the
@@ -382,7 +402,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     // them; the ones that do (a drag-snap moving a point straight to a target, a trim
     // reshaping a fixed line's endpoint) would otherwise have the mutation itself silently
     // become the new "anchor", defeating the fix the same way an uncorrected point drag did.
-    const { sketch, diagnostics } = solveSketch(mutated, current);
+    const outcome = solveSketch(mutated, current);
+    const { sketch, diagnostics } = outcome;
     if (sketch === current) return;
 
     if (inDragGesture) {
@@ -403,6 +424,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       sketches: { ...sketches, [activeSketchId]: sketch },
       diagnostics,
       conflictingIds: conflictsFor(mutated, diagnostics),
+      ...freedomOf(outcome),
     });
   };
 
@@ -419,6 +441,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     sketches: {},
     diagnostics: IDLE_DIAGNOSTICS,
     conflictingIds: [],
+    underDefinedEntityIds: [],
+    underDefinedPointIds: [],
     tool: "select",
     selection: [],
     contextMenu: null,
@@ -447,6 +471,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         sketches: { ...state.sketches, [featureId]: solved.sketch },
         diagnostics: solved.diagnostics,
         conflictingIds: [],
+        ...freedomOf(solved),
         tool: "line",
         selection: [],
         contextMenu: null,
@@ -463,13 +488,15 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     resumeSketch: (featureId) => {
       const sketch = get().sketches[featureId];
       if (!sketch) return;
-      const diagnostics = solveSketch(sketch).diagnostics;
+      const outcome = solveSketch(sketch);
+      const diagnostics = outcome.diagnostics;
       inDragGesture = false;
       dragSnapshot = null;
       set({
         activeSketchId: featureId,
         diagnostics,
         conflictingIds: conflictsFor(sketch, diagnostics),
+        ...freedomOf(outcome),
         tool: "select",
         selection: [],
         contextMenu: null,
@@ -492,6 +519,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         diagnostics: IDLE_DIAGNOSTICS,
         conflictingIds: [],
+        underDefinedEntityIds: [],
+        underDefinedPointIds: [],
         contextMenu: null,
         pendingDimension: null,
         pendingConstraintKind: null,
@@ -513,6 +542,8 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         selection: [],
         diagnostics: IDLE_DIAGNOSTICS,
         conflictingIds: [],
+        underDefinedEntityIds: [],
+        underDefinedPointIds: [],
         contextMenu: null,
         pendingDimension: null,
         pendingConstraintKind: null,
@@ -1123,6 +1154,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
         // chasing whatever's unsatisfiable. Throttled rather than direct: the over-defined
         // search is O(constraints) extra solves, which is too much to run per pointermove.
         conflictingIds: scheduleConflictScan(settled, final.diagnostics),
+        ...freedomOf(final),
         dragSnapSuggestion: suggestion,
       });
     },
@@ -1249,11 +1281,13 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const previous = past[past.length - 1];
       if (!current || !previous) return;
 
-      const diagnostics = solveSketch(previous).diagnostics;
+      const previousOutcome = solveSketch(previous);
+      const diagnostics = previousOutcome.diagnostics;
       set({
         sketches: { ...sketches, [activeSketchId]: previous },
         diagnostics,
         conflictingIds: conflictsFor(previous, diagnostics),
+        ...freedomOf(previousOutcome),
         past: past.slice(0, -1),
         future: [current, ...future].slice(0, SKETCH_HISTORY_LIMIT),
         selection: [],
@@ -1269,11 +1303,13 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       const [next, ...rest] = future;
       if (!current || !next) return;
 
-      const diagnostics = solveSketch(next).diagnostics;
+      const nextOutcome = solveSketch(next);
+      const diagnostics = nextOutcome.diagnostics;
       set({
         sketches: { ...sketches, [activeSketchId]: next },
         diagnostics,
         conflictingIds: conflictsFor(next, diagnostics),
+        ...freedomOf(nextOutcome),
         past: [...past, current].slice(-SKETCH_HISTORY_LIMIT),
         future: rest,
         selection: [],

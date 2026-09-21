@@ -24,8 +24,13 @@ const DAMPING = 1e-9;
  */
 const MAX_BACKTRACKING_STEPS = 5;
 /** Pivot threshold when counting independent constraint rows, applied after each row is
- * normalised by its own largest entry — see `matrixRank`. */
+ * normalised by its own largest entry — see `rankAndMobileColumns`. */
 const RANK_TOLERANCE = 1e-7;
+/** How large a null-space back-substitution component must be before a pinned variable
+ * counts as co-moving with a free one — genuine couplings are O(1) on the row-normalised
+ * reduced matrix, while finite-difference noise sits near `RANK_TOLERANCE`, so this is
+ * one order above the noise and far below any real coupling. */
+const MOBILITY_TOLERANCE = 1e-6;
 
 function norm(values: number[]): number {
   let total = 0;
@@ -145,7 +150,8 @@ function solveNormalEquations(
 }
 
 /**
- * Rank of the Jacobian by Gaussian elimination, used to count degrees of freedom.
+ * Rank of the Jacobian by Gaussian elimination, and which variable columns can actually
+ * move under the constraints — used to count degrees of freedom and to colour entities.
  *
  * Each row is normalised by its own largest entry first: constraint rows arrive in mixed
  * scales (a degenerate-direction guard divides by a `MIN_LENGTH` clamp, which for a
@@ -155,14 +161,31 @@ function solveNormalEquations(
  * near-identical constraint sets. On the normalised matrix `RANK_TOLERANCE` keeps one
  * constant meaning ("a pivot this small is finite-difference noise, not an independent
  * direction") across rows of any original scale.
+ *
+ * The mobility flags come out of the same sweep. The elimination walks columns left to
+ * right and subtracts every pivot column from all other rows, so it ends in reduced row
+ * echelon form: a column that never becomes a pivot is *free* — an infinitesimal motion
+ * of that variable alone satisfies every equation — and each pivot row then shows, at
+ * each free column, exactly how that row's own pivot variable co-moves with it (the
+ * standard null-space back-substitution: v[f] = 1, v[p] = -row[p][f] / row[p][p]). A
+ * variable is mobile when its column is free *or* it co-moves with some free column:
+ * counting free columns alone would call the first point of a coincident, otherwise
+ * unconstrained pair "pinned" (its columns pivoted) when dragging it in fact drags both.
+ * The mobile count is consistent with the reported DOF by construction — every column
+ * either becomes a pivot (counted in the rank) or is free, and mobility only adds pivot
+ * columns that provably co-move with one.
  */
-function matrixRank(matrix: number[][], columns: number): number {
+function rankAndMobileColumns(matrix: number[][], columns: number): { rank: number; mobileColumns: boolean[] } {
   const working = matrix.map((row) => {
     let max = 0;
     for (const value of row) max = Math.max(max, Math.abs(value));
     const scale = max > 0 ? max : 1;
     return row.map((value) => value / scale);
   });
+  const mobileColumns = new Array<boolean>(columns).fill(true);
+  /** Row index each pivot column ended up in — the back-substitution needs it. */
+  const pivotRowOfColumn = new Map<number, number>();
+  const freeColumns: number[] = [];
   let rank = 0;
 
   for (let column = 0; column < columns && rank < working.length; column += 1) {
@@ -171,7 +194,12 @@ function matrixRank(matrix: number[][], columns: number): number {
       if (Math.abs(working[row][column]) > Math.abs(working[pivot][column])) pivot = row;
     }
 
-    if (Math.abs(working[pivot][column]) < RANK_TOLERANCE) continue;
+    if (Math.abs(working[pivot][column]) < RANK_TOLERANCE) {
+      freeColumns.push(column);
+      continue;
+    }
+    mobileColumns[column] = false; // pinned until a free column proves it co-moves
+    pivotRowOfColumn.set(column, rank);
     [working[rank], working[pivot]] = [working[pivot], working[rank]];
 
     for (let row = 0; row < working.length; row += 1) {
@@ -186,12 +214,89 @@ function matrixRank(matrix: number[][], columns: number): number {
     rank += 1;
   }
 
-  return rank;
+  // The columns the loop never reached (all rows already pivoted) are free too.
+  for (let column = 0; column < columns; column += 1) {
+    if (!pivotRowOfColumn.has(column) && mobileColumns[column]) freeColumns.push(column);
+  }
+
+  // Back-substitution: a pivot variable co-moves with a free one when its own row still
+  // has a significant entry at that free column — the null-space basis vector's
+  // component there. Genuine couplings are O(1) on the row-normalised matrix;
+  // `MOBILITY_TOLERANCE` sits an order above the finite-difference noise the rank itself
+  // already tolerates.
+  for (const [pivotColumn, pivotRow] of pivotRowOfColumn) {
+    for (const freeColumn of freeColumns) {
+      const component = working[pivotRow][freeColumn] / working[pivotRow][pivotColumn];
+      if (Math.abs(component) > MOBILITY_TOLERANCE) {
+        mobileColumns[pivotColumn] = true;
+        break;
+      }
+    }
+  }
+
+  return { rank, mobileColumns };
+}
+
+/**
+ * Maps the solver's mobile columns onto the sketch's own ids — an entity is under-defined
+ * when any variable that shapes it (a point it reads, or a curve's radius) can still
+ * move, either because its column is free or because it co-moves with a free one; fully
+ * defined when every one of them is pinned outright. Points get their own set so the
+ * viewport's point dots can join the same colour convention as entity strokes.
+ */
+function entityFreedom(
+  sketch: Sketch,
+  layout: VariableLayout,
+  mobileColumns: boolean[],
+): { underDefinedEntityIds: Set<string>; underDefinedPointIds: Set<string> } {
+  const pointFree = (id: string): boolean => {
+    const index = layout.pointIndex.get(id);
+    return index === undefined ? false : mobileColumns[index] || mobileColumns[index + 1];
+  };
+
+  const underDefinedPointIds = new Set<string>();
+  for (const point of sketch.points) {
+    if (pointFree(point.id)) underDefinedPointIds.add(point.id);
+  }
+
+  const underDefinedEntityIds = new Set<string>();
+  for (const entity of sketch.entities) {
+    // Same per-kind point set `sketchModel.entityPoints` returns, inlined rather than
+    // imported so the solver stays leaf-level (sketchModel itself imports the solver's
+    // consumers, and an import cycle would risk init-order trouble).
+    const pointIds =
+      entity.kind === "line"
+        ? [entity.start, entity.end]
+        : entity.kind === "circle"
+          ? [entity.center]
+          : entity.kind === "spline"
+            ? entity.points
+            : entity.kind === "point"
+              ? [entity.at]
+              : entity.kind === "arc"
+                ? [entity.center, entity.start, entity.end]
+                : [];
+    let underDefined = pointIds.some(pointFree);
+    if (!underDefined && (entity.kind === "circle" || entity.kind === "arc")) {
+      const radiusIndex = layout.radiusIndex.get(entity.id);
+      underDefined = radiusIndex !== undefined && mobileColumns[radiusIndex];
+    }
+    if (underDefined) underDefinedEntityIds.add(entity.id);
+  }
+
+  return { underDefinedEntityIds, underDefinedPointIds };
 }
 
 export interface SolveOutcome {
   sketch: Sketch;
   diagnostics: SketchDiagnostics;
+  /** Entity ids that still have a degree of freedom — the blue of the classic CAD
+   * blue/black sketch colouring, driven by the same elimination that counts the DOF
+   * (see `rankAndMobileColumns`). Empty when every entity is fully defined. */
+  underDefinedEntityIds: Set<string>;
+  /** Point ids (endpoints, centres, standalone) whose own x/y can still move — the point
+   * dots join the entity strokes in the same convention. */
+  underDefinedPointIds: Set<string>;
 }
 
 /**
@@ -203,7 +308,11 @@ export interface SolveOutcome {
  * happened to leave the points).
  *
  * Returns the updated geometry together with diagnostics the status bar turns into
- * "Fully Defined" / "Under Defined" / "Over Defined". An under-defined sketch is not an
+ * "Fully Defined" / "Under Defined" / "Over Defined", and the per-entity/per-point
+ * under-defined id sets the viewport turns into the classic CAD blue/black entity
+ * colouring (blue = can still move, black = pinned) — SolidWorks, Fusion and Onshape
+ * all document that convention, and it comes out of the same elimination that counts
+ * the DOF, so the two can never disagree. An under-defined sketch is not an
  * error: it solves fine and simply retains degrees of freedom.
  *
  * `anchorSketch` (defaults to `sketch` itself) is where "fix"/"fix-line" read the positions
@@ -231,6 +340,9 @@ export function solveSketch(sketch: Sketch, anchorSketch: Sketch = sketch): Solv
   let residuals = sourceResiduals(sources, values);
 
   if (residuals.length === 0 || layout.size === 0) {
+    // No equations at all: every variable is free, so every entity/point is
+    // under-defined — consistent with `dof: layout.size` right beside it.
+    const freedom = entityFreedom(sketch, layout, new Array<boolean>(layout.size).fill(true));
     return {
       sketch,
       diagnostics: {
@@ -240,6 +352,7 @@ export function solveSketch(sketch: Sketch, anchorSketch: Sketch = sketch): Solv
         residualNorm: 0,
         iterations: 0,
       },
+      ...freedom,
     };
   }
 
@@ -296,7 +409,8 @@ export function solveSketch(sketch: Sketch, anchorSketch: Sketch = sketch): Solv
   }
 
   const finalJacobian = jacobian(sources, layout, bestValues, bestResiduals.length);
-  const rank = matrixRank(finalJacobian, layout.size);
+  const { rank, mobileColumns } = rankAndMobileColumns(finalJacobian, layout.size);
+  const freedom = entityFreedom(sketch, layout, mobileColumns);
 
   return {
     sketch: unpackVariables(sketch, layout, bestValues),
@@ -309,6 +423,7 @@ export function solveSketch(sketch: Sketch, anchorSketch: Sketch = sketch): Solv
       residualNorm: bestNorm,
       iterations,
     },
+    ...freedom,
   };
 }
 
