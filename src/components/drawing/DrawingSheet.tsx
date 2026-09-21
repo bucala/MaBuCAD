@@ -121,7 +121,7 @@ function View({ view }: { view: DrawingViewData }) {
             picking — keep the two in lockstep. */}
         <g clipPath={clipId ? `url(#${clipId})` : undefined}>
           <g transform={`translate(0, ${flipTranslateY})`}>
-            {/* ISO 128-50 hatching: the newly exposed cut face(s)' own outline, filled with
+            {/* ISO 128-3 hatching: the newly exposed cut face(s)' own outline, filled with
                 the shared 45°-diagonal pattern (`DrawingSheet`'s own <defs>) — same angle
                 and spacing for every section on the sheet, since they're all this one part. */}
             {view.hatchPaths?.map((d, index) => (
@@ -250,14 +250,14 @@ function PlacedView({
 }
 
 /** How far past the source view's own bounding box the cutting-plane line and its arrows
- * extend, sheet mm — ISO 128-40's own convention draws it clear of the view outline rather
+ * extend, sheet mm — ISO 128-3's own convention draws it clear of the view outline rather
  * than flush with it. */
 const SECTION_MARK_OVERHANG = 6;
 const SECTION_ARROW_LENGTH = 4;
 const SECTION_ARROW_WIDTH = 2;
 
 /**
- * The ISO 128-40 cutting-plane line an existing Section view's own source view is missing
+ * The ISO 128-3 cutting-plane line an existing Section view's own source view is missing
  * until now: a line across the source view at the position it was cut, an arrowhead at
  * each end pointing in the direction of sight for the resulting section, and the same
  * `letter-letter` designation (e.g. "A-A") the section view's own "SECTION A-A" label
@@ -279,7 +279,7 @@ function SectionCutMarkView({ sourceView, section }: { sourceView: DrawingViewDa
   const lineY1 = vertical ? top - SECTION_MARK_OVERHANG : top + scaledPosition;
   const lineY2 = vertical ? top + height + SECTION_MARK_OVERHANG : top + scaledPosition;
 
-  // Arrows point perpendicular to the cutting line itself (ISO 128-40's own "direction of
+  // Arrows point perpendicular to the cutting line itself (ISO 128-3's own "direction of
   // sight" convention) — a *vertical* line's normal runs along screen X, a *horizontal*
   // line's along screen Y, so each axis's own tip/perpendicular-width pair is keyed the
   // opposite way from the line's own orientation flag.
@@ -1310,7 +1310,7 @@ export function DrawingSheet() {
           style={{ cursor: PICKING_TOOLS.has(tool) ? "crosshair" : "default" }}
         >
           <defs>
-            {/* ISO 128-50: thin lines at 45°, uniform spacing — one shared pattern so every
+            {/* ISO 128-3: thin lines at 45°, uniform spacing — one shared pattern so every
                 section view on this sheet (all cut from the same part) hatches identically,
                 per the standard's "same part, same angle and spacing" rule. `userSpaceOnUse`
                 means the 3mm tile is measured in whichever view's own local mm space

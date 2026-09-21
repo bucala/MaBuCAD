@@ -396,10 +396,10 @@ type SurfaceFinishEditPatch = {
 };
 
 /**
- * An ISO 1302 surface finish (roughness) symbol, leadered to the surface it applies to —
+ * An ISO 21920-1 surface finish (roughness) symbol, leadered to the surface it applies to —
  * the base tick shape decorated per `symbolType` (a bar for "machining required", a circle
  * at the vertex for "machining prohibited"), plus an optional small circle at the leader
- * attachment point for "all around". Double-click opens a form covering every ISO 1302
+ * attachment point for "all around". Double-click opens a form covering every ISO 21920-1
  * field this app supports: roughness, manufacturing method, lay direction, and allowance.
  */
 export function SurfaceFinishView({
@@ -445,7 +445,7 @@ export function SurfaceFinishView({
         }}
         {...drag}
       >
-        {/* Basic ISO 1302 symbol: a short tick rising into a longer one, forming a check —
+        {/* Basic ISO 21920-1 symbol: a short tick rising into a longer one, forming a check —
             vertex at (-1,4), the long leg's own tip at (6,-6). */}
         <polyline points="-4,0 -1,4 6,-6" className={styles.surfaceFinishMark} />
         {symbolType === "machining-required" && (

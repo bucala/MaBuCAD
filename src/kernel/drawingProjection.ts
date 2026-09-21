@@ -349,7 +349,7 @@ export function sectionAxisAndOffset(
  * the un-normalised `v` register — see `runCreateSectionView`'s own `v = originY + (height
  * - localScreenPosition)` inversion) for a horizontal one.
  *
- * ISO 128-40's own convention: the arrows point in the direction of sight for the resulting
+ * ISO 128-3's own convention: the arrows point in the direction of sight for the resulting
  * section — i.e. toward the kept material. Derived from the same per-projection axis
  * mapping `sectionAxisAndOffset` uses above: each (projection, orientation) pair maps its
  * local coordinate to a world axis value via a pure ±1 scale factor `S` (no offset — e.g.
@@ -443,7 +443,7 @@ export function sectionViewCamera(axis: "x" | "y" | "z", keepPositiveSide: boole
 
 export interface SectionGeometry extends ProjectedGeometry {
   /** SVG path `d` strings for the newly exposed cut face(s)' own outline — fill these with
-   * a hatch pattern (`DrawingSheet.tsx`'s `<pattern>` fill) per ISO 128-50. Empty when the
+   * a hatch pattern (`DrawingSheet.tsx`'s `<pattern>` fill) per ISO 128-3. Empty when the
    * cutting plane happened to miss the solid's interior entirely (a cut past its bounds). */
   hatchPaths: string[];
 }

@@ -133,7 +133,7 @@ Mica backdrop — Fluent 2 design tokens throughout, not an imitation.
 
 A committed Playwright suite drives the actual app end to end — the sketcher and the
 constraint solver's live DOF readout, an extrude through the WASM kernel, undo/redo, a
-document Save As/Open round-trip, the language switcher — plus a 106-test unit suite that
+document Save As/Open round-trip, the language switcher — plus a 146-test unit suite that
 runs the real WASM kernel under Node (the rebuild cache is proven byte-identical cached
 vs. from-scratch) and pins the sketch renderer's drag memoisation at a 240-entity scale,
 typecheck and a CI workflow that runs all of it on every push, not just typecheck and hope.
@@ -259,6 +259,14 @@ Hole Wizard bolt pattern and a fillet — shown in the Feature Manager tree.</su
   an errored prefix or across an imported body (whose solid the import registry owns and
   may release), and kernel-shape release is centralised in an identity-based eviction
   plan that understands the aliasing dress-ups create.
+- **A Part is a single fused body, by design** — the same rule FreeCAD's PartDesign Body
+  documents ("each Body is one contiguous solid"), rather than SolidWorks' / Inventor's /
+  Onshape's multi-body parts, where a single part can hold several solids that become
+  boolean operands or separate BOM entries. Deliberate: because the kernel rebuilds one
+  solid from feature history, a single-body rule keeps every extrusion/revolve and boolean
+  deterministic — there is never a body to choose between — and every feature's picks stay
+  geometric proxies. Multi-body modelling (bodies as boolean operand *sets*, per-body
+  display and BOM) is a consciously deferred capability, not an oversight.
 - **Sketches build in their own plane's local, un-rotated space**; only the final
   triangulated mesh gets a cosmetic display rotation for on-screen placement. The
   alternative — mapping this app's plane conventions onto the kernel's own — risks a
@@ -493,7 +501,7 @@ eslint.config.js              ESLint flat config: hook discipline + unused code,
 | Boundary surface | Guide-curve boundary blending | ⬜ |
 | Multi-document workspace | Tabbed Part/Drawing documents, each with its own history, undo and sketches | ✅ |
 | Assembly | Components, mates, exploded views | ⬜ |
-| Drawing | ISO E/ISO A projection method (per-document, symbol in the title block, click to toggle), six-view Model View set (Front/Top/Bottom/Left/Right/Back, all associated to Front and re-laid-out on demand) plus Isometric, Projected View, Section (real kernel cut, ISO 128-50 hatched, ISO 128-40 cutting-plane line + arrows + A-A callout left on the source view) and Detail (2D crop, ISO 128 torn boundary, leadered letter left on the source view) views, ISO 6410 thread circles on tapped holes, draggable views/notes, active-view annotation binding (double-click a view to activate it — new/re-anchored annotations bind to it and move with it), sheet zoom-to-cursor + middle-mouse pan, Edit Background shortcut, ISO 5457 zone-label sizing, Sheet Formats/Borders/Title Blocks (A4–A0, import/export as templates); Smart Dimension (5 tolerance modes: symmetric/deviation/limits/basic/fit), Ordinate, Datum Feature, Geometric Tolerance (14 characteristics, ⌀ prefix, MMC/LMC modifiers, per-datum modifiers, draggable leader anchor), Surface Finish (ISO 1302: machining required/prohibited, all-around, lay direction, allowance, draggable leader anchor), Weld (ISO 2553: 13 joint types, arrow/other side, all-around, field weld, draggable leader anchor), Hole Callout (picked straight from a projected Hole Wizard circle — designation/class with LH-only direction, drilled depth vs. THRU, ISO 15786 ⌴/⌵ counterbore/spotface/countersink seat lines, Slovak-localised wording) annotations; Hole Table and BOM tables | ✅ |
+| Drawing | ISO E/ISO A projection method (per-document, symbol in the title block, click to toggle), six-view Model View set (Front/Top/Bottom/Left/Right/Back, all associated to Front and re-laid-out on demand) plus Isometric, Projected View, Section (real kernel cut, ISO 128-3 hatched, cutting-plane line + arrows + A-A callout left on the source view) and Detail (2D crop, ISO 128 torn boundary, leadered letter left on the source view) views, ISO 6410 thread circles on tapped holes, draggable views/notes, active-view annotation binding (double-click a view to activate it — new/re-anchored annotations bind to it and move with it), sheet zoom-to-cursor + middle-mouse pan, Edit Background shortcut, ISO 5457 zone-label sizing, Sheet Formats/Borders/Title Blocks (A4–A0, import/export as templates); Smart Dimension (5 tolerance modes: symmetric/deviation/limits/basic/fit), Ordinate, Datum Feature, Geometric Tolerance (14 characteristics, ⌀ prefix, MMC/LMC modifiers, per-datum modifiers, draggable leader anchor), Surface Finish (ISO 21920-1: machining required/prohibited, all-around, lay direction, allowance, draggable leader anchor), Weld (ISO 2553: 13 joint types, arrow/other side, all-around, field weld, draggable leader anchor), Hole Callout (picked straight from a projected Hole Wizard circle — designation/class with LH-only direction, drilled depth vs. THRU (adopted ASME wording — ISO 15786 itself signals a through hole by omitting the depth), ISO 15786 ⌴/⌵ counterbore/spotface/countersink seat lines, Slovak-localised wording) annotations; Hole Table and BOM tables | ✅ |
 | Inspect | Measure, Mass Properties, Section Properties, Check Geometry, Draft Analysis, Parent/Child, Equations, Sensors, Appearance; Curvature dropped (no kernel support) | ✅ |
 
 <sub>✅ done &nbsp;•&nbsp; 🟡 partial &nbsp;•&nbsp; ⬜ planned — see

@@ -7,6 +7,44 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-09-21 — Standards-accuracy corrections from the cross-CAD comparison (v0.21.1)
+
+A documentation/data-accuracy round that came out of a principle-level comparison of MaBuCAD
+against SolidWorks, Inventor, Fusion 360, Onshape and FreeCAD (their official help systems)
+and the ISO catalogue. No behaviour changes — every fix corrects something the app claimed.
+
+### Fixed — the spotface seat cited a public-transport standard
+- `SEAT_STANDARDS.spotface.label` read "Hex Head Cap Screw ISO 24014" since seats were first
+  introduced — but ISO 24014 is "Public transport — Interoperable fare management system",
+  a fare-card standard, not screws. The label now cites the hex-head bolt family
+  ISO 4014/4017. A new `holeStandards.spec.ts` pins every seat label's exact citation, so
+  a wrong standard number fails a test instead of reaching the property panel. The seat
+  diameters/depths themselves are unchanged — they still come from the workbook the tables
+  were transcribed from, and re-deriving them from ISO 4014/4017 is deliberately not part
+  of this round.
+
+### Changed — withdrawn ISO numbering retired from current documentation
+- ISO 128-40 (cutting planes) and ISO 128-50 (hatching) were withdrawn in June 2020 and
+  consolidated into ISO 128-3; ISO 1302 was replaced by ISO 21920-1:2021 (the
+  surface-texture symbol system carries over). Every current citation — README and the
+  drawing code's own comments — now uses the current numbers. Dated changelog entries keep
+  the numbering of their day, as a record of what each round shipped.
+
+### Documented — "THRU"/"CEZ" is adopted practice, not a normative ISO 15786 word
+- ISO 15786 signals a through hole by *omitting* the depth indication; the word "THRU"
+  (ASME-style) is widespread shop-floor practice but not the standard's own wording. The
+  callout keeps printing it — deliberately — and the formatter's doc comment, the
+  translation section, and the README now state that explicitly instead of implying
+  normative ISO 15786 text. Callout output is unchanged.
+
+### Docs — README now matches reality
+- The regression-suite paragraph claimed a "106-test unit suite"; the real suite is now
+  146 unit tests (this round's citation guard included) behind the 8-scenario Playwright
+  suite.
+- The single-fused-body-per-Part rule is now stated in the README's key engineering
+  decisions as a deliberate architectural choice — the same rule FreeCAD's PartDesign
+  Body documents — rather than something visible only in code comments.
+
 ## 2026-09-21 — Automatic Drawing Hole Callouts from Hole Wizard metadata (v0.21.0)
 
 One feedback round. The theme: a Drawing can now carry real hole notes — click a projected

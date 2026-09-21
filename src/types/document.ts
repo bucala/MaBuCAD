@@ -340,7 +340,7 @@ export interface DrawingViewData {
   originX?: number;
   originY?: number;
   /** Section view only: SVG path `d` strings for the newly exposed cut face(s)' own
-   * outline, filled with a hatch pattern per ISO 128-50 — see
+   * outline, filled with a hatch pattern per ISO 128-3 — see
    * `kernel/drawingProjection.ts`'s `SectionGeometry`. */
   hatchPaths?: string[];
   /** ISO 6410's own thin, 3/4-broken thread-major-diameter circles — one per tapped hole
@@ -549,17 +549,17 @@ export interface DrawingGdtData {
   labelY: number;
 }
 
-/** ISO 1302's three base symbol shapes: a bare open tick (any manufacturing process), the
+/** ISO 21920-1's three base symbol shapes: a bare open tick (any manufacturing process), the
  * same tick with a bar across its long leg (material removal by machining is required), or
  * the tick with a circle at its vertex (material removal is *not* permitted — e.g. a
  * cast/forged surface left as-is). */
 export type SurfaceFinishSymbolType = "basic" | "machining-required" | "machining-prohibited";
 
-/** ISO 1302's lay-direction symbols (the dominant direction of the surface pattern left by
+/** ISO 21920-1's lay-direction symbols (the dominant direction of the surface pattern left by
  * machining), position "d" in the standard's own lettered-position layout. */
 export type SurfaceLaySymbol = "=" | "⊥" | "X" | "M" | "C" | "R" | "P";
 
-/** An ISO 1302 surface finish (roughness) symbol with a leader — `annotation.surface-finish`'s
+/** An ISO 21920-1 surface finish (roughness) symbol with a leader — `annotation.surface-finish`'s
  * own data. `roughness` is free text (e.g. "Ra 1.6", "3.2", or blank for "any process"). */
 export interface DrawingSurfaceFinishData {
   id: string;
@@ -572,11 +572,11 @@ export interface DrawingSurfaceFinishData {
   /** A small circle at the symbol's own vertex — this requirement applies to every surface
    * visible in the view's outline, not just the one surface the leader points at. */
   allAround?: boolean;
-  /** Manufacturing process/heat treatment text along the symbol's long leg (ISO 1302
+  /** Manufacturing process/heat treatment text along the symbol's long leg (ISO 21920-1
    * position "b"), e.g. "TURNED", "GROUND", "ANODIZED". */
   manufacturingMethod?: string;
   laySymbol?: SurfaceLaySymbol;
-  /** Machining allowance in mm (ISO 1302 position "e") — stock left for a later finishing
+  /** Machining allowance in mm (ISO 21920-1 position "e") — stock left for a later finishing
    * pass, shown to the left of the symbol's own vertex. */
   allowance?: string;
   anchorX: number;

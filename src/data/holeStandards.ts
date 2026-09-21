@@ -943,9 +943,12 @@ export const TAPPED_STANDARDS: Record<TappedStandardId, TappedStandard> = {
  * Seat (head-clearance) geometry for a Hole Wizard hole's optional counterbore, spotface or
  * countersink recess, sourced from the same "Clearance Hole Spreadsheet" workbook as
  * `CLEARANCE_STANDARDS` above, one representative ISO fastener style per seat — Socket Head
- * Cap Screw ISO 4762 for counterbore, Hex Head Cap Screw ISO 24014 for spotface, Countersunk
- * Flat Head Screw ISO 2009/7046 for countersink — the same choice Inventor's own Hole Wizard
- * defaults to for each seat type. Only the ISO sizes actually present in the source sheet for
+ * Cap Screw ISO 4762 for counterbore, Hex Head Bolt ISO 4014/4017 for spotface, Countersunk
+ * Flat Head Screw ISO 2009/7046 for countersink — the same fastener-family choice
+ * Inventor's own Hole Wizard defaults to for each seat type. (`holeStandards.spec.ts` pins
+ * these exact citations after the spotface label long shipped as "ISO 24014" — a
+ * public-transport fare-management standard, not a screw standard.) Only the ISO sizes
+ * actually present in the source sheet for
  * that fastener style are listed; not every nominal size has every seat (e.g. no M1.6
  * spotface), matching the real hardware these seats exist to fit.
  */
@@ -994,7 +997,7 @@ export const SEAT_STANDARDS: Record<Exclude<SeatType, "none">, { label: string; 
     ],
   },
   spotface: {
-    label: "Hex Head Cap Screw ISO 24014",
+    label: "Hex Head Bolt ISO 4014/4017",
     sizes: [
       { size: "M3", headDiameter: 11.0, depthOrAngle: 1.0 },
       { size: "M4", headDiameter: 13.0, depthOrAngle: 1.0 },

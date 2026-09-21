@@ -17,7 +17,10 @@ function formatDesignation(value: string): string {
  * ⌀/↧/×/⌴/⌵ symbols are the drawing standards' own, identical in every language — and
  * English is the fallback for every language without a dictionary, matching
  * `useTranslation`. Thread direction follows ISO/ASME convention: right-hand is the
- * default and is never annotated, only a left-hand thread gets an LH token. */
+ * default and is never annotated, only a left-hand thread gets an LH token. A through
+ * hole prints the word "THRU"/"CEZ" — deliberately borrowed ASME-style practice, the
+ * wording a shop floor actually reads — rather than ISO 15786's own convention, which
+ * signals a through hole by omitting the depth indication entirely. */
 export function formatHoleCallout(metadata: DrawingHoleCalloutMetadata, language: Language): string[] {
   const t = translateFor(language);
   const depth = `↧ ${formatMillimetres(metadata.holeDepth)} mm`;

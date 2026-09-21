@@ -239,7 +239,9 @@ export const sk: Record<string, string> = {
   // ------------------------------------------------------------- hole callout (drawing)
   // The manufacturing note the sheet renders from a projected Hole Wizard circle.
   // Words only — the ⌀/↧/×/⌴/⌵ symbols are the drawing standards' own and never
-  // translate — kept in the terse register a real drawing uses.
+  // translate — kept in the terse register a real drawing uses. "THRU"/"CEZ" is adopted
+  // ASME-style practice — ISO 15786 itself signals a through hole by omitting the depth —
+  // kept deliberately because it is the wording a shop floor actually reads.
   "holeCallout.thru": "CEZ",
   "holeCallout.threadDepth": "HĽBKA ZÁVITU",
   "holeCallout.fullThread": "PLNÝ ZÁVIT",
