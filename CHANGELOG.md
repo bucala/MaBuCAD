@@ -7,6 +7,39 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-09-22 — Sketch Doctor (v0.24.0)
+
+The third Phase 2 round of the cross-CAD comparison roadmap: the conflicting-constraint
+highlighting from v0.23's blue/black round becomes *actionable* — a panel section that
+names what is wrong and offers the one-click fix, instead of leaving the user to hunt
+red-flagged glyphs on the viewport.
+
+### Added — a Diagnosis section in the sketch property panel
+- A pure, testable module (`sketchDoctor.ts`) reinterprets solver output the store
+  already holds (`diagnostics`, `conflictingIds`, `underDefinedEntityIds`) into
+  render-ready structure — status word, DOF, the conflict list, and the still-free
+  entities. It owns no React state and never re-solves; the panel renders its output.
+- Over-defined sketches list every singly-responsible offender ("Parallel — Line 1, Line
+  2", "Length 45.00") with a delete button per row, backed by a new dedicated
+  `deleteConstraint` store action — like `deleteDimension`, one undo step, and it never
+  disturbs the user's current selection (the viewport's Delete key keeps going through
+  `deleteSelection`). Deleting the reported relation re-solves and clears the conflict.
+  An over-defined sketch with no single offender (an unsatisfiable group) says so plainly
+  instead of pretending an empty list is healthy.
+- Under-defined sketches list the entities that can still move — the same ones the
+  viewport draws blue — as numbered "Line 2"/"Circle 1" rows with a Select button that
+  picks the entity, exactly the blue/black colouring's compliment. Construction geometry
+  is left off the list (it keeps its own type colour, so calling it blue would be a lie).
+- Status words reuse the status-bar chip's own `status.*` keys, so the panel and the
+  chip can never disagree; the headline is tinted with the same `--status-*` tokens the
+  chip and dimension rows already use. Drives the web IDs alongside the existing pins.
+- Seven solver/diagnosis pins (`sketchDoctor.spec.ts`: per-kind ordinals, construction
+  exclusion, dimension conflicts carrying kind+value, point-only relations reporting no
+  targets, over-defined-with-no-offender honesty, driven dimensions never surfacing as
+  conflicts) and one store-level pin: deleting the exact relation the Doctor reports
+  flips the sketch over-defined → fully-defined, and undo restores it. 171 unit tests
+  total, up from 163.
+
 ## 2026-09-21 — Driving vs reference (driven) dimensions (v0.23.0)
 
 The second Phase 2 round of the cross-CAD comparison roadmap: the sketcher's dimensions

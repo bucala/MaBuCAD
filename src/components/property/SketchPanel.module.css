@@ -261,3 +261,66 @@
   color: var(--status-over);
   border-color: var(--status-over);
 }
+
+/* ----------------------------------------------------------------- sketch doctor */
+
+.doctorStatus {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+
+.doctorStatusDefined {
+  color: var(--status-defined);
+}
+
+.doctorStatusUnder {
+  color: var(--status-under);
+}
+
+.doctorStatusOver {
+  color: var(--status-over);
+}
+
+.doctorHint {
+  margin: 0 0 var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+}
+
+.doctorList {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.doctorRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.doctorLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doctorSelect {
+  flex: 0 0 auto;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-sm);
+  background: var(--fill-control);
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.doctorSelect:hover {
+  color: var(--status-under);
+  border-color: var(--status-under);
+}

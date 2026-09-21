@@ -247,6 +247,12 @@ interface SketchStore {
   applyOrdinateDimension: (axis: "both" | "x" | "y") => boolean;
   setDimensionValue: (dimensionId: string, value: number) => void;
   setDimensionLabelOffset: (dimensionId: string, offset: Point2) => void;
+  /** Removes a single sketch relation by id — the Sketch Doctor's "delete the offender"
+   * action, mirroring `deleteDimension` for constraints. The viewport's Delete key goes
+   * through `deleteSelection` (which also accepts a constraint id in the selection); this
+   * dedicated action exists so the panel can fix an over-defined sketch without touching
+   * the user's current selection. One undo step either way. */
+  deleteConstraint: (constraintId: string) => void;
   deleteDimension: (dimensionId: string) => void;
   /** Radius <-> diameter on a circle/arc dimension, converting the driving value (2x or
    * /2) so the circle it drives doesn't jump size. A no-op for any other dimension kind. */
@@ -1035,6 +1041,12 @@ export const useSketchStore = create<SketchStore>((set, get) => {
       edit((sketch) => ({
         ...sketch,
         dimensions: sketch.dimensions.filter((dimension) => dimension.id !== dimensionId),
+      })),
+
+    deleteConstraint: (constraintId) =>
+      edit((sketch) => ({
+        ...sketch,
+        constraints: sketch.constraints.filter((constraint) => constraint.id !== constraintId),
       })),
 
     toggleDimensionRadiusDiameter: (dimensionId) =>

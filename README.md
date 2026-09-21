@@ -133,7 +133,7 @@ Mica backdrop — Fluent 2 design tokens throughout, not an imitation.
 
 A committed Playwright suite drives the actual app end to end — the sketcher and the
 constraint solver's live DOF readout, an extrude through the WASM kernel, undo/redo, a
-document Save As/Open round-trip, the language switcher — plus a 163-test unit suite that
+document Save As/Open round-trip, the language switcher — plus a 171-test unit suite that
 runs the real WASM kernel under Node (the rebuild cache is proven byte-identical cached
 vs. from-scratch) and pins the sketch renderer's drag memoisation at a 240-entity scale,
 typecheck and a CI workflow that runs all of it on every push, not just typecheck and hope.
@@ -483,7 +483,7 @@ eslint.config.js              ESLint flat config: hook discipline + unused code,
 | Project shell | Tauri + React + Vite scaffolding, Fluent 2 UI chrome | ✅ |
 | Viewport | CAD navigation, reference planes, origin, viewcube (full-cycle up/down/left/right rotation), axis-cross legend | ✅ |
 | Document model | Feature tree, rollback, suppress, undo/redo, rename, drag-reorder | ✅ |
-| Sketcher | Full entity set, 10 relations (Fix extends to lines/circles/arcs, pins radius too), dimensioning (incl. point-to-line, auto-detected parallel-distance; driving vs driven/reference dimensions — parenthesised, value follows the geometry live, auto-driven when a commit would over-define), conflicting-constraint highlighting, blue = under-defined / black = fully-defined entity colouring (from the solver's own freedom analysis, so it always agrees with the DOF readout), damped-Newton solver | ✅ |
+| Sketcher | Full entity set, 10 relations (Fix extends to lines/circles/arcs, pins radius too), dimensioning (incl. point-to-line, auto-detected parallel-distance; driving vs driven/reference dimensions — parenthesised, value follows the geometry live, auto-driven when a commit would over-define), conflicting-constraint highlighting + a Sketch Doctor panel section listing the singly-responsible offenders with one-click delete and the still-free entities with click-to-select, blue = under-defined / black = fully-defined entity colouring (from the solver's own freedom analysis, so it always agrees with the DOF readout), damped-Newton solver | ✅ |
 | Core solids | Extrude/Cut-Extrude, Revolve/Cut-Revolve, both building one fused body per disjoint sketch contour with a per-contour profile picker, not just one region | ✅ |
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
 | Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Fillet, Offset, Mirror, Linear/Circular Pattern, Convert to Construction | ✅ |

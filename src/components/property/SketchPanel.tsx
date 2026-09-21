@@ -31,7 +31,9 @@ import {
 
 import { DimensionValueField, parseLocaleNumber } from "@/components/shared/DimensionValueField";
 import { fillTemplate, useTranslation } from "@/i18n/useTranslation";
-import type { GeometricConstraintKind } from "@/sketch/types";
+import { diagnoseSketch, RELATION_LABEL } from "@/sketch/sketchDoctor";
+import type { DoctorConflict, DoctorStatus, EntityRef } from "@/sketch/sketchDoctor";
+import type { GeometricConstraintKind, SketchEntity } from "@/sketch/types";
 import type { PatternOptions } from "@/sketch/sketchModel";
 import { useGeometryStore } from "@/state/geometryStore";
 import {
@@ -128,6 +130,10 @@ export function SketchPanel() {
   const deleteDimension = useSketchStore((state) => state.deleteDimension);
   const exitSketch = useSketchStore((state) => state.exitSketch);
   const deleteSelection = useSketchStore((state) => state.deleteSelection);
+  const setSelection = useSketchStore((state) => state.setSelection);
+  const conflictingIds = useSketchStore((state) => state.conflictingIds);
+  const underDefinedEntityIds = useSketchStore((state) => state.underDefinedEntityIds);
+  const deleteConstraint = useSketchStore((state) => state.deleteConstraint);
 
   const mirrorSelection = useSketchStore((state) => state.mirrorSelection);
   const offsetSelection = useSketchStore((state) => state.offsetSelection);
@@ -165,6 +171,25 @@ export function SketchPanel() {
   };
 
   if (!sketch) return null;
+
+  const health = diagnoseSketch(sketch, diagnostics, conflictingIds, underDefinedEntityIds);
+
+  const entityLabel = (entity: EntityRef): string => {
+    const { key, fallback } = ENTITY_LABEL[entity.kind];
+    return `${t(key, fallback)} ${entity.ordinal}`;
+  };
+
+  const conflictLabel = (conflict: DoctorConflict): string => {
+    const relationName =
+      conflict.source === "constraint"
+        ? t(`relation.${conflict.kind}`, RELATION_LABEL[conflict.kind])
+        : t(`sketchPanel.dimensionLabel.${conflict.kind}`, DIMENSION_LABEL[conflict.kind]);
+    if (conflict.source === "dimension") {
+      return `${relationName} ${conflict.value?.toFixed(2) ?? ""}`.trimEnd();
+    }
+    const targets = conflict.targets.map(entityLabel).join(", ");
+    return targets ? `${relationName} — ${targets}` : relationName;
+  };
 
   return (
     <div className={styles.panel}>
@@ -486,6 +511,65 @@ export function SketchPanel() {
             </button>
           )}
         </section>
+
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>{t("sketchPanel.doctor", "Sketch Doctor")}</h3>
+          <p className={`${styles.doctorStatus} ${DOCTOR_STATUS_CLASS[health.status]}`}>
+            {t(`status.${health.status}`, DOCTOR_STATUS_LABEL[health.status])}
+          </p>
+
+          {health.conflicts.length > 0 && (
+            <>
+              <p className={styles.doctorHint}>
+                {t("sketchPanel.doctorConflictHint", "These relations cannot all hold — delete one to resolve the conflict:")}
+              </p>
+              <ul className={styles.doctorList}>
+                {health.conflicts.map((conflict) => (
+                  <li key={conflict.id} className={styles.doctorRow}>
+                    <span className={styles.doctorLabel}>{conflictLabel(conflict)}</span>
+                    <button
+                      type="button"
+                      className={styles.dimensionDelete}
+                      aria-label={t("sketchPanel.deleteRelationAria", "Delete relation")}
+                      onClick={() => deleteConstraint(conflict.id)}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {health.freeEntities.length > 0 && (
+            <>
+              <p className={styles.doctorHint}>
+                {t("sketchPanel.doctorFreeHint", "These (blue) entities are still free — pick one to select it:")}
+              </p>
+              <ul className={styles.doctorList}>
+                {health.freeEntities.map((entity) => (
+                  <li key={entity.id} className={styles.doctorRow}>
+                    <span className={styles.doctorLabel}>{entityLabel(entity)}</span>
+                    <button
+                      type="button"
+                      className={styles.doctorSelect}
+                      aria-label={t("sketchPanel.selectEntityAria", "Select entity")}
+                      onClick={() => setSelection([entity.id])}
+                    >
+                      {t("sketchPanel.doctorSelect", "Select")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {health.status === "fully-defined" && (
+            <p className={styles.doctorHint}>
+              {t("sketchPanel.doctorHealthy", "Fully defined — every movable entity is held by a relation.")}
+            </p>
+          )}
+        </section>
       </div>
     </div>
   );
@@ -501,4 +585,33 @@ const DIMENSION_LABEL: Record<string, string> = {
   angle: "Angle",
   "ordinate-x": "Ordinate X",
   "ordinate-y": "Ordinate Y",
+};
+
+/**
+ * Entity kind names for the Doctor's "Line 2 / Circle 1" labels. Keys are i18n keys the
+ * panel feeds `t()`; `fallback` is the English name used when the dictionary has no entry
+ * (the same fallback pattern every other panel string uses).
+ */
+const ENTITY_LABEL: Record<SketchEntity["kind"], { key: string; fallback: string }> = {
+  line: { key: "sketchPanel.entityLabel.line", fallback: "Line" },
+  circle: { key: "sketchPanel.entityLabel.circle", fallback: "Circle" },
+  arc: { key: "sketchPanel.entityLabel.arc", fallback: "Arc" },
+  spline: { key: "sketchPanel.entityLabel.spline", fallback: "Spline" },
+  point: { key: "sketchPanel.entityLabel.point", fallback: "Point" },
+};
+
+/**
+ * Status words for the Doctor's headline — the same keys the status bar chip uses, so
+ * the panel and the chip can never disagree on what a state is called.
+ */
+const DOCTOR_STATUS_LABEL: Record<DoctorStatus, string> = {
+  "fully-defined": "Fully Defined",
+  "under-defined": "Under Defined",
+  "over-defined": "Over Defined",
+};
+
+const DOCTOR_STATUS_CLASS: Record<DoctorStatus, string> = {
+  "fully-defined": styles.doctorStatusDefined,
+  "under-defined": styles.doctorStatusUnder,
+  "over-defined": styles.doctorStatusOver,
 };
