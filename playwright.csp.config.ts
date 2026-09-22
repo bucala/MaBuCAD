@@ -1,5 +1,8 @@
 import { defineConfig } from "@playwright/test";
 
+const CSP_PREVIEW_URL = "http://127.0.0.1:24210";
+const CSP_PREVIEW_PORT = new URL(CSP_PREVIEW_URL).port;
+
 /**
  * Production-only CSP regression suite. Kept separate from `playwright.config.ts` so an
  * ordinary E2E run does not rebuild and boot a second server for tests that never use it.
@@ -14,15 +17,15 @@ export default defineConfig({
   fullyParallel: false,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
   use: {
-    baseURL: "http://127.0.0.1:1421",
+    baseURL: CSP_PREVIEW_URL,
     viewport: { width: 1600, height: 950 },
   },
   webServer: {
     // Vite's development HTML injects an inline React-refresh preamble, which the
     // packaged app's strict `script-src` correctly blocks. Production HTML has the same
     // all-external script shape Tauri actually loads.
-    command: "npm run build && npm run preview -- --host 127.0.0.1 --port 1421",
-    url: "http://127.0.0.1:1421",
+    command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${CSP_PREVIEW_PORT}`,
+    url: CSP_PREVIEW_URL,
     // A manually-started preview may serve stale `dist`, turning this into a test of an
     // earlier build.
     reuseExistingServer: false,

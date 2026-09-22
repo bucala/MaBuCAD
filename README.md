@@ -359,7 +359,7 @@ npm install
 npm run tauri dev      # desktop app with hot reload
 
 # …or run the browser-only dev server (native dialogs replaced by browser fallbacks)
-npm run dev             # http://localhost:1420
+npm run dev             # http://localhost:24200
 ```
 
 <details>

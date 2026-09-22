@@ -105,15 +105,23 @@ export default defineConfig(async () => ({
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
+  //
+  // Deliberately in the 14001–49151 gap rather than Tauri's scaffolded low ports. Windows'
+  // TCP dynamic (ephemeral) port range is configurable, and a machine widened to
+  // `start=1024 num=13977` hands ports from this low range out as *source* ports for ordinary
+  // outbound connections — so a browser or background service can be holding one when the
+  // dev server starts, and `strictPort` then fails the whole run for reasons that have
+  // nothing to do with this app. These ports sit above any plausible ephemeral start and
+  // below the Windows default range (49152+), so neither configuration can collide.
   server: {
-    port: 1420,
+    port: 24200,
     strictPort: true,
     host: host || false,
     hmr: host
       ? {
           protocol: "ws",
           host,
-          port: 1421,
+          port: 24201,
         }
       : undefined,
     watch: {

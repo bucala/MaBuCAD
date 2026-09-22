@@ -27,13 +27,14 @@ const tauriConfig = JSON.parse(
   readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"),
 ) as { app: { security: { csp: string } } };
 const SHIPPED_CSP = tauriConfig.app.security.csp;
-const CSP_BASE_URL = "http://127.0.0.1:1421";
 
 /** Injects `csp` into the production-preview index document as a `<meta>` CSP — the way
  * Tauri delivers the policy — so the browser enforces it for everything the page then
  * loads. Must be armed before the navigation it should apply to. */
-async function enforceCsp(page: Page, csp: string) {
-  await page.route(`${CSP_BASE_URL}/`, async (route) => {
+async function enforceCsp(page: Page, baseURL: string | undefined, csp: string) {
+  if (!baseURL) throw new Error("Playwright CSP baseURL is not configured");
+  const indexUrl = new URL("/", baseURL).toString();
+  await page.route(indexUrl, async (route) => {
     const response = await route.fetch();
     const html = (await response.text()).replace(
       "<head>",
@@ -69,13 +70,13 @@ async function insertModelViews(page: Page, partPath: string) {
   await fileChooser.setFiles(partPath);
 }
 
-test("Insert Model View projects the default views under the shipped Tauri CSP", async ({ page }) => {
+test("Insert Model View projects the default views under the shipped Tauri CSP", async ({ page, baseURL }) => {
   test.setTimeout(120_000);
 
   // The whole flow — extrude and projection both — runs under the exact shipped policy,
   // since the packaged app enforces it for the whole session, not just one command.
-  await enforceCsp(page, SHIPPED_CSP);
-  await page.goto(`${CSP_BASE_URL}/`);
+  await enforceCsp(page, baseURL, SHIPPED_CSP);
+  await page.goto("/");
 
   const partPath = await buildAndSavePart(page);
   await insertModelViews(page, partPath);
@@ -102,18 +103,18 @@ test("Insert Model View projects the default views under the shipped Tauri CSP",
   });
 });
 
-test("the same flow under the previous CSP (no 'unsafe-eval') fails the way the shipped app did", async ({ page }) => {
+test("the same flow under the previous CSP (no 'unsafe-eval') fails the way the shipped app did", async ({ page, baseURL }) => {
   test.setTimeout(120_000);
 
   // Build the Part without any injected policy first — the extrude path is precisely what
   // already worked under the old policy (the supplied Part2.mabucad carries built
   // extrudes), so the part file is safe to build here. Then reload into a page enforcing
   // the shipped policy minus 'unsafe-eval' for the drawing step alone.
-  await page.goto(`${CSP_BASE_URL}/`);
+  await page.goto("/");
   const partPath = await buildAndSavePart(page);
 
-  await enforceCsp(page, SHIPPED_CSP.replace(" 'unsafe-eval'", ""));
-  await page.goto(`${CSP_BASE_URL}/`);
+  await enforceCsp(page, baseURL, SHIPPED_CSP.replace(" 'unsafe-eval'", ""));
+  await page.goto("/");
   await insertModelViews(page, partPath);
 
   // The projection dies inside the kernel's embind glue and surfaces as the command's own

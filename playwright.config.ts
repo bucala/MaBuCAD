@@ -22,12 +22,12 @@ export default defineConfig({
   fullyParallel: false,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
   use: {
-    baseURL: "http://localhost:1420",
+    baseURL: "http://localhost:24200",
     viewport: { width: 1600, height: 950 },
   },
   webServer: {
     command: "npm run dev",
-    url: "http://localhost:1420",
+    url: "http://localhost:24200",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
