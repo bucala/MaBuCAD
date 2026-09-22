@@ -688,8 +688,32 @@ export interface DrawingTableData {
  * for a Drawing saved before this field existed. */
 export type ProjectionMethod = "ISO-E" | "ISO-A";
 
+/**
+ * A snapshot of the referenced part file — last-modified time and size — taken the moment
+ * the sheet's views were last projected from it. The drawing's own "are these views still
+ * current?" question is answered by comparing this stamp against a fresh stat of
+ * `DrawingSheetData.sourcePart.path` (`kernel/drawingStaleness.ts`'s `viewsAreStale`): a
+ * match means the file hasn't changed since the projection, a mismatch means the views
+ * are stale and "Update Views" should re-project. Optional so a Drawing saved before this
+ * existed still loads — and deliberately *absent* means "unknown", never "stale", so an
+ * old drawing (or one whose part path can't be stat'd this session — unblessed paths
+ * aren't readable, see `io/files.ts`'s `statAtPath`) never gets a false out-of-date alarm.
+ */
+export interface DrawingSourceStamp {
+  /** File last-modified time, milliseconds since the Unix epoch. */
+  modifiedMs: number;
+  /** File size in bytes — a cheap second signal that catches a same-tick rewrite. */
+  size: number;
+}
+
 export interface DrawingSheetData {
   sourcePart: { fileName: string; path: string | null } | null;
+  /**
+   * Stamped when `sourcePart`'s views were last projected — see `DrawingSourceStamp`'s
+   * own doc comment. Only ever set by Insert Model View / Update Views, alongside the
+   * projection cache they write.
+   */
+  sourceStamp?: DrawingSourceStamp;
   views: DrawingViewData[];
   /** Absent means `"ISO-E"` — see `ProjectionMethod`'s own doc comment. Toggling this
    * re-lays out every placed `"standard"` view (see `commands/drawingViewLayout.ts`'s

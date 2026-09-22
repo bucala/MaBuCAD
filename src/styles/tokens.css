@@ -101,6 +101,9 @@
   --status-defined: #0f7b0f;
   --status-under: #005fb8;
   --status-over: #c42b1c;
+  /* Amber: "this worked once but is no longer current" — the drawing's out-of-date
+   * Update Views indicator (a part file changed since the views were projected). */
+  --status-stale: #b45309;
 
   /* Elevation */
   --shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.14);
@@ -195,6 +198,7 @@
   --status-defined: #6ccb5f;
   --status-under: #60cdff;
   --status-over: #ff99a4;
+  --status-stale: #fbbf24;
 
   --shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.4);
   --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.26);
@@ -246,6 +250,7 @@
   --status-defined: #6ccb5f;
   --status-under: #60cdff;
   --status-over: #ff99a4;
+  --status-stale: #fbbf24;
 
   --shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.35);
   --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.22);

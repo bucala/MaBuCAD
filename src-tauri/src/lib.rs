@@ -27,6 +27,7 @@ pub fn run() {
       fileio::pick_save_path,
       fileio::write_binary_file,
       fileio::read_binary_file,
+      fileio::stat_file,
       debug_log::get_debug_log_path,
       debug_log::append_debug_log
     ])

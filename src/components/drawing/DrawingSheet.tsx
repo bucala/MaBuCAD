@@ -6,8 +6,10 @@ import { runCreateProjectedView, runToggleProjectionMethod } from "@/commands/dr
 import { DEFAULT_PROJECTION_METHOD } from "@/commands/drawingViewLayout";
 import { nearestHoleTarget } from "@/commands/holeCallout";
 import { useTranslation } from "@/i18n/useTranslation";
+import { statAtPath } from "@/io/files";
 import { nearestVertex, viewScaleFor } from "@/kernel/drawingGeometry";
 import { sectionArrowSign, type OrthoProjection } from "@/kernel/drawingProjection";
+import { viewsAreStale } from "@/kernel/drawingStaleness";
 import { useDocumentStore } from "@/state/documentStore";
 import { useDrawingToolStore } from "@/state/drawingToolStore";
 import { DEFAULT_SHEET_FORMAT_ID, useTemplateStore } from "@/state/templateStore";
@@ -848,8 +850,15 @@ export function DrawingSheet() {
   const holeCallouts = drawing?.holeCallouts ?? [];
   const tables = drawing?.tables ?? [];
   const sourcePart = drawing?.sourcePart ?? null;
+  const sourcePartPath = sourcePart?.path;
+  const sourceStamp = drawing?.sourceStamp;
   const titleBlockValues = drawing?.titleBlockValues ?? {};
   const projectionMethod = drawing?.projectionMethod ?? DEFAULT_PROJECTION_METHOD;
+
+  /** Whether the referenced part file changed since these views were projected — the
+   * amber "out of date" hint on the Update Views button (see `viewsAreStale`). False
+   * while unverified, so an unverifiable drawing never alarms. */
+  const [viewsStale, setViewsStale] = useState(false);
 
   /** Snaps a dragged leader anchor to the nearest view vertex within tolerance and, if one's
    * found, rebinds the annotation to that vertex's own view — the "!!" auto-bind-on-
@@ -959,6 +968,28 @@ export function DrawingSheet() {
     container.addEventListener("wheel", handleWheel, { passive: false });
     return () => container.removeEventListener("wheel", handleWheel);
   }, [zoomAt]);
+
+  // Staleness check: stat the referenced part file (Tauri only — the browser build has no
+  // reused path) and flag the Update Views button when it differs from the stamp captured
+  // at projection time (`viewsAreStale`). Runs on mount — a drawing tab mounts when it's
+  // opened or switched to — and on window focus, which covers the part being changed and
+  // saved by another window entirely while this drawing sat unfocused. Everything
+  // unverifiable (no stamp on a pre-feature drawing, an unblessed path) reads as up to
+  // date: the amber hint must never cry wolf, only point at a change it can prove.
+  useEffect(() => {
+    if (!sourcePartPath || !sourceStamp) {
+      setViewsStale(false);
+      return;
+    }
+    const check = () => {
+      statAtPath(sourcePartPath)
+        .then((current) => setViewsStale(viewsAreStale(sourceStamp, current)))
+        .catch(() => setViewsStale(false));
+    };
+    check();
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, [sourcePartPath, sourceStamp]);
 
   // Delete/Backspace removes whichever view or note is selected — not while a note is
   // mid-edit, where those keys mean "edit the text", not "delete the annotation".
@@ -1191,7 +1222,20 @@ export function DrawingSheet() {
           {t("drawing.insert-model-view", "Insert Model View")}
         </button>
         {sourcePart && (
-          <button type="button" className={styles.toolbarButton} onClick={() => runCommand("drawing.update-views")}>
+          <button
+            type="button"
+            className={`${styles.toolbarButton}${viewsStale ? ` ${styles.toolbarButtonStale}` : ""}`}
+            onClick={() => runCommand("drawing.update-views")}
+            title={
+              viewsStale
+                ? t(
+                    "drawing.viewsStaleTitle",
+                    "The referenced part changed since these views were projected — Update Views re-projects them from the current geometry.",
+                  )
+                : undefined
+            }
+          >
+            {viewsStale && <span className={styles.staleDot} aria-hidden="true" />}
             <RotateCw size={14} strokeWidth={1.75} />
             {t("drawing.update-views", "Update Views")}
           </button>

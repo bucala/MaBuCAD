@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { DrawingSourceStamp } from "@/types/document";
 
 /**
  * File access for interchange.
@@ -86,6 +87,19 @@ export async function openFile(extensions: string[]): Promise<PickedFile | null>
 export async function readFileAtPath(path: string): Promise<ArrayBuffer> {
   const contents = await invoke<number[]>("read_binary_file", { path });
   return Uint8Array.from(contents).buffer;
+}
+
+/**
+ * Metadata (mtime + size) of a previously-picked file path — what a Drawing's "are the
+ * views still current?" check compares against the stamp captured at projection time.
+ * Metadata only, no file contents: the check stays as cheap as the OS lets it be. Tauri
+ * only, since only it hands out real paths; returns `null` when the browser fallback is
+ * in use or the path isn't blessed this session (see `fileio.rs`'s `stat_file`), so the
+ * caller can treat "can't verify" and "up to date" the same way.
+ */
+export async function statAtPath(path: string): Promise<DrawingSourceStamp | null> {
+  if (!isTauri()) return null;
+  return invoke<DrawingSourceStamp | null>("stat_file", { path });
 }
 
 function downloadInBrowser(blob: Blob, fileName: string): void {

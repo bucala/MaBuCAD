@@ -5,7 +5,7 @@ import {
   VIEW_GAP,
   SHEET_MARGIN,
 } from "@/commands/drawingViewLayout";
-import { openFile, readFileAtPath } from "@/io/files";
+import { openFile, readFileAtPath, statAtPath } from "@/io/files";
 import {
   rebuildAndProjectPart,
   rebuildAndProjectSection,
@@ -84,6 +84,10 @@ export async function runInsertModelView(): Promise<void> {
 
     useDocumentStore.getState().setDrawingSheet({
       sourcePart: { fileName: picked.name, path: picked.path },
+      // Stamp the part file as it is right now, so the drawing can later tell (against a
+      // fresh stat) whether the file changed since these views were projected — the
+      // "out of date" hint `DrawingSheet.tsx` shows on Update Views.
+      sourceStamp: picked.path ? (await statAtPath(picked.path)) ?? undefined : undefined,
       views: layoutInitialViews(geometry, method),
       projectionMethod: method,
     });
@@ -188,7 +192,10 @@ export async function runUpdateViews(): Promise<void> {
       };
     });
 
-    useDocumentStore.getState().setDrawingSheet({ ...sheet, views: refreshed });
+    // Re-stamp the part file we just re-projected from: the new cache matches what is on
+    // disk *now*, so the out-of-date indicator clears the moment the views are refreshed.
+    const sourceStamp = sourcePart.path ? (await statAtPath(sourcePart.path)) ?? undefined : undefined;
+    useDocumentStore.getState().setDrawingSheet({ ...sheet, views: refreshed, sourceStamp });
     showToast("Views updated");
   } catch (error) {
     showToast(`Update Views failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);

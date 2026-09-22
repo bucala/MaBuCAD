@@ -232,6 +232,7 @@ export const sk: Record<string, string> = {
   "drawing.insert-model-view": "Vložiť pohľad na model",
   "drawing.update-views": "Aktualizovať pohľady",
   "drawing.showing": "Zobrazuje sa",
+  "drawing.viewsStaleTitle": "Referovaný diel sa zmenil od projektovania týchto pohľadov — Aktualizovať pohľady ich prepočíta z aktuálnej geometrie.",
   "drawing.empty": "Vložením pohľadu na model zobrazíte premietnuté pohľady uloženého dielu.",
   "drawing.edit-resources": "Upraviť rámiky a titulné bloky",
   "drawing.delete-selected": "Odstrániť",

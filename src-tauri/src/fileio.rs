@@ -129,6 +129,46 @@ pub fn read_binary_file(app: AppHandle, path: String) -> Result<Vec<u8>, String>
   fs::read(PathBuf::from(&path)).map_err(|error| error.to_string())
 }
 
+/// Metadata of a file a Drawing's views were projected from, stamp-compared by the
+/// frontend's "are the views still current?" check (`kernel/drawingStaleness.ts`). The
+/// modification time is what matters — a part saved after the views were projected has a
+/// newer mtime — with the size as a cheap second signal that catches a same-tick rewrite.
+#[derive(Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileMeta {
+  /// Last-modified time as milliseconds since the Unix epoch.
+  pub modified_ms: u64,
+  /// File size in bytes.
+  pub size: u64,
+}
+
+/// Stats a path the user picked in a dialog (or dropped) this session, so the frontend
+/// can compare the referenced part's current mtime/size against the stamp captured when
+/// the drawing's views were projected. Metadata only — deliberately *not* a file read,
+/// keeping an 'is this drawing out of date?' background check as cheap as the OS lets it
+/// be. Returns `None` (rather than an error) for a path the session can't verify — an
+/// unblessed path, or a file that no longer exists — so the caller treats "can't verify"
+/// and "up to date" the same way: never a false out-of-date alarm.
+#[tauri::command]
+pub fn stat_file(app: AppHandle, path: String) -> Result<Option<FileMeta>, String> {
+  if !app.state::<PickedPaths>().may_read(&path) {
+    return Ok(None);
+  }
+
+  let meta = fs::metadata(PathBuf::from(&path)).map_err(|error| error.to_string())?;
+  let modified_ms = meta
+    .modified()
+    .ok()
+    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0);
+
+  Ok(Some(FileMeta {
+    modified_ms,
+    size: meta.len(),
+  }))
+}
+
 /// What `lib.rs`'s drag-drop window event handler forwards to the frontend: a dropped
 /// file's plain name and its (already blessed) path. The frontend imports STEP/STL from
 /// it; a `.mabucad` is deliberately left to File ▸ Open.

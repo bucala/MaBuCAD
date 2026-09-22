@@ -30,6 +30,26 @@
   background: var(--fill-subtle-hover);
 }
 
+/* The stale-view indicator: the Update Views button gains an amber dot + border tint
+   (`--status-stale`, the "no longer current" semantic; see tokens.css) when the
+   referenced part file changed since the views were projected. */
+
+.toolbarButtonStale {
+  border-color: var(--status-stale);
+}
+
+.toolbarButtonStale:hover {
+  border-color: var(--status-stale);
+  background: var(--fill-subtle-hover);
+}
+
+.staleDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-stale);
+}
+
 .sourceLabel {
   color: var(--text-tertiary);
   font-size: var(--font-size-caption);

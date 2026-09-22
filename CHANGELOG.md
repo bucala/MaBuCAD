@@ -7,6 +7,38 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-09-22 — Out-of-date drawing views (v0.25.0)
+
+The fourth Phase 2 round of the cross-CAD comparison roadmap: the drawing sheet stops
+being able to lie about its own staleness. Projected views are a cache of the part file
+they came from — the drawing's `kernel/drawingProjection.ts` relationship "can go out of
+date" made literal — so the sheet now stamps that file at projection time and flags the
+Update Views button the moment the cache is older than its source, the way SolidWorks
+(Inventor, Creo) mark a drawing view whose model changed.
+
+### Added — a stale-views indicator on the drawing toolbar
+- A gated Rust `stat_file` command (`fileio.rs`) stats a picked path and returns
+  `FileMeta { modified_ms, size }`, or `None` when the path can't be stat'd. It goes
+  through the same `PickedPaths` blessing gate every file read already passes — the
+  indicator can never be used to probe paths the user didn't pick.
+- Both `Insert Model View` and `Update Views` capture the source part's stat as a
+  `sourceStamp` (`DrawingSheetData.sourceStamp`, persisted in the document): the stamp
+  *is* "when these views were made". Re-stamping on every update means the indicator
+  clears itself exactly when the views are current again.
+- The sheet compares the persisted stamp against a fresh stat on mount and on window
+  focus (the usual "part edited/saved by another window" case). Comparison lives in a
+  pure module (`drawingStaleness.ts`): mtime or size differing means stale.
+- Unverifiable is never stale: a drawing saved before stamps existed, the browser
+  build, an unblessed or moved file — all read as *not stale*. The indicator only ever
+  fires on a change it can prove, so it can't cry wolf.
+- While stale, the Update Views button grows an amber dot and border tint (new
+  `--status-stale` token in all four themes) with a tooltip saying the referenced part
+  changed on disk; the button's accessible name is untouched, so the E2E pin keeps
+  matching. Slovak `drawing.viewsStaleTitle` wording included.
+- Six pins in `drawingStaleness.spec.ts` (missing stamp not stale, identical stamp not
+  stale, mtime change stale, size change stale, unverifiable disk not stale, no
+  projected stamp can never be stale). 177 unit tests total, up from 171.
+
 ## 2026-09-22 — Sketch Doctor (v0.24.0)
 
 The third Phase 2 round of the cross-CAD comparison roadmap: the conflicting-constraint
