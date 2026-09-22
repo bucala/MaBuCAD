@@ -7,6 +7,54 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-09-23 — Update Views skips work it can prove is redundant (v0.26.0)
+
+The last Phase 2 round, and it replaces the roadmap's planned item rather than implementing
+it. The plan was a fast/precise (coarse) hidden-line toggle, the way FreeCAD TechDraw's
+Coarse View swaps OCCT's exact HLR for the tessellated `HLRBRep_PolyAlgo`. Measured against
+the shipped kernel, that toggle cannot pay for itself — so the round instead attacks the
+cost the measurement actually found.
+
+### Measured — why the fast/precise HLR toggle was dropped
+- The shipped 11 MB WASM kernel binds only `HLRBRep_Algo` (exact) and `HLRAlgo_Projector`;
+  `HLRBRep_PolyAlgo`, the fast tessellated algorithm the feature would have selected, is not
+  compiled in at all. Getting it means rebuilding `replicad-opencascadejs` from source and
+  shipping a different kernel.
+- The one quality knob replicad *does* expose (`makeProjectedEdges`'s `withHiddenLines`)
+  saves nothing: 60 ms without hidden lines against 59 ms with them, because OCCT's
+  `Hide_1()` pass is the cost, not extracting the hidden edges afterward.
+- And projection is not where the time goes. On a 100 mm plate with 64 drilled holes, one
+  Insert Model View costs ~3.6 s: ~2.4 s part rebuild, ~830 ms for all seven cold
+  projections, and 2 ms for the `fitCircle` hole-decoration scan. A hidden-line quality
+  switch could only ever bid for a slice of that 830 ms while changing what the drawing
+  shows.
+- Two related things the same measurement settled, so they don't get "optimised" later on a
+  hunch: projecting all seven views eagerly is already the right call (the three the sheet
+  doesn't place cost ~430 ms, while projecting one on demand afterward would pay a fresh
+  ~2.4 s rebuild), and the hole-decoration scan needs nothing at 2 ms.
+
+### Added — `DrawingSheetData.sourceContentHash`: Update Views recognises an unchanged part
+- Update Views already reads the referenced part file before rebuilding it. It now hashes
+  those exact bytes (`rebuildCache.ts`'s own `contentHash`, the 64-bit FNV-1a pair the
+  rebuild cache already trusts for correctness) and compares them against the hash stored
+  when the views were projected. Equal bytes mean the same document, so the same rebuild and
+  the same projection: the command reports the part is unchanged and skips the kernel work
+  entirely rather than spending seconds reproducing the cache it already has.
+- This is the *exact* counterpart to v0.25.0's `sourceStamp`, not a replacement, and the two
+  are deliberately opposite in what they may assume. The stat-based stamp answers "might
+  this have changed?" cheaply enough to run on every window focus, and must never alarm
+  without proof. The hash answers "would re-projecting change anything?" exactly, and must
+  never claim views are current without proof — so a drawing saved before the hash existed
+  re-projects as it always did.
+- A part file re-saved without changing (a touch, a no-op save) is the case where both
+  halves show: the stamp flags the views as possibly stale, and the update then proves the
+  content identical, clearing the indicator instantly instead of rebuilding.
+- Four new `viewsMatchSource` pins (identical bytes skip, edited file re-projects, a
+  re-serialised copy of the same document still re-projects rather than guessing, absent
+  hash always re-projects). 181 unit tests total, up from 177. The drawing E2E now also
+  drives Update Views against the unchanged part and asserts the skip wording, which is
+  only reachable through that branch.
+
 ## 2026-09-22 — Out-of-date drawing views (v0.25.0)
 
 The fourth Phase 2 round of the cross-CAD comparison roadmap: the drawing sheet stops

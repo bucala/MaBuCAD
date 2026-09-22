@@ -714,6 +714,23 @@ export interface DrawingSheetData {
    * projection cache they write.
    */
   sourceStamp?: DrawingSourceStamp;
+  /**
+   * A content hash (`kernel/rebuildCache.ts`'s `contentHash`) of the exact part file bytes
+   * the current view cache was projected from — the *exact* counterpart to `sourceStamp`'s
+   * cheap approximation.
+   *
+   * The two exist for different jobs. `sourceStamp` answers "might the part have changed?"
+   * from a stat alone, cheap enough to run on every window focus, which is what the amber
+   * out-of-date indicator needs. This hash answers "would re-projecting actually produce
+   * different geometry?" exactly, and Update Views uses it to skip the part rebuild — by
+   * far the most expensive step (measured at roughly 70% of the command on a 64-hole
+   * plate) — when the answer is no. Computing it costs a file read the command already
+   * performs, so the check is free where the stamp would have to guess.
+   *
+   * Optional/absent means "unknown": a drawing saved before this existed simply re-projects
+   * as it always did, never skipping on a hash it doesn't have.
+   */
+  sourceContentHash?: string;
   views: DrawingViewData[];
   /** Absent means `"ISO-E"` — see `ProjectionMethod`'s own doc comment. Toggling this
    * re-lays out every placed `"standard"` view (see `commands/drawingViewLayout.ts`'s

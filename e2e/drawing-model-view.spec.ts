@@ -88,6 +88,18 @@ test("Insert Model View projects the default views under the shipped Tauri CSP",
   // once a `sourcePart` exists, so this doubles as the structural proof the views (and not
   // just a toast) landed.
   await expect(page.getByRole("button", { name: "Update Views" })).toBeVisible();
+
+  // Updating against the *same, unchanged* part file must recognise that re-projecting
+  // could only reproduce the cache it already has, and skip the part rebuild entirely
+  // (`DrawingSheetData.sourceContentHash`). Proven from the outside by the command's own
+  // report: the "unchanged" wording is only reachable through the skip branch, never
+  // through a real re-projection, which reports "Views updated" instead.
+  const updateChooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Update Views" }).click();
+  await (await updateChooserPromise).setFiles(partPath);
+  await expect(page.getByTestId("geometry-status")).toContainText(/unchanged — views are already up to date/i, {
+    timeout: 60_000,
+  });
 });
 
 test("the same flow under the previous CSP (no 'unsafe-eval') fails the way the shipped app did", async ({ page }) => {

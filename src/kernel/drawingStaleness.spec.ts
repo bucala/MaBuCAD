@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { viewsAreStale } from "./drawingStaleness";
+import { contentHash } from "./rebuildCache";
+
+import { viewsAreStale, viewsMatchSource } from "./drawingStaleness";
 
 /**
  * The "are this drawing's views still current?" contract — the one pure rule behind the
@@ -35,5 +37,35 @@ describe("viewsAreStale", () => {
 
   it("both unknowns together read as current", () => {
     expect(viewsAreStale(undefined, null)).toBe(false);
+  });
+});
+
+/**
+ * The counterpart rule behind Update Views skipping the part rebuild. Where `viewsAreStale`
+ * is allowed to be cheap and approximate (it must never alarm without proof), this one must
+ * never claim views are current without proof — the two failure modes are opposite, so a
+ * missing hash reads as "re-project" here and as "not stale" above.
+ */
+describe("viewsMatchSource", () => {
+  const partFile = JSON.stringify({ document: { id: "part-1" }, sketches: {} });
+
+  it("the same bytes the views were projected from means re-projecting changes nothing", () => {
+    expect(viewsMatchSource(contentHash(partFile), contentHash(partFile))).toBe(true);
+  });
+
+  it("an edited part file must re-project", () => {
+    const edited = JSON.stringify({ document: { id: "part-1", features: ["extrude"] }, sketches: {} });
+    expect(viewsMatchSource(contentHash(partFile), contentHash(edited))).toBe(false);
+  });
+
+  it("a whitespace-only rewrite of the same document still re-projects, rather than guessing", () => {
+    // Hashing bytes rather than parsed content keeps the rule decidable without a rebuild:
+    // it may only ever skip work it can prove is redundant, so a re-serialised file re-projects.
+    const reserialised = JSON.stringify(JSON.parse(partFile), null, 2);
+    expect(viewsMatchSource(contentHash(partFile), contentHash(reserialised))).toBe(false);
+  });
+
+  it("a drawing saved before the hash existed always re-projects", () => {
+    expect(viewsMatchSource(undefined, contentHash(partFile))).toBe(false);
   });
 });

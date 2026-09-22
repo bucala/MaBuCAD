@@ -13,6 +13,8 @@ import {
   sectionViewCamera,
   type OrthoProjection,
 } from "@/kernel/drawingProjection";
+import { viewsMatchSource } from "@/kernel/drawingStaleness";
+import { contentHash } from "@/kernel/rebuildCache";
 import type { PointEntity, Sketch } from "@/sketch/types";
 import { useDocumentStore } from "@/state/documentStore";
 import { useDrawingToolStore } from "@/state/drawingToolStore";
@@ -66,7 +68,8 @@ export async function runInsertModelView(): Promise<void> {
     const picked = await openFile([EXTENSION, "json"]);
     if (!picked) return;
 
-    const parsed: unknown = JSON.parse(new TextDecoder().decode(picked.data));
+    const text = new TextDecoder().decode(picked.data);
+    const parsed: unknown = JSON.parse(text);
     if (!isSavedPart(parsed)) throw new Error(`${picked.name} is not a saved Part document`);
 
     showToast("Generating views…", 15000);
@@ -88,6 +91,9 @@ export async function runInsertModelView(): Promise<void> {
       // fresh stat) whether the file changed since these views were projected — the
       // "out of date" hint `DrawingSheet.tsx` shows on Update Views.
       sourceStamp: picked.path ? (await statAtPath(picked.path)) ?? undefined : undefined,
+      // The exact provenance of this cache, so a later Update Views can tell whether
+      // re-projecting would change anything at all — see `DrawingSheetData`'s own comment.
+      sourceContentHash: contentHash(text),
       views: layoutInitialViews(geometry, method),
       projectionMethod: method,
     });
@@ -121,7 +127,15 @@ export function runToggleProjectionMethod(): void {
 export async function readSourcePart(
   sourcePart: NonNullable<DrawingSheetData["sourcePart"]>,
   promptMessage: string,
-): Promise<{ document: CadDocument; sketches: Record<string, Sketch>; label: string } | null> {
+): Promise<{
+  document: CadDocument;
+  sketches: Record<string, Sketch>;
+  label: string;
+  /** Hash of the exact bytes just read — what a caller stores as
+   * `DrawingSheetData.sourceContentHash`, or compares against it to decide whether a
+   * rebuild is needed at all. Computed here because this is where the bytes exist. */
+  contentHash: string;
+} | null> {
   let data: ArrayBuffer;
   let label = sourcePart.fileName;
 
@@ -135,9 +149,10 @@ export async function readSourcePart(
     label = picked.name;
   }
 
-  const parsed: unknown = JSON.parse(new TextDecoder().decode(data));
+  const text = new TextDecoder().decode(data);
+  const parsed: unknown = JSON.parse(text);
   if (!isSavedPart(parsed)) throw new Error(`${label} is not a saved Part document`);
-  return { document: parsed.document, sketches: parsed.sketches, label };
+  return { document: parsed.document, sketches: parsed.sketches, label, contentHash: contentHash(text) };
 }
 
 /**
@@ -157,7 +172,20 @@ export async function runUpdateViews(): Promise<void> {
   try {
     const source = await readSourcePart(sourcePart, `Pick ${sourcePart.fileName} again to update its views`);
     if (!source) return;
-    const { document: partDocument, sketches, label } = source;
+    const { document: partDocument, sketches, label, contentHash: onDiskHash } = source;
+
+    const current = useDocumentStore.getState().document.drawing;
+    const hasStandardViews = current?.views.some((view) => view.kind !== "section" && view.kind !== "detail");
+    // The part file is byte-for-byte what these views were projected from, so a rebuild and
+    // re-projection would reproduce the cache it already has — seconds of kernel work for a
+    // guaranteed identical result. Re-stamp instead, which also clears the out-of-date
+    // indicator for the honest case of a part file merely re-saved without changing.
+    if (current && hasStandardViews && viewsMatchSource(current.sourceContentHash, onDiskHash)) {
+      const sourceStamp = sourcePart.path ? (await statAtPath(sourcePart.path)) ?? undefined : undefined;
+      useDocumentStore.getState().setDrawingSheet({ ...current, sourceStamp });
+      showToast(`${label} is unchanged — views are already up to date`);
+      return;
+    }
 
     showToast("Updating views…", 15000);
     const projected = await rebuildAndProjectPart(partDocument, sketches);
@@ -195,7 +223,9 @@ export async function runUpdateViews(): Promise<void> {
     // Re-stamp the part file we just re-projected from: the new cache matches what is on
     // disk *now*, so the out-of-date indicator clears the moment the views are refreshed.
     const sourceStamp = sourcePart.path ? (await statAtPath(sourcePart.path)) ?? undefined : undefined;
-    useDocumentStore.getState().setDrawingSheet({ ...sheet, views: refreshed, sourceStamp });
+    useDocumentStore
+      .getState()
+      .setDrawingSheet({ ...sheet, views: refreshed, sourceStamp, sourceContentHash: onDiskHash });
     showToast("Views updated");
   } catch (error) {
     showToast(`Update Views failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);

@@ -16,3 +16,20 @@ export function viewsAreStale(
   if (!projectedAt || !onDiskNow) return false;
   return projectedAt.modifiedMs !== onDiskNow.modifiedMs || projectedAt.size !== onDiskNow.size;
 }
+
+/**
+ * Whether the cached views were projected from exactly the bytes now on disk — i.e. whether
+ * re-projecting would be provably wasted work.
+ *
+ * Where `viewsAreStale` guesses cheaply from a stat (so the indicator can run on every
+ * window focus), this decides exactly, from the content hash of the file Update Views has
+ * already read. Equal hashes mean the same part document, so the same rebuild and the same
+ * projection: the existing cache *is* the answer, and the rebuild can be skipped.
+ *
+ * A missing stored hash (a drawing saved before the hash existed) is never treated as a
+ * match — an unknown provenance re-projects, because the only safe default is to do the
+ * work rather than to claim views are current without evidence.
+ */
+export function viewsMatchSource(projectedFromHash: string | undefined, onDiskHash: string): boolean {
+  return projectedFromHash !== undefined && projectedFromHash === onDiskHash;
+}
