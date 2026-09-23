@@ -9,6 +9,7 @@ import type {
   DrawingHoleCalloutMetadata,
   DrawingHoleTargetData,
   DrawingProjectionKind,
+  ScreenAxis,
   StandardProjectionKind,
 } from "@/types/document";
 
@@ -43,6 +44,9 @@ export type ProjectedViews = Record<StandardProjectionKind, ProjectedGeometry>;
  * Isometric's projection axes aren't world-axis-aligned, so a horizontal/vertical cut
  * line drawn on it wouldn't correspond to a flat world-space cutting plane. */
 export type OrthoProjection = "front" | "top" | "right";
+/** The screen axis an auxiliary camera is tilted around — the same axis concept
+ * `ScreenAxis` (`types/document.ts`) persists for section/broken metadata. */
+export type AuxiliaryTiltAxis = ScreenAxis;
 
 /** Guards against a degenerate view (an empty/near-planar projection) collapsing to a
  * zero-size bounding box, which would make an SVG `viewBox` invalid. */
@@ -93,6 +97,24 @@ function projectOne(shape: AnyShape, camera: ProjectionPlane | ProjectionCamera)
     originX: minX,
     originY: minY,
   };
+}
+
+/**
+ * Builds a supplementary/auxiliary camera by tilting a standard orthographic camera around
+ * one of its screen axes. This deliberately uses a bounded angle rather than pretending the
+ * browser can pick an arbitrary B-Rep face: the source view's Front/Top/Right direction is
+ * the stable reference, and the resulting view is still a real kernel projection.
+ */
+export function auxiliaryCamera(
+  projection: OrthoProjection,
+  tiltAxis: AuxiliaryTiltAxis,
+  angle: number,
+): ProjectionCamera {
+  const base = lookFromPlane(projection);
+  const axis = tiltAxis === "horizontal" ? base.xAxis : base.yAxis;
+  const rotatedDirection = base.direction.rotate(angle, [0, 0, 0], axis.toTuple());
+  const rotatedXAxis = base.xAxis.rotate(angle, [0, 0, 0], axis.toTuple());
+  return new ProjectionCamera(rotatedDirection.toTuple(), rotatedDirection.toTuple(), rotatedXAxis.toTuple());
 }
 
 /**
@@ -312,6 +334,30 @@ export async function rebuildAndProjectPart(
   }
 
   return { views, errors: built.errors };
+}
+
+/** Rebuilds and projects one auxiliary view. Kept separate from the seven standard-view
+ * batch because the command creates only one supplementary direction at a time. */
+export async function rebuildAndProjectAuxiliary(
+  document: CadDocument,
+  sketches: Record<string, Sketch>,
+  projection: OrthoProjection,
+  tiltAxis: AuxiliaryTiltAxis,
+  angle: number,
+): Promise<ProjectedGeometry | null> {
+  const built = await rebuildPartShape(document, sketches);
+  if (!built) return null;
+
+  const geometry = projectOne(built.shape, auxiliaryCamera(projection, tiltAxis, angle));
+  const sources = holeProjectionSources(document);
+  if (sources.length === 0) return geometry;
+
+  const decoration = holeDecorationsFor(geometry, sources, projection);
+  return {
+    ...geometry,
+    threadPaths: decoration.threadPaths,
+    holeTargets: decoration.holeTargets,
+  };
 }
 
 /**

@@ -356,6 +356,32 @@
   stroke-dasharray: 1.5 1;
 }
 
+.cropBoundary,
+.cropCalloutRect {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.35;
+  stroke-dasharray: 2 1;
+}
+
+.brokenMask {
+  fill: #fff;
+  stroke: none;
+}
+
+.brokenMark,
+.brokenCallout {
+  fill: none;
+  stroke: #1a1a1a;
+  stroke-width: 0.7;
+}
+
+.auxiliaryLeader {
+  stroke: #1a1a1a;
+  stroke-width: 0.4;
+  stroke-dasharray: 3 1;
+}
+
 /* ISO 128's own continuous freehand thin line — the Detail view's own torn-out boundary
    (`tornCirclePath`), a solid (not dashed) stroke since a break line marks a real edge the
    material was "cut" along, not a construction/reference line like `.detailCalloutCircle`
@@ -375,6 +401,56 @@
 .detailRadiusHandle {
   fill: var(--accent, #0078d4);
   cursor: ew-resize;
+}
+
+.auxiliarySource {
+  fill: rgba(0, 120, 212, 0.04);
+  stroke: var(--accent, #0078d4);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 1;
+  pointer-events: none;
+}
+
+.cropRect {
+  fill: rgba(0, 120, 212, 0.06);
+  stroke: var(--accent, #0078d4);
+  stroke-width: 0.6;
+  stroke-dasharray: 3 2;
+}
+
+.cropMoveHit {
+  fill: transparent;
+  cursor: move;
+}
+
+.cropResizeHandle {
+  fill: var(--accent, #0078d4);
+  cursor: nwse-resize;
+}
+
+.brokenBand {
+  fill: rgba(0, 120, 212, 0.08);
+  stroke: var(--accent, #0078d4);
+  stroke-width: 0.5;
+  cursor: move;
+}
+
+.brokenHandle {
+  fill: var(--accent, #0078d4);
+  cursor: ew-resize;
+}
+
+.overlayValue {
+  color: #1a1a1a;
+  font-size: 11px;
+  line-height: 20px;
+  min-width: 26px;
+  text-align: center;
+}
+
+.overlayToolbar input[type="range"] {
+  width: 70px;
+  accent-color: var(--accent, #0078d4);
 }
 
 .overlayToolbar {

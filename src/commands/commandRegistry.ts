@@ -12,7 +12,12 @@ import { useTemplateStore } from "@/state/templateStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 import { runOpenDocument, runSaveDocument, runSaveDocumentAs } from "./documentIO";
-import { runInsertBomTable, runInsertHoleTable, runInsertModelView, runUpdateViews } from "./drawingCommands";
+import {
+  runInsertBomTable,
+  runInsertHoleTable,
+  runInsertModelView,
+  runUpdateViews,
+} from "./drawingCommands";
 import { runExport, runImport } from "./interchange";
 
 /** How close to parallel (dot product of unit normals) a clicked face's normal needs to
@@ -370,6 +375,9 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "drawing.section": () => useDrawingToolStore.getState().setTool("section"),
   "drawing.detail": () => useDrawingToolStore.getState().setTool("detail"),
   "drawing.projected": () => useDrawingToolStore.getState().setTool("projected"),
+  "drawing.auxiliary": () => useDrawingToolStore.getState().setTool("auxiliary"),
+  "drawing.broken": () => useDrawingToolStore.getState().setTool("broken"),
+  "drawing.crop": () => useDrawingToolStore.getState().setTool("crop"),
   "annotation.note": () => useDrawingToolStore.getState().setTool("note"),
   "annotation.hole-callout": () => useDrawingToolStore.getState().setTool("hole-callout"),
   "annotation.smart-dimension": () => useDrawingToolStore.getState().setTool("smart-dimension"),

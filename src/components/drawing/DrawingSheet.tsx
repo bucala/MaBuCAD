@@ -17,6 +17,9 @@ import { paperDimensions } from "@/types/drawingTemplates";
 import type { BorderTemplate, SheetFormat, TitleBlockField, TitleBlockTemplate } from "@/types/drawingTemplates";
 import type { DrawingNoteData, DrawingViewData } from "@/types/document";
 
+import { AuxiliaryOverlay } from "./AuxiliaryOverlay";
+import { BrokenOverlay } from "./BrokenOverlay";
+import { CropOverlay } from "./CropOverlay";
 import { DetailOverlay } from "./DetailOverlay";
 import { DimensionView, OrdinateChainView } from "./DimensionAnnotations";
 import styles from "./DrawingSheet.module.css";
@@ -44,6 +47,9 @@ const PICKING_TOOLS = new Set([
   "smart-dimension",
   "ordinate",
   "projected",
+  "auxiliary",
+  "crop",
+  "broken",
 ]);
 
 /** The subset of `PICKING_TOOLS` that reads the click straight off the background sheet
@@ -58,11 +64,10 @@ const PASSTHROUGH_TOOLS = new Set(["note", "hole-callout", "datum", "gdt", "surf
  * file (views, notes) converts screen-pixel deltas back to sheet-mm by dividing by this. */
 const SHEET_SCALE = 2.5;
 
-/** Views only Front/Top/Right can take a Section cut from — Iso's projection axes aren't
- * world-axis-aligned (see `kernel/drawingProjection.ts`'s `sectionAxisAndOffset`), and a
- * Section/Detail view has nothing meaningful to further section/detail from itself. */
+/** Views only Front/Top/Right standard views can take a Section cut from — Iso's projection
+ * axes aren't world-axis-aligned, and a derived view has no stable source plane of its own. */
 function isSectionable(view: DrawingViewData): boolean {
-  return view.kind !== "detail" && view.projection !== "iso";
+  return (!view.kind || view.kind === "standard") && view.projection !== "iso";
 }
 
 /**
@@ -86,6 +91,25 @@ function tornCirclePath(cx: number, cy: number, r: number): string {
   return `M ${points[0]} L ${points.slice(1).join(" L ")} Z`;
 }
 
+/** One ISO 128 break line: a zigzag along the perpendicular extent `from`..`to`, crossing
+ * the break position `at` — used both by `View`'s own in-view marks (view-local space) and
+ * by `BrokenCalloutView` (sheet space, already scaled). Built in a loop rather than as a
+ * fixed segment string so the mark always spans the whole view, however tall/wide it is;
+ * the first and last points sit exactly on the line so the ends stay flush. */
+function brokenMarkPath(orientation: "horizontal" | "vertical", at: number, from: number, to: number): string {
+  const points: string[] = [];
+  let offset = 3;
+  for (let position = from + 5; position < to; position += 5) {
+    points.push(orientation === "vertical" ? `${at + offset} ${position}` : `${position} ${at + offset}`);
+    offset = -offset;
+  }
+  const startPoint = orientation === "vertical" ? `${at} ${from}` : `${from} ${at}`;
+  const endPoint = orientation === "vertical" ? `${at} ${to}` : `${to} ${at}`;
+  return points.length === 0
+    ? `M ${startPoint} L ${endPoint}`
+    : `M ${startPoint} L ${points.join(" L ")} L ${endPoint}`;
+}
+
 /** One placed view's actual projected geometry: visible edges solid, hidden edges dashed,
  * labelled underneath. A Detail view crops this same rendering to a circle via `detailOf`
  * — see its own doc comment in `types/document.ts` for the coordinate space it's in. */
@@ -95,19 +119,30 @@ function View({ view }: { view: DrawingViewData }) {
   const x = view.x - width / 2;
   const y = view.y - height / 2;
   const detail = view.kind === "detail" ? view.detailOf : undefined;
+  const crop = view.kind === "crop" ? view.cropOf : undefined;
+  const broken = view.kind === "broken" ? view.brokenOf : undefined;
 
   const viewBoxStr = detail
     ? `${detail.cx - detail.radius} ${detail.cy - detail.radius} ${detail.radius * 2} ${detail.radius * 2}`
+    : crop
+      ? `${crop.x} ${crop.y} ${crop.width} ${crop.height}`
     : `0 0 ${view.width} ${view.height}`;
-  const flipTranslateY = detail ? detail.sourceHeight : view.height;
-  const clipId = detail ? `detail-clip-${view.id}` : undefined;
+  const flipTranslateY = detail?.sourceHeight ?? crop?.sourceHeight ?? view.height;
+  const clipId = detail || crop ? `crop-clip-${view.id}` : undefined;
+  const brokenPath = broken
+    ? `${brokenMarkPath(broken.orientation, broken.start, 0, broken.orientation === "vertical" ? view.height : view.width)} ${brokenMarkPath(broken.orientation, broken.end, 0, broken.orientation === "vertical" ? view.height : view.width)}`
+    : undefined;
 
   return (
     <>
       <svg x={x} y={y} width={width} height={height} viewBox={viewBoxStr} overflow="visible">
-        {clipId && detail && (
+        {clipId && (
           <clipPath id={clipId}>
-            <circle cx={detail.cx} cy={detail.cy} r={detail.radius} />
+            {detail ? (
+              <circle cx={detail.cx} cy={detail.cy} r={detail.radius} />
+            ) : (
+              <rect x={crop!.x} y={crop!.y} width={crop!.width} height={crop!.height} />
+            )}
           </clipPath>
         )}
         {/* replicad's own `toSVGPathD()` already mirrors CAD-space (Y-up) into SVG
@@ -141,11 +176,22 @@ function View({ view }: { view: DrawingViewData }) {
               <path key={`thread-${index}`} d={d} className={styles.threadEdge} />
             ))}
           </g>
+          {broken && (
+            <rect
+              x={broken.orientation === "vertical" ? broken.start : 0}
+              y={broken.orientation === "horizontal" ? broken.start : 0}
+              width={broken.orientation === "vertical" ? broken.end - broken.start : view.width}
+              height={broken.orientation === "horizontal" ? broken.end - broken.start : view.height}
+              className={styles.brokenMask}
+            />
+          )}
         </g>
         {/* Drawn outside the clip so the torn edge itself stays visible rather than being
             cropped away by the very circle it traces — see `tornCirclePath`'s own doc
             comment for why this is jagged rather than a plain `<circle>`. */}
         {detail && <path d={tornCirclePath(detail.cx, detail.cy, detail.radius)} className={styles.detailTornBoundary} />}
+        {crop && <rect x={crop.x} y={crop.y} width={crop.width} height={crop.height} className={styles.cropBoundary} />}
+        {broken && <path d={brokenPath} className={styles.brokenMark} />}
       </svg>
       {/* Rendered in the *sheet's* own coordinate system, not the nested viewBox above —
           a Detail view's viewBox only spans its own small crop radius, which would make
@@ -340,6 +386,73 @@ function DetailCalloutView({ sourceView, detailOf, label }: { sourceView: Drawin
       <circle cx={cx} cy={cy} r={r} className={styles.detailCalloutCircle} />
       <line x1={cx + r * 0.7} y1={cy - r * 0.7} x2={labelX} y2={labelY + 2} className={styles.sectionMarkLine} />
       <text x={labelX} y={labelY} textAnchor="middle" dominantBaseline="middle" className={styles.sectionMarkLabel}>
+        {label}
+      </text>
+    </g>
+  );
+}
+
+function CropCalloutView({ sourceView, cropOf, label }: { sourceView: DrawingViewData; cropOf: NonNullable<DrawingViewData["cropOf"]>; label: string }) {
+  const width = sourceView.width * sourceView.scale;
+  const height = sourceView.height * sourceView.scale;
+  const left = sourceView.x - width / 2;
+  const top = sourceView.y - height / 2;
+  const x = left + cropOf.x * sourceView.scale;
+  const y = top + cropOf.y * sourceView.scale;
+  const cropWidth = cropOf.width * sourceView.scale;
+  const cropHeight = cropOf.height * sourceView.scale;
+  const labelX = x + cropWidth + 8;
+  const labelY = y + cropHeight / 2;
+
+  return (
+    <g className={styles.sectionMark}>
+      <rect x={x} y={y} width={cropWidth} height={cropHeight} className={styles.cropCalloutRect} />
+      <line x1={x + cropWidth} y1={y + cropHeight / 2} x2={labelX} y2={labelY} className={styles.sectionMarkLine} />
+      <text x={labelX + 2} y={labelY} dominantBaseline="middle" className={styles.sectionMarkLabel}>
+        {label}
+      </text>
+    </g>
+  );
+}
+
+function BrokenCalloutView({ sourceView, brokenOf, label }: { sourceView: DrawingViewData; brokenOf: NonNullable<DrawingViewData["brokenOf"]>; label: string }) {
+  const width = sourceView.width * sourceView.scale;
+  const height = sourceView.height * sourceView.scale;
+  const left = sourceView.x - width / 2;
+  const top = sourceView.y - height / 2;
+  const start = (brokenOf.orientation === "vertical" ? left : top) + brokenOf.start * sourceView.scale;
+  const end = (brokenOf.orientation === "vertical" ? left : top) + brokenOf.end * sourceView.scale;
+  const markFrom = brokenOf.orientation === "vertical" ? top : left;
+  const markTo = markFrom + (brokenOf.orientation === "vertical" ? height : width);
+  const points = `${brokenMarkPath(brokenOf.orientation, start, markFrom, markTo)} ${brokenMarkPath(brokenOf.orientation, end, markFrom, markTo)}`;
+  const labelX = brokenOf.orientation === "vertical" ? (start + end) / 2 : left + width / 2;
+  const labelY = brokenOf.orientation === "vertical" ? top - 6 : (start + end) / 2;
+
+  return (
+    <g className={styles.sectionMark}>
+      <path d={points} className={styles.brokenCallout} />
+      <text x={labelX} y={labelY} textAnchor="middle" dominantBaseline="middle" className={styles.sectionMarkLabel}>
+        {label}
+      </text>
+    </g>
+  );
+}
+
+function AuxiliaryCalloutView({ sourceView, auxiliaryOf, label }: { sourceView: DrawingViewData; auxiliaryOf: NonNullable<DrawingViewData["auxiliaryOf"]>; label: string }) {
+  const width = sourceView.width * sourceView.scale;
+  const height = sourceView.height * sourceView.scale;
+  const left = sourceView.x - width / 2;
+  const top = sourceView.y - height / 2;
+  const x1 = left + width;
+  const y1 = top + height / 2;
+  const x2 = x1 + 14;
+  const y2 = y1 - 10;
+  return (
+    <g className={styles.sectionMark}>
+      <title>{`${auxiliaryOf.angle}° auxiliary tilt`}</title>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} className={styles.auxiliaryLeader} />
+      <polygon points={`${x1},${y1} ${x1 + 5},${y1 - 2} ${x1 + 3},${y1 + 3}`} className={styles.sectionMarkArrow} />
+      <text x={x2 + 2} y={y2} dominantBaseline="middle" className={styles.sectionMarkLabel}>
         {label}
       </text>
     </g>
@@ -808,6 +921,12 @@ export function DrawingSheet() {
   const detailSourceViewId = useDrawingToolStore((state) => state.detailSourceViewId);
   const pickSectionSource = useDrawingToolStore((state) => state.pickSectionSource);
   const pickDetailSource = useDrawingToolStore((state) => state.pickDetailSource);
+  const auxiliarySourceViewId = useDrawingToolStore((state) => state.auxiliarySourceViewId);
+  const pickAuxiliarySource = useDrawingToolStore((state) => state.pickAuxiliarySource);
+  const cropSourceViewId = useDrawingToolStore((state) => state.cropSourceViewId);
+  const pickCropSource = useDrawingToolStore((state) => state.pickCropSource);
+  const brokenSourceViewId = useDrawingToolStore((state) => state.brokenSourceViewId);
+  const pickBrokenSource = useDrawingToolStore((state) => state.pickBrokenSource);
   const dimensionFirstPoint = useDrawingToolStore((state) => state.dimensionFirstPoint);
   const pickDimensionFirstPoint = useDrawingToolStore((state) => state.pickDimensionFirstPoint);
   const ordinateDatum = useDrawingToolStore((state) => state.ordinateDatum);
@@ -1376,7 +1495,20 @@ export function DrawingSheet() {
               pickable={
                 (tool === "section" && !sectionSourceViewId && isSectionable(view)) ||
                 (tool === "detail" && !detailSourceViewId) ||
-                (tool === "projected" && view.kind === "standard")
+                (tool === "projected" && view.kind === "standard") ||
+                (tool === "auxiliary" &&
+                  !auxiliarySourceViewId &&
+                  view.kind === "standard" &&
+                  view.projection !== "iso") ||
+                // Crop sources are limited to views whose cached paths flip against their
+                // *own* height: a detail view's cache needs `detailOf.sourceHeight` and a
+                // broken view's mask would be silently dropped by the crop's plain copy.
+                (tool === "crop" &&
+                  !cropSourceViewId &&
+                  (!view.kind || view.kind === "standard" || view.kind === "section" || view.kind === "auxiliary")) ||
+                (tool === "broken" &&
+                  !brokenSourceViewId &&
+                  (view.kind === "standard" || view.kind === "auxiliary"))
               }
               passthrough={PASSTHROUGH_TOOLS.has(tool)}
               onSelect={() => {
@@ -1392,6 +1524,12 @@ export function DrawingSheet() {
                 else if (tool === "projected") {
                   void runCreateProjectedView(view);
                   setTool("select");
+                } else if (tool === "auxiliary") {
+                  pickAuxiliarySource(view.id);
+                } else if (tool === "crop") {
+                  pickCropSource(view.id, localX, localY);
+                } else if (tool === "broken") {
+                  pickBrokenSource(view.id);
                 }
               }}
             />
@@ -1416,6 +1554,42 @@ export function DrawingSheet() {
                   sourceView={sourceView}
                   detailOf={detailView.detailOf!}
                   label={detailView.label}
+                />
+              )),
+          )}
+          {views.map((sourceView) =>
+            views
+              .filter((view) => view.kind === "crop" && view.cropOf?.sourceViewId === sourceView.id)
+              .map((cropView) => (
+                <CropCalloutView
+                  key={`crop-${cropView.id}`}
+                  sourceView={sourceView}
+                  cropOf={cropView.cropOf!}
+                  label={cropView.label}
+                />
+              )),
+          )}
+          {views.map((sourceView) =>
+            views
+              .filter((view) => view.kind === "broken" && view.brokenOf?.sourceViewId === sourceView.id)
+              .map((brokenView) => (
+                <BrokenCalloutView
+                  key={`broken-${brokenView.id}`}
+                  sourceView={sourceView}
+                  brokenOf={brokenView.brokenOf!}
+                  label={brokenView.label}
+                />
+              )),
+          )}
+          {views.map((sourceView) =>
+            views
+              .filter((view) => view.kind === "auxiliary" && view.auxiliaryOf?.sourceViewId === sourceView.id)
+              .map((auxiliaryView) => (
+                <AuxiliaryCalloutView
+                  key={`auxiliary-${auxiliaryView.id}`}
+                  sourceView={sourceView}
+                  auxiliaryOf={auxiliaryView.auxiliaryOf!}
+                  label={auxiliaryView.label}
                 />
               )),
           )}
@@ -1535,6 +1709,9 @@ export function DrawingSheet() {
 
           {tool === "section" && <SectionOverlay />}
           {tool === "detail" && <DetailOverlay />}
+          {tool === "auxiliary" && <AuxiliaryOverlay />}
+          {tool === "crop" && <CropOverlay />}
+          {tool === "broken" && <BrokenOverlay />}
 
           {titleBlock && border && (
             <g

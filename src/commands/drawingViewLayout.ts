@@ -265,3 +265,35 @@ export function repositionStandardViews(views: DrawingViewData[], method: Projec
     return position ? { ...view, x: position.x, y: position.y } : view;
   });
 }
+
+export interface CropRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Keeps a crop window inside its source view and prevents a degenerate SVG viewBox. */
+export function clampCropRegion(
+  sourceWidth: number,
+  sourceHeight: number,
+  region: CropRegion,
+): CropRegion {
+  const width = Math.max(4, Math.min(region.width, sourceWidth));
+  const height = Math.max(4, Math.min(region.height, sourceHeight));
+  return {
+    x: Math.max(0, Math.min(region.x, sourceWidth - width)),
+    y: Math.max(0, Math.min(region.y, sourceHeight - height)),
+    width,
+    height,
+  };
+}
+
+/** Normalises a broken-view band, preserving the requested direction while ensuring the
+ * omitted strip has a visible minimum width and stays inside the source extent. */
+export function clampBrokenBand(extent: number, start: number, end: number): { start: number; end: number } {
+  const minimumBand = Math.min(4, Math.max(extent, 0));
+  const safeStart = Math.max(0, Math.min(start, Math.max(0, extent - minimumBand)));
+  const safeEnd = Math.max(safeStart + minimumBand, Math.min(end, extent));
+  return { start: safeStart, end: safeEnd };
+}

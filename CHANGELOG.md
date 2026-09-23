@@ -7,6 +7,30 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-09-23 — Auxiliary, broken, and crop drawing views (v0.27.0)
+
+The first Phase 3 drawing round adds the three view types that were still missing after the
+standard, section, detail, and projected-view work.
+
+### Added — derived drawing views
+- **Auxiliary View** picks a Front/Top/Right standard view and creates a real OpenCASCADE
+  projection tilted around that view's horizontal or vertical screen axis. The UI bounds the
+  angle to ±60° and starts at 30°, which gives an honest supplementary view without claiming
+  arbitrary face selection before the app has persistent face identity.
+- **Broken View** shortens a long view by masking a configurable horizontal or vertical band
+  and drawing break marks at both edges. The omitted region is persisted in source-view-local
+  coordinates, so moving the source view does not change the break.
+- **Crop View** creates a rectangular, same-scale window into any existing view's cached
+  geometry. It complements Detail's circular 2× magnification rather than replacing it.
+- Each derived view persists its source id and designation (`AUXILIARY A`, `BROKEN A`, or
+  `CROP A`), draws its source-view callout, and survives save/reopen without re-running the
+  kernel. Update Views continues to refresh plain standard projections only; Section, Detail,
+  Auxiliary, Broken, and Crop caches are deliberately not replaced by unrelated standard
+  geometry, so recreate a derived view after changing its source part.
+- Three layout pins cover crop clamping and broken-band normalization; the projection suite
+  also pins a real tilted auxiliary projection. The ribbon E2E pin confirms all three commands
+  are wired. 185 unit tests total, up from 181.
+
 ## 2026-09-23 — Update Views skips work it can prove is redundant (v0.26.0)
 
 The last Phase 2 round, and it replaces the roadmap's planned item rather than implementing

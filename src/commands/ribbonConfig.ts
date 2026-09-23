@@ -314,6 +314,9 @@ export const RIBBON_TABS: RibbonTab[] = [
           { id: "drawing.projected", label: "Projected", icon: Grid2x2, size: "small", description: "Project a view from an existing one" },
           { id: "drawing.section", label: "Section", icon: Slice, size: "small", description: "Create a section view from a cutting line" },
           { id: "drawing.detail", label: "Detail", icon: ZoomIn, size: "small", description: "Create an enlarged detail view" },
+          { id: "drawing.auxiliary", label: "Auxiliary", icon: Move, size: "small", description: "Create a tilted supplementary view" },
+          { id: "drawing.broken", label: "Broken", icon: Scissors, size: "small", description: "Shorten a long view by omitting a band" },
+          { id: "drawing.crop", label: "Crop", icon: Frame, size: "small", description: "Create a rectangular crop of a view" },
         ],
       },
       {

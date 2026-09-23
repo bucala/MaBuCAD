@@ -90,13 +90,19 @@ test("Insert Model View projects the default views under the shipped Tauri CSP",
   // just a toast) landed.
   await expect(page.getByRole("button", { name: "Update Views" })).toBeVisible();
 
+  // The Phase 3 derived-view commands must be real Drawing commands, not ribbon placeholders.
+  await page.getByTestId("ribbon").getByRole("tab", { name: "Drawing" }).click();
+  await expect(page.getByRole("button", { name: "Auxiliary" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Broken" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Crop" })).toBeVisible();
+
   // Updating against the *same, unchanged* part file must recognise that re-projecting
   // could only reproduce the cache it already has, and skip the part rebuild entirely
   // (`DrawingSheetData.sourceContentHash`). Proven from the outside by the command's own
   // report: the "unchanged" wording is only reachable through the skip branch, never
   // through a real re-projection, which reports "Views updated" instead.
   const updateChooserPromise = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Update Views" }).click();
+  await page.getByRole("button", { name: "Update Views" }).last().click();
   await (await updateChooserPromise).setFiles(partPath);
   await expect(page.getByTestId("geometry-status")).toContainText(/unchanged — views are already up to date/i, {
     timeout: 60_000,

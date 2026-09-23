@@ -226,10 +226,15 @@ export type DrawingProjectionKind = StandardProjectionKind;
  * refreshes this cache after the referenced part changes.
  */
 /** A standard view is a plain projection; a section view is a standard view's projection
- * kind but of a solid that's been cut first (`section` carries the cut); a detail view
- * isn't projected from the solid at all — it's a magnified crop of another view's own
- * already-cached paths (`detailOf`). */
-export type DrawingViewKind = "standard" | "section" | "detail";
+ * kind but of a solid that's been cut first (`section` carries the cut); auxiliary is a
+ * second kernel projection tilted from a standard camera (`auxiliaryOf`); detail/crop/broken
+ * views are derived from another view's cached paths (`detailOf`/`cropOf`/`brokenOf`). */
+export type DrawingViewKind = "standard" | "section" | "auxiliary" | "detail" | "crop" | "broken";
+
+/** Which rendered screen axis a Section cut line, an Auxiliary tilt, or a Broken band runs
+ * along — the one shared meaning behind the "horizontal" | "vertical" literals these three
+ * derived-view kinds persist. */
+export type ScreenAxis = "horizontal" | "vertical";
 
 /**
  * The Hole Wizard facts a Drawing Hole Callout needs, snapshotted at projection time.
@@ -370,8 +375,19 @@ export interface DrawingViewData {
     offset: number;
     keepPositiveSide: boolean;
     sourceViewId: string;
-    orientation: "horizontal" | "vertical";
+    orientation: ScreenAxis;
     localScreenPosition: number;
+    letter: string;
+  };
+  /** Auxiliary view only: the standard orthographic camera it tilts from, the screen axis
+   * it rotates around, and the signed angle in degrees. The source id is kept so the sheet
+   * can draw the auxiliary-view reference mark and so a saved drawing remains explainable
+   * after the source view moves. */
+  auxiliaryOf?: {
+    sourceViewId: string;
+    baseProjection: Exclude<StandardProjectionKind, "iso">;
+    tiltAxis: ScreenAxis;
+    angle: number;
     letter: string;
   };
   /** Detail view only: which view it was cropped from and the circular region (in that
@@ -381,6 +397,26 @@ export interface DrawingViewData {
    * `cx`/`cy`/`radius` also drive the matching boundary circle + leadered letter callout
    * drawn back onto the source view — see `DrawingSheet.tsx`'s `DetailCalloutView`. */
   detailOf?: { sourceViewId: string; cx: number; cy: number; radius: number; sourceHeight: number };
+  /** Crop view only: a rectangular, same-scale window into another view's cached paths.
+   * Coordinates are in the source view's rendered local space, before its sheet scale. */
+  cropOf?: {
+    sourceViewId: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceHeight: number;
+    letter: string;
+  };
+  /** Broken view only: the omitted band is masked at render time and replaced by two ISO
+   * 128 break marks. `start`/`end` are along the source view's rendered local X or Y axis. */
+  brokenOf?: {
+    sourceViewId: string;
+    orientation: ScreenAxis;
+    start: number;
+    end: number;
+    letter: string;
+  };
 }
 
 /** A freeform text annotation placed directly on the sheet (not attached to a view) —

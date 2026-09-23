@@ -1,5 +1,7 @@
 import {
   DEFAULT_PROJECTION_METHOD,
+  clampBrokenBand,
+  clampCropRegion,
   layoutInitialViews,
   repositionStandardViews,
   VIEW_GAP,
@@ -7,10 +9,12 @@ import {
 } from "@/commands/drawingViewLayout";
 import { openFile, readFileAtPath, statAtPath } from "@/io/files";
 import {
+  rebuildAndProjectAuxiliary,
   rebuildAndProjectPart,
   rebuildAndProjectSection,
   sectionAxisAndOffset,
   sectionViewCamera,
+  type AuxiliaryTiltAxis,
   type OrthoProjection,
 } from "@/kernel/drawingProjection";
 import { viewsMatchSource } from "@/kernel/drawingStaleness";
@@ -23,6 +27,7 @@ import type {
   CadDocument,
   DrawingSheetData,
   DrawingViewData,
+  ScreenAxis,
   StandardProjectionKind,
 } from "@/types/document";
 
@@ -175,7 +180,7 @@ export async function runUpdateViews(): Promise<void> {
     const { document: partDocument, sketches, label, contentHash: onDiskHash } = source;
 
     const current = useDocumentStore.getState().document.drawing;
-    const hasStandardViews = current?.views.some((view) => view.kind !== "section" && view.kind !== "detail");
+    const hasStandardViews = current?.views.some((view) => !view.kind || view.kind === "standard");
     // The part file is byte-for-byte what these views were projected from, so a rebuild and
     // re-projection would reproduce the cache it already has — seconds of kernel work for a
     // guaranteed identical result. Re-stamp instead, which also clears the out-of-date
@@ -197,12 +202,15 @@ export async function runUpdateViews(): Promise<void> {
     const sheet = useDocumentStore.getState().document.drawing;
     if (!sheet) return;
 
-    // Section and Detail views aren't a plain re-projection of `view.projection` (a
-    // section is a *cut* solid, a detail is a crop of another view's own cache) — blanket-
-    // refreshing them from `projected.views` here would silently replace either with the
-    // wrong geometry. They keep their last-computed cache until recreated by their own tool.
+    // No derived view (Section/Detail/Auxiliary/Crop/Broken) is a plain re-projection of
+    // `view.projection` — a section is a *cut* solid, an auxiliary a tilted re-projection,
+    // and detail/crop/broken are 2D derivations of another view's own cache. Blanket-
+    // refreshing them from `projected.views` here would silently replace any of them with
+    // the wrong geometry. They keep their last-computed cache until recreated by their own
+    // tool (auxiliary could be refreshed via `rebuildAndProjectAuxiliary`; that wiring is a
+    // deliberate later step, not an oversight).
     const refreshed = sheet.views.map((view) => {
-      if (view.kind === "section" || view.kind === "detail") return view;
+      if (view.kind && view.kind !== "standard") return view;
       // Safe: only a "standard" view reaches here, and those are always created with one
       // of `StandardProjectionKind`'s own values (see `layoutInitialViews`/
       // `repositionStandardViews` in `drawingViewLayout.ts`).
@@ -245,7 +253,7 @@ export async function runUpdateViews(): Promise<void> {
  */
 export async function runCreateSectionView(
   sourceView: DrawingViewData,
-  orientation: "horizontal" | "vertical",
+  orientation: ScreenAxis,
   localScreenPosition: number,
   flipped: boolean,
 ): Promise<void> {
@@ -273,8 +281,11 @@ export async function runCreateSectionView(
       return;
     }
 
-    const existingSectionCount = document.drawing?.views.filter((view) => view.kind === "section").length ?? 0;
-    const letter = String.fromCharCode(65 + existingSectionCount);
+    // Read the sheet fresh — the earlier `document` snapshot predates the file pick, so
+    // anything created while it was open would make this count (and letter) stale.
+    const sheet = useDocumentStore.getState().document.drawing;
+    if (!sheet) return;
+    const letter = nextDerivedLetter(sheet, "section");
 
     const newView: DrawingViewData = {
       id: crypto.randomUUID(),
@@ -321,8 +332,7 @@ export function runCreateDetailView(sourceView: DrawingViewData, cx: number, cy:
   const sheet = useDocumentStore.getState().document.drawing;
   if (!sheet) return;
 
-  const existingDetailCount = sheet.views.filter((view) => view.kind === "detail").length;
-  const letter = String.fromCharCode(65 + existingDetailCount);
+  const letter = nextDerivedLetter(sheet, "detail");
   const scale = sourceView.scale * 2;
 
   const newView: DrawingViewData = {
@@ -342,6 +352,164 @@ export function runCreateDetailView(sourceView: DrawingViewData, cx: number, cy:
 
   useDocumentStore.getState().addDrawingView(newView);
   useDrawingToolStore.getState().resetPicking();
+}
+
+function nextDerivedLetter(sheet: DrawingSheetData, kind: DrawingViewData["kind"]): string {
+  const count = sheet.views.filter((view) => view.kind === kind).length;
+  return String.fromCharCode(65 + count);
+}
+
+/**
+ * Creates a Crop view: a same-scale rectangular window into a source view's cached paths.
+ * Unlike Detail, it is not magnified and uses a rectangular engineering crop boundary.
+ */
+export function runCreateCropView(
+  sourceView: DrawingViewData,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  const sheet = useDocumentStore.getState().document.drawing;
+  if (!sheet) return;
+
+  const crop = clampCropRegion(sourceView.width, sourceView.height, { x, y, width, height });
+  const letter = nextDerivedLetter(sheet, "crop");
+
+  const newView: DrawingViewData = {
+    id: crypto.randomUUID(),
+    label: `CROP ${letter}`,
+    projection: sourceView.projection,
+    kind: "crop",
+    x: sourceView.x + sourceView.width * sourceView.scale + crop.width * sourceView.scale / 2 + 30,
+    y: sourceView.y,
+    scale: sourceView.scale,
+    visiblePaths: sourceView.visiblePaths,
+    hiddenPaths: sourceView.hiddenPaths,
+    width: crop.width,
+    height: crop.height,
+    originX: sourceView.originX,
+    originY: sourceView.originY,
+    threadPaths: sourceView.threadPaths,
+    holeTargets: sourceView.holeTargets,
+    cropOf: {
+      sourceViewId: sourceView.id,
+      ...crop,
+      sourceHeight: sourceView.height,
+      letter,
+    },
+  };
+
+  useDocumentStore.getState().addDrawingView(newView);
+  useDrawingToolStore.getState().resetPicking();
+  useGeometryStore.getState().showToast("Crop view created");
+}
+
+/**
+ * Creates a Broken view: the source geometry remains the same, but the middle band is
+ * masked at render time so a long repetitive part can be shortened without rebuilding it.
+ */
+export function runCreateBrokenView(
+  sourceView: DrawingViewData,
+  orientation: ScreenAxis,
+  start: number,
+  end: number,
+): void {
+  const sheet = useDocumentStore.getState().document.drawing;
+  if (!sheet) return;
+
+  const extent = orientation === "vertical" ? sourceView.width : sourceView.height;
+  const { start: bandStart, end: bandEnd } = clampBrokenBand(extent, start, end);
+  const letter = nextDerivedLetter(sheet, "broken");
+  const newView: DrawingViewData = {
+    id: crypto.randomUUID(),
+    label: `BROKEN ${letter}`,
+    projection: sourceView.projection,
+    kind: "broken",
+    x: sourceView.x + sourceView.width * sourceView.scale + 40,
+    y: sourceView.y,
+    scale: sourceView.scale,
+    visiblePaths: sourceView.visiblePaths,
+    hiddenPaths: sourceView.hiddenPaths,
+    width: sourceView.width,
+    height: sourceView.height,
+    originX: sourceView.originX,
+    originY: sourceView.originY,
+    threadPaths: sourceView.threadPaths,
+    holeTargets: sourceView.holeTargets,
+    brokenOf: {
+      sourceViewId: sourceView.id,
+      orientation,
+      start: bandStart,
+      end: bandEnd,
+      letter,
+    },
+  };
+
+  useDocumentStore.getState().addDrawingView(newView);
+  useDrawingToolStore.getState().resetPicking();
+  useGeometryStore.getState().showToast("Broken view created");
+}
+
+/**
+ * Creates an Auxiliary view by re-projecting the referenced part with a 30° (or user-set)
+ * tilt from a Front/Top/Right source view. ISO is intentionally not offered as a base because
+ * it has no single orthographic screen axis to use as the auxiliary reference.
+ */
+export async function runCreateAuxiliaryView(
+  sourceView: DrawingViewData,
+  tiltAxis: AuxiliaryTiltAxis,
+  angle: number,
+): Promise<void> {
+  const { showToast } = useGeometryStore.getState();
+  const { document } = useDocumentStore.getState();
+  const sourcePart = document.drawing?.sourcePart;
+  if (!sourcePart || sourceView.kind !== "standard" || sourceView.projection === "iso") return;
+
+  try {
+    const source = await readSourcePart(sourcePart, `Pick ${sourcePart.fileName} again to create the auxiliary view`);
+    if (!source) return;
+
+    showToast("Creating auxiliary view…", 15000);
+    const projected = await rebuildAndProjectAuxiliary(
+      source.document,
+      source.sketches,
+      sourceView.projection as OrthoProjection,
+      tiltAxis,
+      angle,
+    );
+    if (!projected) {
+      showToast(`${source.label} has no geometry to project`, 5000);
+      return;
+    }
+
+    const sheet = useDocumentStore.getState().document.drawing;
+    if (!sheet) return;
+    const letter = nextDerivedLetter(sheet, "auxiliary");
+    const newView: DrawingViewData = {
+      id: crypto.randomUUID(),
+      label: `AUXILIARY ${letter}`,
+      projection: sourceView.projection,
+      kind: "auxiliary",
+      x: sourceView.x + sourceView.width * sourceView.scale + 50,
+      y: sourceView.y,
+      scale: sourceView.scale,
+      ...projected,
+      auxiliaryOf: {
+        sourceViewId: sourceView.id,
+        baseProjection: sourceView.projection as Exclude<StandardProjectionKind, "iso">,
+        tiltAxis,
+        angle,
+        letter,
+      },
+    };
+
+    useDocumentStore.getState().addDrawingView(newView);
+    useDrawingToolStore.getState().resetPicking();
+    showToast("Auxiliary view created");
+  } catch (error) {
+    showToast(`Auxiliary view failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
+  }
 }
 
 /** `drawing.projected`: preference order of the other directions, given whichever one was

@@ -4,7 +4,7 @@ import { resolveTapDrill } from "@/data/holeResolution";
 import type { Sketch } from "@/sketch/types";
 import type { CadDocument, Feature } from "@/types/document";
 
-import { rebuildAndProjectPart } from "./drawingProjection";
+import { auxiliaryCamera, rebuildAndProjectAuxiliary, rebuildAndProjectPart } from "./drawingProjection";
 import { initKernel } from "./occ";
 import { __clearRebuildCacheForTesting } from "./rebuild";
 
@@ -145,6 +145,28 @@ describe("drawing projection hole targets", () => {
           seatDepthOrAngle: 6.8,
         },
       });
+    },
+    120_000,
+  );
+});
+
+describe("auxiliary drawing projection", () => {
+  it(
+    "tilts a standard camera and returns real projected geometry",
+    async () => {
+      await initKernel();
+      __clearRebuildCacheForTesting();
+      const { document, sketches } = tappedHoleDocument();
+
+      const base = auxiliaryCamera("front", "horizontal", 0).direction.toTuple();
+      const tilted = auxiliaryCamera("front", "horizontal", 30).direction.toTuple();
+      expect(tilted).not.toEqual(base);
+
+      const projected = await rebuildAndProjectAuxiliary(document, sketches, "front", "horizontal", 30);
+      expect(projected).not.toBeNull();
+      expect(projected?.width).toBeGreaterThan(0);
+      expect(projected?.height).toBeGreaterThan(0);
+      expect(projected?.visiblePaths.length).toBeGreaterThan(0);
     },
     120_000,
   );
