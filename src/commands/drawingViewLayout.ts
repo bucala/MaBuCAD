@@ -266,6 +266,62 @@ export function repositionStandardViews(views: DrawingViewData[], method: Projec
   });
 }
 
+/**
+ * The creation-direction alignment link of a view: which sheet axis it shares with its
+ * source, the coordinate that locks it, and the source's id — the drafting convention that
+ * a projected/section view slides along its projection direction but stays square with the
+ * view it was made from.
+ *
+ * Standard views align to Front (top/bottom share its X, left/right/back share its Y) —
+ * the same association `computeStandardViewPositions` lays them out with, kept live while
+ * dragging. A Section locks the axis *perpendicular* to its cut line's orientation (a
+ * vertical cut projects horizontally, so Y stays locked) and an Auxiliary locks the axis
+ * perpendicular to its tilt axis. Detail/Crop/Broken views return `null`: drafting places
+ * them freely. The link is reported regardless of `alignmentUnlocked` — callers decide
+ * whether it currently applies (a drag) or is being restored (re-link snaps back to it).
+ */
+export function alignmentLinkFor(
+  view: DrawingViewData,
+  views: DrawingViewData[],
+): { axis: "x" | "y"; coordinate: number; sourceId: string } | null {
+  const source = (id: string | undefined) => views.find((candidate) => candidate.id === id);
+
+  if (view.kind === "section" && view.section) {
+    const parent = source(view.section.sourceViewId);
+    if (!parent) return null;
+    return view.section.orientation === "vertical"
+      ? { axis: "y", coordinate: parent.y, sourceId: parent.id }
+      : { axis: "x", coordinate: parent.x, sourceId: parent.id };
+  }
+  if (view.kind === "auxiliary" && view.auxiliaryOf) {
+    const parent = source(view.auxiliaryOf.sourceViewId);
+    if (!parent) return null;
+    return view.auxiliaryOf.tiltAxis === "horizontal"
+      ? { axis: "x", coordinate: parent.x, sourceId: parent.id }
+      : { axis: "y", coordinate: parent.y, sourceId: parent.id };
+  }
+  if (!view.kind || view.kind === "standard") {
+    if (view.projection === "front" || view.projection === "iso") return null;
+    const front = views.find(
+      (candidate) => candidate.id !== view.id && (!candidate.kind || candidate.kind === "standard") && candidate.projection === "front",
+    );
+    if (!front) return null;
+    return view.projection === "top" || view.projection === "bottom"
+      ? { axis: "x", coordinate: front.x, sourceId: front.id }
+      : { axis: "y", coordinate: front.y, sourceId: front.id };
+  }
+  return null;
+}
+
+/** The link as it applies right now — absent when the user has deliberately unlinked the
+ * view (`alignmentUnlocked`), which is the whole point of that flag. */
+export function alignmentTargetFor(
+  view: DrawingViewData,
+  views: DrawingViewData[],
+): { axis: "x" | "y"; coordinate: number; sourceId: string } | null {
+  return view.alignmentUnlocked ? null : alignmentLinkFor(view, views);
+}
+
 export interface CropRegion {
   x: number;
   y: number;

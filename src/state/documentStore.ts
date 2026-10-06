@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import { alignmentLinkFor } from "@/commands/drawingViewLayout";
 import type {
   CadDocument,
   DocumentKind,
@@ -246,7 +247,12 @@ interface DocumentStore {
    * `updateDrawingView` so a bound dimension/datum/GD&T/surface-finish/weld/ordinate-chain
    * actually moves with its view, matching `DrawingViewData`'s own "bound annotations" doc
    * comment. A no-op patch to unbound annotations, same as today. */
-  moveDrawingView: (id: string, x: number, y: number) => void;
+  /** Moves a view and everything bound to it; locked dependent views (see
+   * `alignmentLinkFor` in `commands/drawingViewLayout.ts`) follow along their free axis.
+   * `patch` merges extra fields into the moved view in the same undo step — used by
+   * re-link, which snaps the view back into alignment and clears `alignmentUnlocked`
+   * atomically. */
+  moveDrawingView: (id: string, x: number, y: number, patch?: Partial<DrawingViewData>) => void;
   deleteDrawingView: (id: string) => void;
   addDrawingView: (view: DrawingViewData) => void;
   addDrawingNote: (note: Omit<DrawingNoteData, "id">) => string;
@@ -744,7 +750,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         };
       }),
 
-    moveDrawingView: (id, x, y) =>
+    moveDrawingView: (id, x, y, patch) =>
       commit((document) => {
         if (!document.drawing) return document;
         const view = document.drawing.views.find((v) => v.id === id);
@@ -752,62 +758,82 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         const dx = x - view.x;
         const dy = y - view.y;
         const drawing = document.drawing;
+        // Locked dependent views follow their source along their free axis (the locked one
+        // is what keeps them square) — dragging Front carries its locked projections'
+        // rows/columns with it, the drafting-package convention.
+        const followers = new Map<string, { dx: number; dy: number }>();
+        for (const candidate of drawing.views) {
+          if (candidate.id === id || candidate.alignmentUnlocked) continue;
+          const link = alignmentLinkFor(candidate, drawing.views);
+          if (!link || link.sourceId !== id) continue;
+          followers.set(candidate.id, link.axis === "y" ? { dx, dy: 0 } : { dx: 0, dy });
+        }
+        const deltaFor = (viewId: string | undefined) =>
+          viewId === id ? { dx, dy } : (followers.get(viewId ?? "") ?? null);
         const shiftBound = <T extends { id: string; parentViewId?: string }>(
           items: T[] | undefined,
-          shift: (item: T) => T,
-        ) => (items ?? []).map((item) => (item.parentViewId === id ? shift(item) : item));
+          shift: (item: T, delta: { dx: number; dy: number }) => T,
+        ) =>
+          (items ?? []).map((item) => {
+            const delta = deltaFor(item.parentViewId);
+            return delta ? shift(item, delta) : item;
+          });
         return {
           ...document,
           drawing: {
             ...drawing,
-            views: drawing.views.map((v) => (v.id === id ? { ...v, x, y } : v)),
-            dimensions: shiftBound(drawing.dimensions, (d) => ({
+            views: drawing.views.map((v) => {
+              if (v.id === id) return { ...v, x, y, ...patch };
+              const follow = followers.get(v.id);
+              return follow ? { ...v, x: v.x + follow.dx, y: v.y + follow.dy } : v;
+            }),
+            dimensions: shiftBound(drawing.dimensions, (d, delta) => ({
               ...d,
-              x1: d.x1 + dx,
-              y1: d.y1 + dy,
-              x2: d.x2 + dx,
-              y2: d.y2 + dy,
+              x1: d.x1 + delta.dx,
+              y1: d.y1 + delta.dy,
+              x2: d.x2 + delta.dx,
+              y2: d.y2 + delta.dy,
             })),
-            ordinateChains: shiftBound(drawing.ordinateChains, (chain) => ({
+            ordinateChains: shiftBound(drawing.ordinateChains, (chain, delta) => ({
               ...chain,
-              datumX: chain.datumX + dx,
-              datumY: chain.datumY + dy,
-              points: chain.points.map((point) => ({ ...point, x: point.x + dx, y: point.y + dy })),
+              datumX: chain.datumX + delta.dx,
+              datumY: chain.datumY + delta.dy,
+              points: chain.points.map((point) => ({ ...point, x: point.x + delta.dx, y: point.y + delta.dy })),
             })),
-            datums: shiftBound(drawing.datums, (datum) => ({
+            datums: shiftBound(drawing.datums, (datum, delta) => ({
               ...datum,
-              anchorX: datum.anchorX + dx,
-              anchorY: datum.anchorY + dy,
-              labelX: datum.labelX + dx,
-              labelY: datum.labelY + dy,
+              anchorX: datum.anchorX + delta.dx,
+              anchorY: datum.anchorY + delta.dy,
+              labelX: datum.labelX + delta.dx,
+              labelY: datum.labelY + delta.dy,
             })),
-            gdtFrames: shiftBound(drawing.gdtFrames, (frame) => ({
+            gdtFrames: shiftBound(drawing.gdtFrames, (frame, delta) => ({
               ...frame,
-              anchorX: frame.anchorX + dx,
-              anchorY: frame.anchorY + dy,
-              labelX: frame.labelX + dx,
-              labelY: frame.labelY + dy,
+              anchorX: frame.anchorX + delta.dx,
+              anchorY: frame.anchorY + delta.dy,
+              labelX: frame.labelX + delta.dx,
+              labelY: frame.labelY + delta.dy,
             })),
-            surfaceFinishes: shiftBound(drawing.surfaceFinishes, (finish) => ({
+            surfaceFinishes: shiftBound(drawing.surfaceFinishes, (finish, delta) => ({
               ...finish,
-              anchorX: finish.anchorX + dx,
-              anchorY: finish.anchorY + dy,
-              labelX: finish.labelX + dx,
-              labelY: finish.labelY + dy,
+              anchorX: finish.anchorX + delta.dx,
+              anchorY: finish.anchorY + delta.dy,
+              labelX: finish.labelX + delta.dx,
+              labelY: finish.labelY + delta.dy,
             })),
-            welds: shiftBound(drawing.welds, (weld) => ({
+            welds: shiftBound(drawing.welds, (weld, delta) => ({
               ...weld,
-              anchorX: weld.anchorX + dx,
-              anchorY: weld.anchorY + dy,
-              labelX: weld.labelX + dx,
-              labelY: weld.labelY + dy,
+              anchorX: weld.anchorX + delta.dx,
+              anchorY: weld.anchorY + delta.dy,
+              labelX: weld.labelX + delta.dx,
+              labelY: weld.labelY + delta.dy,
             })),
-            holeCallouts: shiftBound(drawing.holeCallouts, (callout) => ({
+            holeCallouts: shiftBound(drawing.holeCallouts, (callout, delta) => ({
               ...callout,
-              anchorX: callout.anchorX + dx,
-              anchorY: callout.anchorY + dy,
-              labelX: callout.labelX + dx,
-              labelY: callout.labelY + dy,
+              anchorX: callout.anchorX + delta.dx,
+              anchorY: callout.anchorY + delta.dy,
+              labelX: callout.labelX + delta.dx,
+              labelY: callout.labelY + delta.dy,
             })),
           },
         };

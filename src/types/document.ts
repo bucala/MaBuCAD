@@ -360,6 +360,13 @@ export interface DrawingViewData {
   holeTargets?: DrawingHoleTargetData[];
   /** Absent for a `"standard"` view — see `DrawingViewKind`'s own doc comment. */
   kind?: DrawingViewKind;
+  /** Set when the user has deliberately unlinked this view from its creation-direction
+   * alignment (see `commands/drawingViewLayout.ts`'s `alignmentLinkFor`). Absent means a
+   * view with a source — a standard view relative to Front, a Section, an Auxiliary —
+   * slides only along its projection direction when dragged, and follows its source view
+   * along the free axis when the source itself moves. Detail/Crop/Broken views are always
+   * free (drafting places them arbitrarily), so the flag is meaningless for them. */
+  alignmentUnlocked?: boolean;
   /** Section view only: the world-space cut plane used to produce it, plus enough of the
    * *source* view's own picking state to draw the ISO 128 cutting-plane line (with its
    * direction arrows and `letter-letter` label, e.g. "A-A") back onto that source view —

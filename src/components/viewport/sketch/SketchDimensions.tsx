@@ -6,7 +6,7 @@ import { Plane, Raycaster, Vector2, Vector3 } from "three";
 import { DimensionValueField } from "@/components/shared/DimensionValueField";
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
-import { clampAngleToArcSweep, defaultDimensionAnchor, pointById } from "@/sketch/sketchModel";
+import { angleDimensionGeometry, clampAngleToArcSweep, defaultDimensionAnchor, pointById } from "@/sketch/sketchModel";
 import type { Dimension, Sketch } from "@/sketch/types";
 import { useSketchStore } from "@/state/sketchStore";
 
@@ -239,6 +239,9 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
 
   let leader: [number, number, number][] = [];
   let arrows: [number, number, number][][] = [];
+  // Disjoint single-segment strokes that aren't arrowheads — an angle dimension's witness
+  // (extension) lines. Rendered exactly like arrow strokes below.
+  let witnesses: [number, number, number][][] = [];
   let labelPosition: [number, number, number] = [0, 0, 0.05];
   let text = "";
 
@@ -445,24 +448,82 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     labelPosition = [labelX, labelY, 0.05];
     text = `${dimension.kind === "diameter" ? "⌀" : "R"}${dimension.value.toFixed(2)}`;
   } else if (dimension.kind === "angle") {
-    // No single pair of points defines an angle (it's stored as two line entities), so the
-    // default anchor is the centroid of both lines' four endpoints — close to the vertex
-    // for the common case of two lines that actually meet, and still reasonable when they
-    // don't quite touch.
-    const [firstEntityId, secondEntityId] = dimension.entities;
-    const a = firstEntityId ? sketch.entities.find((candidate) => candidate.id === firstEntityId) : undefined;
-    const b = secondEntityId ? sketch.entities.find((candidate) => candidate.id === secondEntityId) : undefined;
-    const endpoints = [a, b]
-      .filter((line): line is Extract<typeof line, { kind: "line" }> => line?.kind === "line")
-      .flatMap((line) => [pointById(sketch, line.start), pointById(sketch, line.end)])
-      .filter((point): point is NonNullable<typeof point> => Boolean(point));
+    // The drafting-standard render: an arc centred on the two lines' vertex sweeping the
+    // measured sector, arrowheads at both arc ends pointing along the arc, and witness
+    // lines only where a measured line doesn't itself reach the arc
+    // (`angleDimensionGeometry` resolves the vertex/rays/spans and owns the Flip case).
+    const angle = angleDimensionGeometry(sketch, dimension);
+    if (angle) {
+      const { vertex, rayA, rayB, startAngle, sweep, spanA, spanB } = angle;
+      const bisectorX = Math.cos(startAngle + sweep / 2);
+      const bisectorY = Math.sin(startAngle + sweep / 2);
+      // Same nudge convention as the linear kinds: the drag component along the bisector
+      // grows/shrinks the arc (arc and label move together), the cross component slides
+      // the label around the arc.
+      const nudgeRadial = nudge.x * bisectorX + nudge.y * bisectorY;
+      const nudgeTangent = nudge.x * -bisectorY + nudge.y * bisectorX;
+      const radius = Math.max(6, 12 + nudgeRadial);
 
-    if (endpoints.length === 0) return null;
-    const centroidX = endpoints.reduce((sum, point) => sum + point.x, 0) / endpoints.length;
-    const centroidY = endpoints.reduce((sum, point) => sum + point.y, 0) / endpoints.length;
+      const segments = Math.max(8, Math.ceil((Math.abs(sweep) * 180) / (Math.PI * 5)));
+      for (let i = 0; i <= segments; i++) {
+        const a = startAngle + (sweep * i) / segments;
+        leader.push([vertex.x + Math.cos(a) * radius, vertex.y + Math.sin(a) * radius, 0]);
+      }
 
-    labelPosition = [centroidX + nudge.x, centroidY + nudge.y, 0.05];
-    text = `${dimension.value.toFixed(1)}°`;
+      const witness = (ray: { x: number; y: number }, span: { near: number; far: number }) => {
+        const from = span.near <= 0.8 ? span.far + 0.8 : 0.8;
+        const to = radius + 2;
+        if (to - from <= 1) return;
+        witnesses.push([
+          [vertex.x + ray.x * from, vertex.y + ray.y * from, 0],
+          [vertex.x + ray.x * to, vertex.y + ray.y * to, 0],
+        ]);
+      };
+      witness(rayA, spanA);
+      witness(rayB, spanB);
+
+      // Arrowheads tangent to the arc at both ends, each pointing into the arc — the same
+      // "tip on the line, pointing inward" convention the linear branches use.
+      const turn = Math.sign(sweep) || 1;
+      const endAngle = startAngle + sweep;
+      arrows = [
+        ...arrowheadPoints(
+          vertex.x + Math.cos(startAngle) * radius,
+          vertex.y + Math.sin(startAngle) * radius,
+          -Math.sin(startAngle) * turn,
+          Math.cos(startAngle) * turn,
+        ),
+        ...arrowheadPoints(
+          vertex.x + Math.cos(endAngle) * radius,
+          vertex.y + Math.sin(endAngle) * radius,
+          Math.sin(endAngle) * turn,
+          -Math.cos(endAngle) * turn,
+        ),
+      ];
+      labelPosition = [
+        vertex.x + bisectorX * (radius + 4) - bisectorY * nudgeTangent,
+        vertex.y + bisectorY * (radius + 4) + bisectorX * nudgeTangent,
+        0.05,
+      ];
+      text = `${dimension.value.toFixed(1)}°`;
+    } else {
+      // Parallel lines have no vertex to centre an arc on — fall back to the bare label at
+      // the endpoints' centroid (the only render this dimension kind had at all before).
+      const [firstEntityId, secondEntityId] = dimension.entities;
+      const a = firstEntityId ? sketch.entities.find((candidate) => candidate.id === firstEntityId) : undefined;
+      const b = secondEntityId ? sketch.entities.find((candidate) => candidate.id === secondEntityId) : undefined;
+      const endpoints = [a, b]
+        .filter((line): line is Extract<typeof line, { kind: "line" }> => line?.kind === "line")
+        .flatMap((line) => [pointById(sketch, line.start), pointById(sketch, line.end)])
+        .filter((point): point is NonNullable<typeof point> => Boolean(point));
+
+      if (endpoints.length === 0) return null;
+      const centroidX = endpoints.reduce((sum, point) => sum + point.x, 0) / endpoints.length;
+      const centroidY = endpoints.reduce((sum, point) => sum + point.y, 0) / endpoints.length;
+
+      labelPosition = [centroidX + nudge.x, centroidY + nudge.y, 0.05];
+      text = `${dimension.value.toFixed(1)}°`;
+    }
   }
 
   if (!text) return null;
@@ -477,6 +538,9 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
       {leader.length >= 2 && (
         <Line points={leader} color={color} lineWidth={1} transparent opacity={0.9} />
       )}
+      {witnesses.map((stroke, index) => (
+        <Line key={`witness-${index}`} points={stroke} color={color} lineWidth={1} transparent opacity={0.9} />
+      ))}
       {arrows.map((stroke, index) => (
         <Line key={index} points={stroke} color={color} lineWidth={1} transparent opacity={0.9} />
       ))}

@@ -486,6 +486,15 @@
   cursor: default;
 }
 
+/* The already-picked first point of an in-progress Smart Dimension / Ordinate chain, so a
+   successful pick is visible before the second point exists. */
+.dimensionPickMarker {
+  fill: none;
+  stroke: var(--accent, #0078d4);
+  stroke-width: 0.5;
+  pointer-events: none;
+}
+
 .dimensionSelected {
   cursor: default;
 }

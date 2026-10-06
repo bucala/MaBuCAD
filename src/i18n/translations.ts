@@ -239,6 +239,10 @@ export const sk: Record<string, string> = {
   "drawing.empty": "Vložením pohľadu na model zobrazíte premietnuté pohľady uloženého dielu.",
   "drawing.edit-resources": "Upraviť rámiky a titulné bloky",
   "drawing.delete-selected": "Odstrániť",
+  "drawing.unlink-view": "Odväzať polohu",
+  "drawing.relink-view": "Naviazať polohu",
+  "drawing.unlink-view.title": "Umožniť voľné ťahanie pohľadu mimo smeru premietania",
+  "drawing.relink-view.title": "Prichytiť späť do zarovnania so zdrojovým pohľadom a držať ho pri ťahaní",
 
   // ------------------------------------------------------------- hole callout (drawing)
   // The manufacturing note the sheet renders from a projected Hole Wizard circle.

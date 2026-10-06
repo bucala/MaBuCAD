@@ -1,13 +1,13 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { FileUp, Frame, Maximize, RotateCw, Settings2, Trash2, ZoomIn, ZoomOut } from "lucide-react";
+import { FileUp, Frame, Link2, Maximize, RotateCw, Settings2, Trash2, Unlink2, ZoomIn, ZoomOut } from "lucide-react";
 
 import { runCommand } from "@/commands/commandRegistry";
 import { runCreateProjectedView, runToggleProjectionMethod } from "@/commands/drawingCommands";
-import { DEFAULT_PROJECTION_METHOD } from "@/commands/drawingViewLayout";
+import { DEFAULT_PROJECTION_METHOD, alignmentLinkFor, alignmentTargetFor } from "@/commands/drawingViewLayout";
 import { nearestHoleTarget } from "@/commands/holeCallout";
 import { useTranslation } from "@/i18n/useTranslation";
 import { statAtPath } from "@/io/files";
-import { nearestVertex, viewScaleFor } from "@/kernel/drawingGeometry";
+import { nearestVertex, sheetPointFromClientRect, viewScaleFor } from "@/kernel/drawingGeometry";
 import { sectionArrowSign, type OrthoProjection } from "@/kernel/drawingProjection";
 import { viewsAreStale } from "@/kernel/drawingStaleness";
 import { useDocumentStore } from "@/state/documentStore";
@@ -883,6 +883,7 @@ export function DrawingSheet() {
   const beginDragEdit = useDocumentStore((state) => state.beginDragEdit);
   const endDragEdit = useDocumentStore((state) => state.endDragEdit);
   const moveDrawingView = useDocumentStore((state) => state.moveDrawingView);
+  const updateDrawingView = useDocumentStore((state) => state.updateDrawingView);
   const deleteDrawingView = useDocumentStore((state) => state.deleteDrawingView);
   const addDrawingNote = useDocumentStore((state) => state.addDrawingNote);
   const updateDrawingNote = useDocumentStore((state) => state.updateDrawingNote);
@@ -960,6 +961,7 @@ export function DrawingSheet() {
 
   const views = drawing?.views ?? [];
   const notes = drawing?.notes ?? [];
+  const selectedView = views.find((view) => view.id === selectedViewId) ?? null;
   const dimensions = drawing?.dimensions ?? [];
   const ordinateChains = drawing?.ordinateChains ?? [];
   const datums = drawing?.datums ?? [];
@@ -1157,19 +1159,35 @@ export function DrawingSheet() {
     setDrawingSheet({ ...drawing, titleBlockValues: { ...drawing.titleBlockValues, [key]: value } });
   };
 
-  /** Converts a pointer event to sheet-mm via the sheet `<svg>`'s own screen CTM — the same
-   * conversion Note placement already did inline; factored out here so the five annotation
-   * tools below share it instead of each re-deriving it. */
+  /** Unlink: the selected view drags freely from now on. Re-link: snap straight back onto
+   * its source's alignment axis and re-arm the constraint — one undo step for both, via
+   * `moveDrawingView`'s patch parameter. */
+  const toggleViewAlignment = () => {
+    if (!selectedView) return;
+    const link = alignmentLinkFor(selectedView, views);
+    if (!link) return;
+    if (selectedView.alignmentUnlocked) {
+      moveDrawingView(
+        selectedView.id,
+        link.axis === "x" ? link.coordinate : selectedView.x,
+        link.axis === "y" ? link.coordinate : selectedView.y,
+        { alignmentUnlocked: false },
+      );
+    } else {
+      updateDrawingView(selectedView.id, { alignmentUnlocked: true });
+    }
+  };
+
+  /** Converts a pointer event to sheet-mm via the sheet `<svg>`'s bounding rect — NOT
+   * `getScreenCTM()`, which ignores the CSS zoom/pan transform in Chromium/WebView2 and so
+   * silently broke every pick below the moment the sheet wasn't at 100%/origin (see
+   * `sheetPointFromClientRect`'s own doc comment). */
   const sheetPointFromEvent = (event: React.MouseEvent): { x: number; y: number } | null => {
     const svg = sheetRef.current;
     if (!svg) return null;
-    const point = svg.createSVGPoint();
-    point.x = event.clientX;
-    point.y = event.clientY;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return null;
-    const local = point.matrixTransform(ctm.inverse());
-    return { x: local.x, y: local.y };
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    return sheetPointFromClientRect(event.clientX, event.clientY, rect, sheetWidth, sheetHeight);
   };
 
   const handleBackgroundClick = (event: React.MouseEvent<SVGSVGElement>) => {
@@ -1270,7 +1288,10 @@ export function DrawingSheet() {
     if (tool === "smart-dimension") {
       const local = sheetPointFromEvent(event);
       if (!local) return;
-      const vertex = nearestVertex(views, local, PICK_TOLERANCE);
+      // The second pick is restricted to the first point's own view: a dimension's value is
+      // converted with one view's scale, so a cross-view span would silently report a wrong
+      // number (two views can carry different scales, e.g. a 2:1 Detail next to its source).
+      const vertex = nearestVertex(views, local, PICK_TOLERANCE, dimensionFirstPoint?.viewId);
       if (!vertex) return;
       if (!dimensionFirstPoint) {
         pickDimensionFirstPoint(vertex.viewId, vertex.x, vertex.y);
@@ -1279,6 +1300,8 @@ export function DrawingSheet() {
       const scale = viewScaleFor(views, dimensionFirstPoint.viewId);
       const dx = vertex.x - dimensionFirstPoint.x;
       const dy = vertex.y - dimensionFirstPoint.y;
+      // Picking the same vertex twice would commit a zero-length "dimension" — ignore it.
+      if (Math.hypot(dx, dy) < 1e-6) return;
       const value = Math.hypot(dx, dy) / scale;
       addDrawingDimension({
         kind: Math.abs(dx) < 1e-6 ? "vertical" : Math.abs(dy) < 1e-6 ? "horizontal" : "linear",
@@ -1393,6 +1416,23 @@ export function DrawingSheet() {
           <span className={styles.sourceLabel}>
             {t("drawing.showing", "Showing")} {sourcePart.fileName}
           </span>
+        )}
+        {selectedView && alignmentLinkFor(selectedView, views) && (
+          <button
+            type="button"
+            className={styles.toolbarButton}
+            title={
+              selectedView.alignmentUnlocked
+                ? t("drawing.relink-view.title", "Snap back into alignment with the source view and keep it while dragging")
+                : t("drawing.unlink-view.title", "Let this view be dragged freely, off its projection direction")
+            }
+            onClick={toggleViewAlignment}
+          >
+            {selectedView.alignmentUnlocked ? <Link2 size={14} strokeWidth={1.75} /> : <Unlink2 size={14} strokeWidth={1.75} />}
+            {selectedView.alignmentUnlocked
+              ? t("drawing.relink-view", "Re-link Position")
+              : t("drawing.unlink-view", "Unlink Position")}
+          </button>
         )}
         {(selectedViewId || selectedNoteId || selectedAnnotation) && (
           <button
@@ -1517,7 +1557,17 @@ export function DrawingSheet() {
                 setSelectedAnnotation(null);
               }}
               onToggleActive={() => setActiveViewId((current) => (current === view.id ? null : view.id))}
-              onMove={(x, y) => moveDrawingView(view.id, x, y)}
+              onMove={(x, y) => {
+                // A linked view slides only along its projection direction — the locked
+                // axis snaps to the source's coordinate, so the view can never drift out
+                // of square with the view it was created from (unlink to drag freely).
+                const alignment = alignmentTargetFor(view, views);
+                moveDrawingView(
+                  view.id,
+                  alignment?.axis === "x" ? alignment.coordinate : x,
+                  alignment?.axis === "y" ? alignment.coordinate : y,
+                );
+              }}
               onPick={(localX, localY) => {
                 if (tool === "section") pickSectionSource(view.id, localX);
                 else if (tool === "detail") pickDetailSource(view.id, localX, localY);
@@ -1592,6 +1642,15 @@ export function DrawingSheet() {
                   label={auxiliaryView.label}
                 />
               )),
+          )}
+
+          {/* The picked-but-uncommitted first point of an in-progress dimension, so the
+              click visibly did something even before the second pick exists. */}
+          {tool === "smart-dimension" && dimensionFirstPoint && (
+            <circle cx={dimensionFirstPoint.x} cy={dimensionFirstPoint.y} r={1.2} className={styles.dimensionPickMarker} />
+          )}
+          {tool === "ordinate" && ordinateDatum && (
+            <circle cx={ordinateDatum.x} cy={ordinateDatum.y} r={1.2} className={styles.dimensionPickMarker} />
           )}
 
           {notes.map((note) => (

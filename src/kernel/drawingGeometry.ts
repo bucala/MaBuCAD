@@ -81,14 +81,54 @@ export interface DrawingVertex extends Point {
 }
 
 /**
+ * Converts a pointer's client (viewport pixel) coordinates into sheet-mm using the sheet
+ * `<svg>`'s own bounding rect. This deliberately avoids `getScreenCTM()`: zoom/pan is
+ * applied to that `<svg>` as a *CSS* transform (`DrawingSheet.tsx`), which Chromium's
+ * `getScreenCTM()` does not include (long-standing Chromium bug 641537) — so the CTM path
+ * silently misplaces every pick the moment the sheet is zoomed or panned, while
+ * `getBoundingClientRect()` always reflects the final rendered box.
+ */
+export function sheetPointFromClientRect(
+  clientX: number,
+  clientY: number,
+  rect: { left: number; top: number; width: number; height: number },
+  sheetWidth: number,
+  sheetHeight: number,
+): Point {
+  return {
+    x: ((clientX - rect.left) / rect.width) * sheetWidth,
+    y: ((clientY - rect.top) / rect.height) * sheetHeight,
+  };
+}
+
+/**
  * Converts one raw projected point (replicad's own SVG-mirrored range `[-height, 0]`) into
  * the sheet-mm space every placed annotation uses. This is the single source of truth for
  * the exact transform `DrawingSheet.tsx`'s `View` component renders with: shift Y by the
- * view height, scale, then translate into the view's own outer `<svg>` origin. Any drift
+ * flip height, scale, then translate into the view's own outer `<svg>` origin. Any drift
  * between this and that render transform would make picked points land visibly off the
  * geometry they're meant to snap to, so every picking helper goes through here.
+ *
+ * Detail and Crop views need their own branch: their cached paths are in the *source*
+ * view's local space while their own `width`/`height` is just the window's, and the Y flip
+ * is keyed by `sourceHeight` — algebraically the same render transform as `View`, reduced
+ * to the terms that survive (the window origin cancels against the centred outer origin).
  */
 export function viewPointToSheet(view: DrawingViewData, point: Point): Point {
+  const detail = view.kind === "detail" ? view.detailOf : undefined;
+  if (detail) {
+    return {
+      x: view.x + (point.x - detail.cx) * view.scale,
+      y: view.y + (point.y + detail.sourceHeight - detail.cy) * view.scale,
+    };
+  }
+  const crop = view.kind === "crop" ? view.cropOf : undefined;
+  if (crop) {
+    return {
+      x: view.x + (point.x - crop.x - crop.width / 2) * view.scale,
+      y: view.y + (point.y + crop.sourceHeight - crop.y - crop.height / 2) * view.scale,
+    };
+  }
   const width = view.width * view.scale;
   const height = view.height * view.scale;
   return {
@@ -114,11 +154,13 @@ export function nearestVertex(
   views: DrawingViewData[],
   point: Point,
   tolerance: number,
+  onlyViewId?: string,
 ): DrawingVertex | null {
   let best: DrawingVertex | null = null;
   let bestDistance = tolerance;
 
   for (const view of views) {
+    if (onlyViewId && view.id !== onlyViewId) continue;
     for (const vertex of viewVertices(view)) {
       const distance = Math.hypot(vertex.x - point.x, vertex.y - point.y);
       if (distance < bestDistance) {

@@ -726,6 +726,94 @@ export function clampAngleToArcSweep(
   return distanceToStart <= distanceToEnd ? startAngle : endAngle;
 }
 
+/** The resolved geometry an angle dimension needs to draw itself: which point is the
+ * vertex, which way along each line the measured sector opens, and how far each drawn
+ * line segment reaches along its own ray (so the renderer only adds witness lines where
+ * the geometry itself doesn't already cross the arc — matching the drafting convention
+ * that the measured lines serve as their own extension lines when they reach it). */
+export interface AngleDimensionGeometry {
+  vertex: { x: number; y: number };
+  /** Unit rays from the vertex along each measured line. `rayB` is flipped away from the
+   * drawn line's own direction when the stored `value` is the supplement (the dimension's
+   * own Flip), so the arc always sweeps exactly `value` degrees. */
+  rayA: { x: number; y: number };
+  rayB: { x: number; y: number };
+  /** Radians: direction of `rayA`, and the signed sweep from it to `rayB`
+   * (`|sweep|` == value in radians, sign picks the shorter CCW/CW arc). */
+  startAngle: number;
+  sweep: number;
+  /** Projections of each line's two endpoints onto its own ray, relative to the vertex —
+   * `near` is negative when the vertex lies inside or past that end of the segment. */
+  spanA: { near: number; far: number };
+  spanB: { near: number; far: number };
+}
+
+/**
+ * Resolves an angle dimension's two line entities into a drawable sector. The vertex is
+ * the lines' shared endpoint when they touch, else their (infinite) line intersection;
+ * parallel lines have no angle vertex and return `null`, matching the renderer's previous
+ * label-only fallback for a case it can't meaningfully draw.
+ */
+export function angleDimensionGeometry(sketch: Sketch, dimension: Dimension): AngleDimensionGeometry | null {
+  const [firstId, secondId] = dimension.entities;
+  const lineA = firstId ? entityById(sketch, firstId) : undefined;
+  const lineB = secondId ? entityById(sketch, secondId) : undefined;
+  if (lineA?.kind !== "line" || lineB?.kind !== "line") return null;
+  const a1 = pointById(sketch, lineA.start);
+  const a2 = pointById(sketch, lineA.end);
+  const b1 = pointById(sketch, lineB.start);
+  const b2 = pointById(sketch, lineB.end);
+  if (!a1 || !a2 || !b1 || !b2) return null;
+
+  const samePoint = (p: SketchPoint, q: SketchPoint) =>
+    p.id === q.id || Math.hypot(p.x - q.x, p.y - q.y) < 1e-6;
+  let vertex = [a1, a2].flatMap((p) => [b1, b2].map((q) => ({ p, q }))).find(({ p, q }) => samePoint(p, q))?.p;
+  if (!vertex) {
+    const ux = a2.x - a1.x;
+    const uy = a2.y - a1.y;
+    const vx = b2.x - b1.x;
+    const vy = b2.y - b1.y;
+    const cross = ux * vy - uy * vx;
+    if (Math.abs(cross) < 1e-9) return null;
+    const t = ((b1.x - a1.x) * vy - (b1.y - a1.y) * vx) / cross;
+    vertex = { id: "", x: a1.x + t * ux, y: a1.y + t * uy };
+  }
+
+  // Each ray points from the vertex toward the line's farther endpoint — the direction
+  // the drawn segment actually extends in.
+  const rayAndSpan = (p1: SketchPoint, p2: SketchPoint) => {
+    const d1 = Math.hypot(p1.x - vertex.x, p1.y - vertex.y);
+    const d2 = Math.hypot(p2.x - vertex.x, p2.y - vertex.y);
+    const far = d1 >= d2 ? p1 : p2;
+    const length = Math.hypot(far.x - vertex.x, far.y - vertex.y);
+    if (length < 1e-9) return null;
+    const ray = { x: (far.x - vertex.x) / length, y: (far.y - vertex.y) / length };
+    const t1 = (p1.x - vertex.x) * ray.x + (p1.y - vertex.y) * ray.y;
+    const t2 = (p2.x - vertex.x) * ray.x + (p2.y - vertex.y) * ray.y;
+    return { ray, span: { near: Math.min(t1, t2), far: Math.max(t1, t2) } };
+  };
+  const resolvedA = rayAndSpan(a1, a2);
+  const resolvedB = rayAndSpan(b1, b2);
+  if (!resolvedA || !resolvedB) return null;
+
+  let { ray: rayB, span: spanB } = resolvedB;
+  // θ between the two rays is in [0, 180]; the stored value is either θ or its supplement
+  // (Flip swaps them). The supplement is drawn by flipping ray B's direction.
+  const dot = Math.max(-1, Math.min(1, resolvedA.ray.x * rayB.x + resolvedA.ray.y * rayB.y));
+  const theta = (Math.acos(dot) * 180) / Math.PI;
+  if (Math.abs(dimension.value - (180 - theta)) < Math.abs(dimension.value - theta)) {
+    rayB = { x: -rayB.x, y: -rayB.y };
+    spanB = { near: -spanB.far, far: -spanB.near };
+  }
+
+  const startAngle = Math.atan2(resolvedA.ray.y, resolvedA.ray.x);
+  const endRaw = Math.atan2(rayB.y, rayB.x);
+  const ccw = ((endRaw - startAngle) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+  const sweep = ccw <= Math.PI ? ccw : ccw - Math.PI * 2;
+
+  return { vertex, rayA: resolvedA.ray, rayB, startAngle, sweep, spanA: resolvedA.span, spanB };
+}
+
 /**
  * Adds a centrepoint arc: a centre and two rim points, plus the two `arc-radius`
  * constraints that keep both rim points on the circle as the sketch is dragged.
