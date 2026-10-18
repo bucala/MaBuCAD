@@ -172,4 +172,22 @@ describe("nearestHoleTarget", () => {
   it("rejects a click farther than the picker tolerance from every circle edge", () => {
     expect(nearestHoleTarget([VIEW], { x: 163.1, y: 100 }, 3)).toBeNull();
   });
+
+  it("rejects a masked hole rim in a broken view", () => {
+    const broken: DrawingViewData = {
+      ...VIEW, kind: "broken",
+      brokenOf: { sourceViewId: "source", orientation: "vertical", start: 20, end: 35, letter: "A" },
+    };
+    expect(nearestHoleTarget([broken], { x: 160, y: 100 }, 2)).toBeNull();
+  });
+
+  it("allows only the visible part of a hole rim in a crop view", () => {
+    const crop: DrawingViewData = {
+      ...VIEW, kind: "crop", width: 5, height: 10,
+      cropOf: { sourceViewId: "source", x: 25, y: 20, width: 5, height: 10, sourceHeight: 50, letter: "A" },
+    };
+    const sheet = holeTargetSheetPoint(crop, crop.holeTargets![0]);
+    expect(nearestHoleTarget([crop], { x: sheet.x + sheet.radius, y: sheet.y }, 2)?.viewId).toBe(crop.id);
+    expect(nearestHoleTarget([crop], { x: sheet.x - sheet.radius, y: sheet.y }, 2)).toBeNull();
+  });
 });

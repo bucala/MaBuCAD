@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { useDocumentStore } from "@/state/documentStore";
+import { useDrawingToolStore } from "@/state/drawingToolStore";
 import { useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
@@ -10,17 +11,18 @@ import { useViewportStore } from "@/state/viewportStore";
  * selection, since a half-started draw is more disruptive to lose track of than a
  * selection is.
  *
- * 1. A relation armed via "click the function first, then pick elements" is waiting on
+ * 1. A drawing tool is active → back to Select, discarding pending picks.
+ * 2. A relation armed via "click the function first, then pick elements" is waiting on
  *    picks → cancel it, same as it not having been armed at all.
- * 2. A non-Select sketch tool is active → back to Select (an in-progress multi-click
+ * 3. A non-Select sketch tool is active → back to Select (an in-progress multi-click
  *    entity like a spline or arc is abandoned, the same as the existing right-click
  *    "finish chain" gesture SketchCanvas.tsx already offers for a *completed* one).
- * 3. A feature create/edit session is open → cancel it, which restores the document to what
+ * 4. A feature create/edit session is open → cancel it, which restores the document to what
  *    it was when the session started (removing the feature entirely if the session created
  *    it). This is the counterpart of the property panel's own Cancel button, and it comes
  *    before clearing the selection for the same reason the sketch tool does: losing an
  *    unwanted half-configured feature matters more than losing a highlight.
- * 4. Otherwise, a sketch or feature selection exists → clear it.
+ * 5. Otherwise, a sketch or feature selection exists → clear it.
  *
  * Skipped while a form field has focus (an open `<input>`/`<textarea>`/`<select>`) so
  * Escape can do its ordinary "cancel editing this field" job instead — components that
@@ -36,6 +38,13 @@ export function useEscapeToDeselect() {
       const target = event.target as HTMLElement | null;
       const inFeaturePanel = target?.closest?.("[data-feature-session]") != null;
       if (target && !inFeaturePanel && /^(input|textarea|select)$/i.test(target.tagName)) return;
+
+      const documentState = useDocumentStore.getState();
+      const drawingState = useDrawingToolStore.getState();
+      if (documentState.document.kind === "drawing" && drawingState.tool !== "select") {
+        drawingState.resetPicking();
+        return;
+      }
 
       const sketchState = useSketchStore.getState();
       if (sketchState.activeSketchId) {
@@ -54,7 +63,6 @@ export function useEscapeToDeselect() {
         return;
       }
 
-      const documentState = useDocumentStore.getState();
       if (documentState.featureEdit) {
         target?.blur?.();
         useViewportStore.getState().setEdgePickMode(null);

@@ -2,7 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import type { DrawingViewData } from "@/types/document";
 
-import { alignmentLinkFor, alignmentTargetFor, clampBrokenBand, clampCropRegion } from "./drawingViewLayout";
+import {
+  alignmentLinkFor,
+  alignmentTargetFor,
+  clampBrokenBand,
+  clampCropRegion,
+  moveAlignedViews,
+  positionDerivedView,
+  repositionStandardViews,
+  VIEW_GAP,
+} from "./drawingViewLayout";
 
 describe("derived drawing view regions", () => {
   it("keeps a crop inside the source view and preserves a usable window", () => {
@@ -79,6 +88,8 @@ describe("alignmentLinkFor", () => {
       },
     });
     expect(alignmentLinkFor(section, [front, section])).toEqual({ axis: "y", coordinate: 60, sourceId: "front" });
+    const horizontal = { ...section, section: { ...section.section!, orientation: "horizontal" as const } };
+    expect(alignmentLinkFor(horizontal, [front, horizontal])).toEqual({ axis: "x", coordinate: 100, sourceId: "front" });
   });
 
   it("locks an auxiliary view perpendicular to its tilt axis", () => {
@@ -88,6 +99,8 @@ describe("alignmentLinkFor", () => {
       auxiliaryOf: { sourceViewId: "front", baseProjection: "front", tiltAxis: "horizontal", angle: 30, letter: "A" },
     });
     expect(alignmentLinkFor(auxiliary, [front, auxiliary])).toEqual({ axis: "x", coordinate: 100, sourceId: "front" });
+    const vertical = { ...auxiliary, auxiliaryOf: { ...auxiliary.auxiliaryOf!, tiltAxis: "vertical" as const } };
+    expect(alignmentLinkFor(vertical, [front, vertical])).toEqual({ axis: "y", coordinate: 60, sourceId: "front" });
   });
 
   it("leaves detail, crop, and broken views free — drafting places those arbitrarily", () => {
@@ -103,6 +116,7 @@ describe("alignmentLinkFor", () => {
       brokenOf: { sourceViewId: "front", orientation: "vertical", start: 10, end: 20, letter: "A" },
     });
     expect(alignmentLinkFor(broken, [front, broken])).toBeNull();
+    expect(alignmentLinkFor(makeView({ kind: "crop" }), [front])).toBeNull();
   });
 
   it("alignmentTargetFor withholds the link exactly when the user unlinked the view", () => {
@@ -112,5 +126,68 @@ describe("alignmentLinkFor", () => {
     expect(alignmentTargetFor(unlinked, [front, unlinked])).toBeNull();
     // ...while the link itself still exists for a later re-link to snap back to.
     expect(alignmentLinkFor(unlinked, [front, unlinked])).toEqual({ axis: "y", coordinate: 60, sourceId: "front" });
+  });
+
+  it("does not link missing or self-referencing sources", () => {
+    const auxiliary = makeView({
+      id: "aux",
+      kind: "auxiliary",
+      auxiliaryOf: { sourceViewId: "missing", baseProjection: "front", tiltAxis: "vertical", angle: 30, letter: "A" },
+    });
+    expect(alignmentLinkFor(auxiliary, [front, auxiliary])).toBeNull();
+    auxiliary.auxiliaryOf!.sourceViewId = auxiliary.id;
+    expect(alignmentLinkFor(auxiliary, [front, auxiliary])).toBeNull();
+  });
+
+  it("keeps an unlinked standard view's position during a layout change", () => {
+    const right = makeView({ id: "right", projection: "right", x: 240, y: 90, alignmentUnlocked: true });
+    expect(repositionStandardViews([front, right], "ISO-A")[1]).toBe(right);
+  });
+});
+
+describe("derived view placement", () => {
+  const source = makeView({ x: 100, y: 60, scale: 2 });
+  const size = { width: 60, height: 24, scale: 2 };
+
+  it("starts horizontal projections in the source row with a clear gap", () => {
+    expect(positionDerivedView(source, size, "horizontal")).toEqual({
+      x: 100 + 40 + 60 + VIEW_GAP,
+      y: 60,
+    });
+  });
+
+  it("starts vertical projections in the source column with a clear gap", () => {
+    expect(positionDerivedView(source, size, "vertical")).toEqual({
+      x: 100,
+      y: 60 + 30 + 24 + VIEW_GAP,
+    });
+  });
+});
+
+describe("moveAlignedViews", () => {
+  it("stops propagation through malformed source cycles", () => {
+    const first = makeView({
+      id: "a",
+      kind: "auxiliary",
+      auxiliaryOf: { sourceViewId: "b", baseProjection: "front", tiltAxis: "vertical", angle: 30, letter: "A" },
+    });
+    const second = makeView({
+      id: "b",
+      kind: "auxiliary",
+      auxiliaryOf: { sourceViewId: "a", baseProjection: "front", tiltAxis: "vertical", angle: 30, letter: "B" },
+    });
+    const moved = moveAlignedViews([first, second], "a", 150, 90);
+    expect(moved[0]).toMatchObject({ x: 150, y: 60 });
+    expect(moved[1]).toBe(second);
+  });
+
+  it("leaves inputs unchanged and ignores unknown ids or invalid coordinates", () => {
+    const view = makeView({});
+    const views = [view];
+    expect(moveAlignedViews(views, "missing", 150, 90)).toBe(views);
+    expect(moveAlignedViews(views, view.id, Number.NaN, 90)).toBe(views);
+    const moved = moveAlignedViews(views, view.id, 150, 90);
+    expect(moved[0]).toMatchObject({ x: 150, y: 90 });
+    expect(view).toMatchObject({ x: 100, y: 60 });
   });
 });

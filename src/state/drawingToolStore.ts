@@ -97,10 +97,10 @@ interface DrawingToolStore {
   /** Ordinate: the shared datum every point in the current chain measures from, plus which
    * chain (once started) further picks append to and along which axis. `null` fields mean
    * "chain not started yet" — the very next pick becomes the datum. */
-  ordinateDatum: { x: number; y: number } | null;
+  ordinateDatum: { viewId: string; x: number; y: number } | null;
   ordinateChainId: string | null;
   ordinateAxis: "x" | "y" | null;
-  pickOrdinateDatum: (x: number, y: number) => void;
+  pickOrdinateDatum: (viewId: string, x: number, y: number) => void;
   startOrdinateChain: (chainId: string, axis: "x" | "y") => void;
 
   /** Common exit for every armed tool — a confirm, a cancel, Escape, or switching away all
@@ -200,7 +200,7 @@ export const useDrawingToolStore = create<DrawingToolStore>((set) => ({
   ordinateDatum: null,
   ordinateChainId: null,
   ordinateAxis: null,
-  pickOrdinateDatum: (x, y) => set({ ordinateDatum: { x, y }, ordinateChainId: null, ordinateAxis: null }),
+  pickOrdinateDatum: (viewId, x, y) => set({ ordinateDatum: { viewId, x, y }, ordinateChainId: null, ordinateAxis: null }),
   startOrdinateChain: (chainId, axis) => set({ ordinateChainId: chainId, ordinateAxis: axis }),
 
   resetPicking: () => set({ tool: "select", ...PICKING_RESET }),

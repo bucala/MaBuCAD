@@ -34,7 +34,7 @@ describe("sheetPointFromClientRect", () => {
 
   it("stays correct when CSS zoom/pan has shrunk and shifted the rendered rect", () => {
     // 83% zoom: rect.width shrinks proportionally and pan moves the origin — the very
-    // combination getScreenCTM() used to ignore, breaking every pick off 100%.
+    // combination that must remain independent of the sheet's CSS transform.
     const rect = { left: 120, top: 40, width: 1050 * 0.83, height: 742.5 * 0.83 };
     const point = sheetPointFromClientRect(120, 40, rect, sheet.width, sheet.height);
     expect(point.x).toBeCloseTo(0);
@@ -116,5 +116,43 @@ describe("nearestVertex", () => {
     const vertices = viewVertices(detail);
     // The path's own centre point (10, -20) renders at the view centre.
     expect(vertices).toContainEqual({ x: 300, y: 200, viewId: "detail-1" });
+  });
+});
+
+describe("clipped view vertices", () => {
+  it("excludes source endpoints outside a detail circle", () => {
+    const detail = makeView({
+      kind: "detail", width: 10, height: 10,
+      visiblePaths: ["M 10 -20 L 14 -20 L 18 -20"],
+      detailOf: { sourceViewId: "source", cx: 10, cy: 20, radius: 5, sourceHeight: 40 },
+    });
+    expect(viewVertices(detail)).toEqual([
+      { x: 100, y: 60, viewId: detail.id },
+      { x: 104, y: 60, viewId: detail.id },
+    ]);
+    expect(nearestVertex([detail], { x: 108, y: 60 }, 1)).toBeNull();
+  });
+
+  it("excludes source endpoints outside a crop window, retaining boundary endpoints", () => {
+    const crop = makeView({
+      kind: "crop", width: 20, height: 10,
+      visiblePaths: ["M 5 -30 L 15 -25 L 25 -20 L 30 -20 L 15 -15"],
+      cropOf: { sourceViewId: "source", x: 5, y: 10, width: 20, height: 10, sourceHeight: 40, letter: "A" },
+    });
+    expect(viewVertices(crop)).toEqual([
+      { x: 90, y: 55, viewId: crop.id },
+      { x: 100, y: 60, viewId: crop.id },
+      { x: 110, y: 65, viewId: crop.id },
+    ]);
+  });
+
+  it.each(["vertical", "horizontal"] as const)("excludes endpoints masked by a %s broken band", (orientation) => {
+    const broken = makeView({
+      kind: "broken",
+      visiblePaths: orientation === "vertical" ? ["M 0 -15 L 15 -15 L 40 -15"] : ["M 20 -30 L 20 -15 L 20 0"],
+      brokenOf: { sourceViewId: "source", orientation, start: 10, end: 20, letter: "A" },
+    });
+    expect(viewVertices(broken)).toHaveLength(2);
+    expect(nearestVertex([broken], viewPointToSheet(broken, { x: orientation === "vertical" ? 15 : 20, y: -15 }), 1)).toBeNull();
   });
 });

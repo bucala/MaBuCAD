@@ -7,6 +7,44 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-10-07 — Dimensioning, manager tabs, and view alignment fixes (v0.28.0)
+
+This feedback round addresses all four interaction issues together.
+
+### Fixed
+- **Sketch dimension geometry:** length dimensions draw endpoint arrows and extension lines,
+  including Horizontal/Vertical variants. Text moved beyond the measured span stays connected
+  to the nearest endpoint, including after an orientation change. Angle dimensions draw a
+  measured arc, tangent arrows and extensions from the actual segments, including non-touching
+  lines and Flip Angle.
+  Dragging text resizes the arc; text outside the sector stays connected by a leader rather
+  than detaching from a small, fixed arc.
+- **Manager tabs:** ordinary feature/plane selection no longer opens Property Manager.
+  Sketch, Inspect, feature creation and explicit feature editing take over only when started,
+  then restore the previous tab. Browsing properties no longer silently opens an edit session.
+  Command handoffs and React Strict Mode no longer close or repeatedly reopen the panel.
+- **Drawing view alignment:** Top/Bottom share Front's column; Left/Right/Back share its row.
+  Sections and Auxiliary views keep the row or column implied by their creation direction,
+  including their initial placement. **Unlink Position / Re-link Position** persists the
+  choice and re-link snaps atomically. Linked descendants and all seven bound annotation
+  collections follow each view's own delta during dragging and projection relayouts.
+  Adding a Projected View and laying out the sheet is one undo step.
+- **Drawing dimension picks:** client coordinates map through the rendered sheet bounds,
+  so zoom/pan and nested Detail/Crop transforms do not offset picks. Smart Dimension and
+  Ordinate reject cross-view and repeated-datum picks, show the first pick, and report actual
+  model size rather than paper scale. Clipped/masked cached endpoints and hole rims are not
+  phantom pick targets. Escape cancels the drawing tool and restores view drag handles.
+
+### Validation
+- Regression pins cover alignment propagation, unlink/re-link, relayout, annotation movement,
+  undo/redo, manager command transitions, linear/angular leaders and clipped picking.
+- Real-browser checks exercise angular dragging/Flip and drawing dimensions under the shipped
+  CSP; committed E2E cases cover linear dimension orientations and gesture history, zoom/pan,
+  linked movement, derived placement and manager tabs.
+- Typecheck, lint, all **250 unit tests**, the production build, **14 browser E2E cases**
+  (10 development, 4 production CSP), Cargo check, **3 Rust tests** and warning-free Clippy pass.
+- Frontend, lockfile, Tauri and Cargo package versions are synchronized at **0.28.0**.
+
 ## 2026-09-23 — Auxiliary, broken, and crop drawing views (v0.27.0)
 
 The first Phase 3 drawing round adds the three view types that were still missing after the

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { alignmentLinkFor } from "@/commands/drawingViewLayout";
+import { DEFAULT_PROJECTION_METHOD, moveAlignedViews, repositionStandardViews } from "@/commands/drawingViewLayout";
 import type {
   CadDocument,
   DocumentKind,
@@ -18,11 +18,13 @@ import type {
   Feature,
   FeatureKind,
   FeatureParameters,
+  ProjectionMethod,
   Sensor,
 } from "@/types/document";
 import type { UnitSystemId } from "@/types/ui";
 
 import { FEATURE_CATALOG } from "./featureCatalog";
+import { withDrawingViewPositions } from "./drawingViewMovement";
 import { DEFAULT_SHEET_FORMAT_ID, DEFAULT_TITLE_BLOCK_VALUES_SEED } from "./templateStore";
 
 /** Ids of the default planes, shared with the viewport so tree and 3D selection agree. */
@@ -242,17 +244,12 @@ interface DocumentStore {
    * the caller needing the rest of `drawing` in hand — a no-op if the active document
    * isn't a Drawing or has no view with that id. */
   updateDrawingView: (id: string, patch: Partial<Omit<DrawingViewData, "id">>) => void;
-  /** Repositions a view AND every annotation bound to it (`parentViewId === id`) by the
-   * same delta — `DrawingSheet.tsx`'s own view-drag handler uses this instead of plain
-   * `updateDrawingView` so a bound dimension/datum/GD&T/surface-finish/weld/ordinate-chain
-   * actually moves with its view, matching `DrawingViewData`'s own "bound annotations" doc
-   * comment. A no-op patch to unbound annotations, same as today. */
-  /** Moves a view and everything bound to it; locked dependent views (see
-   * `alignmentLinkFor` in `commands/drawingViewLayout.ts`) follow along their free axis.
-   * `patch` merges extra fields into the moved view in the same undo step — used by
-   * re-link, which snaps the view back into alignment and clears `alignmentUnlocked`
-   * atomically. */
-  moveDrawingView: (id: string, x: number, y: number, patch?: Partial<DrawingViewData>) => void;
+  /** Constrains a linked view's drag, follows source movement through linked descendants,
+   * and shifts each affected view's bound annotations by its own delta. An optional
+   * alignment change lets re-link snap and restore the lock in one undo step. */
+  moveDrawingView: (id: string, x: number, y: number, alignment?: { alignmentUnlocked: boolean }) => void;
+  /** Relayouts the standard set and linked descendants, with their annotations, in one step. */
+  layoutDrawingViews: (method: ProjectionMethod) => void;
   deleteDrawingView: (id: string) => void;
   addDrawingView: (view: DrawingViewData) => void;
   addDrawingNote: (note: Omit<DrawingNoteData, "id">) => string;
@@ -750,92 +747,24 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         };
       }),
 
-    moveDrawingView: (id, x, y, patch) =>
+    moveDrawingView: (id, x, y, alignment) =>
       commit((document) => {
         if (!document.drawing) return document;
-        const view = document.drawing.views.find((v) => v.id === id);
-        if (!view) return document;
-        const dx = x - view.x;
-        const dy = y - view.y;
         const drawing = document.drawing;
-        // Locked dependent views follow their source along their free axis (the locked one
-        // is what keeps them square) — dragging Front carries its locked projections'
-        // rows/columns with it, the drafting-package convention.
-        const followers = new Map<string, { dx: number; dy: number }>();
-        for (const candidate of drawing.views) {
-          if (candidate.id === id || candidate.alignmentUnlocked) continue;
-          const link = alignmentLinkFor(candidate, drawing.views);
-          if (!link || link.sourceId !== id) continue;
-          followers.set(candidate.id, link.axis === "y" ? { dx, dy: 0 } : { dx: 0, dy });
-        }
-        const deltaFor = (viewId: string | undefined) =>
-          viewId === id ? { dx, dy } : (followers.get(viewId ?? "") ?? null);
-        const shiftBound = <T extends { id: string; parentViewId?: string }>(
-          items: T[] | undefined,
-          shift: (item: T, delta: { dx: number; dy: number }) => T,
-        ) =>
-          (items ?? []).map((item) => {
-            const delta = deltaFor(item.parentViewId);
-            return delta ? shift(item, delta) : item;
-          });
+        const views = moveAlignedViews(drawing.views, id, x, y, alignment);
+        if (views === drawing.views) return document;
+        return { ...document, drawing: withDrawingViewPositions(drawing, views) };
+      }),
+
+    layoutDrawingViews: (method) =>
+      commit((document) => {
+        const drawing = document.drawing;
+        if (!drawing) return document;
+        const views = repositionStandardViews(drawing.views, method);
+        if (views === drawing.views && drawing.projectionMethod === method) return document;
         return {
           ...document,
-          drawing: {
-            ...drawing,
-            views: drawing.views.map((v) => {
-              if (v.id === id) return { ...v, x, y, ...patch };
-              const follow = followers.get(v.id);
-              return follow ? { ...v, x: v.x + follow.dx, y: v.y + follow.dy } : v;
-            }),
-            dimensions: shiftBound(drawing.dimensions, (d, delta) => ({
-              ...d,
-              x1: d.x1 + delta.dx,
-              y1: d.y1 + delta.dy,
-              x2: d.x2 + delta.dx,
-              y2: d.y2 + delta.dy,
-            })),
-            ordinateChains: shiftBound(drawing.ordinateChains, (chain, delta) => ({
-              ...chain,
-              datumX: chain.datumX + delta.dx,
-              datumY: chain.datumY + delta.dy,
-              points: chain.points.map((point) => ({ ...point, x: point.x + delta.dx, y: point.y + delta.dy })),
-            })),
-            datums: shiftBound(drawing.datums, (datum, delta) => ({
-              ...datum,
-              anchorX: datum.anchorX + delta.dx,
-              anchorY: datum.anchorY + delta.dy,
-              labelX: datum.labelX + delta.dx,
-              labelY: datum.labelY + delta.dy,
-            })),
-            gdtFrames: shiftBound(drawing.gdtFrames, (frame, delta) => ({
-              ...frame,
-              anchorX: frame.anchorX + delta.dx,
-              anchorY: frame.anchorY + delta.dy,
-              labelX: frame.labelX + delta.dx,
-              labelY: frame.labelY + delta.dy,
-            })),
-            surfaceFinishes: shiftBound(drawing.surfaceFinishes, (finish, delta) => ({
-              ...finish,
-              anchorX: finish.anchorX + delta.dx,
-              anchorY: finish.anchorY + delta.dy,
-              labelX: finish.labelX + delta.dx,
-              labelY: finish.labelY + delta.dy,
-            })),
-            welds: shiftBound(drawing.welds, (weld, delta) => ({
-              ...weld,
-              anchorX: weld.anchorX + delta.dx,
-              anchorY: weld.anchorY + delta.dy,
-              labelX: weld.labelX + delta.dx,
-              labelY: weld.labelY + delta.dy,
-            })),
-            holeCallouts: shiftBound(drawing.holeCallouts, (callout, delta) => ({
-              ...callout,
-              anchorX: callout.anchorX + delta.dx,
-              anchorY: callout.anchorY + delta.dy,
-              labelX: callout.labelX + delta.dx,
-              labelY: callout.labelY + delta.dy,
-            })),
-          },
+          drawing: { ...withDrawingViewPositions(drawing, views), projectionMethod: method },
         };
       }),
 
@@ -851,7 +780,12 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     addDrawingView: (view) =>
       commit((document) => {
         if (!document.drawing) return document;
-        return { ...document, drawing: { ...document.drawing, views: [...document.drawing.views, view] } };
+        const drawing = document.drawing;
+        const added = [...drawing.views, view];
+        const views = view.kind === "standard"
+          ? repositionStandardViews(added, drawing.projectionMethod ?? DEFAULT_PROJECTION_METHOD)
+          : added;
+        return { ...document, drawing: withDrawingViewPositions(drawing, views) };
       }),
 
     addDrawingNote: (note) => {

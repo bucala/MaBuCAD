@@ -404,10 +404,27 @@ export function measure(sketch: Sketch, kind: DimensionKind, points: string[], e
   }
 }
 
+/** Connect text dragged beyond a dimension line's span without moving its measured ends. */
+export function linearDimensionLeader(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  label: { x: number; y: number },
+): [{ x: number; y: number }, { x: number; y: number }] | null {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared > 1e-12
+    ? ((label.x - start.x) * dx + (label.y - start.y) * dy) / lengthSquared
+    : 0;
+  if (lengthSquared > 1e-12 && t >= 0 && t <= 1) return null;
+  const endpoint = t < 0 ? start : end;
+  return Math.hypot(label.x - endpoint.x, label.y - endpoint.y) > 1e-9 ? [endpoint, label] : null;
+}
+
 /**
  * Where a dimension's label sits before any drag offset is applied — mirrors
  * `SketchDimensions.tsx`'s own per-kind anchor logic (a circle/arc's rim point, an
- * angle's shared-vertex-ish centroid, a distance's midpoint) closely enough to seed a
+ * angle's arc label, a distance's midpoint) closely enough to seed a
  * sensible `labelOffset` when the Inventor-style Smart Dimension flow commits a pending
  * proposal at wherever the user's final click landed (`sketchStore.ts`'s
  * `commitPendingDimension`) — not pixel-identical to the render-time anchor (that one
@@ -451,6 +468,11 @@ export function defaultDimensionAnchor(
   }
 
   if (kind === "angle") {
+    const geometry = angleDimensionGeometry(sketch, {
+      id: "", kind, value: measure(sketch, kind, points, entities), points, entities,
+      labelOffset: { x: 0, y: 0 },
+    });
+    if (geometry) return angleDimensionLayout(geometry).label;
     const [firstId, secondId] = entities;
     const a = firstId ? entityById(sketch, firstId) : undefined;
     const b = secondId ? entityById(sketch, secondId) : undefined;
@@ -746,6 +768,57 @@ export interface AngleDimensionGeometry {
    * `near` is negative when the vertex lies inside or past that end of the segment. */
   spanA: { near: number; far: number };
   spanB: { near: number; far: number };
+}
+
+/** Keep the label under the cursor and size the arc from its distance to the vertex.
+ * Outside the measured sector, a leader joins the label to the nearest arc endpoint. */
+export function angleDimensionLayout(
+  geometry: AngleDimensionGeometry,
+  offset = { x: 0, y: 0 },
+): { radius: number; label: { x: number; y: number }; leaderStart: { x: number; y: number } | null } {
+  const angle = geometry.startAngle + geometry.sweep / 2;
+  const label = {
+    x: geometry.vertex.x + Math.cos(angle) * 16 + offset.x,
+    y: geometry.vertex.y + Math.sin(angle) * 16 + offset.y,
+  };
+  const dx = label.x - geometry.vertex.x;
+  const dy = label.y - geometry.vertex.y;
+  const distance = Math.hypot(dx, dy);
+  const radius = Math.max(6, distance - 4);
+  const labelAngle = distance < 1e-9 ? angle : Math.atan2(dy, dx);
+  const start = {
+    x: geometry.vertex.x + geometry.rayA.x,
+    y: geometry.vertex.y + geometry.rayA.y,
+  };
+  const end = {
+    x: geometry.vertex.x + geometry.rayB.x,
+    y: geometry.vertex.y + geometry.rayB.y,
+  };
+  const arcAngle = geometry.sweep >= 0
+    ? clampAngleToArcSweep(geometry.vertex, start, end, labelAngle)
+    : clampAngleToArcSweep(geometry.vertex, end, start, labelAngle);
+  const outsideSector = Math.hypot(
+    Math.cos(arcAngle) - Math.cos(labelAngle),
+    Math.sin(arcAngle) - Math.sin(labelAngle),
+  ) > 1e-6;
+  const leaderStart = outsideSector || distance < radius
+    ? {
+        x: geometry.vertex.x + Math.cos(arcAngle) * radius,
+        y: geometry.vertex.y + Math.sin(arcAngle) * radius,
+      }
+    : null;
+  return { radius, label, leaderStart };
+}
+
+/** Extend from the nearest segment endpoint when the arc falls outside the drawn line. */
+export function angleDimensionWitness(
+  radius: number,
+  span: { near: number; far: number },
+): [number, number] | null {
+  if (radius >= span.near && radius <= span.far) return null;
+  return radius > span.far
+    ? [span.far + 0.8, radius + 2]
+    : [span.near - 0.8, radius - 2];
 }
 
 /**

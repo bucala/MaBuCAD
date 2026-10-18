@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   ArrowDownToLine,
   ArrowUp,
@@ -174,26 +174,24 @@ export function PropertyManager() {
     }
   }, [feature?.id, edgePickModeFeatureId, setEdgePickMode]);
 
-  // Showing an editable feature's properties *is* editing it: the session opens as soon as
-  // the panel does, so OK/Cancel are live from the first moment rather than appearing only
-  // after the first keystroke. A session that never changes anything pushes no undo entry
-  // and its Cancel restores an identical document, so browsing the tree stays free.
-  const editableFeatureId =
-    feature && !feature.isDefault && feature.kind !== "sketch" ? feature.id : null;
-  useEffect(() => {
-    if (editableFeatureId) beginFeatureEdit(editableFeatureId);
-  }, [editableFeatureId, beginFeatureEdit]);
-
   // Unmounting this panel — switching to the Feature Manager or Configurations tab, or the
   // slot being taken over by sketch mode or an Inspect tool — confirms an open session
   // rather than leaving it armed somewhere its OK/Cancel are no longer on screen: the same
   // "clicking away confirms" rule the store applies to selection changes. Reads the store
   // at unmount time (not a closure) so it ends whatever session is actually open then; a
   // session already ended by OK/Cancel/Delete is a no-op because `featureEdit` is null.
+  const mounted = useRef(false);
   useEffect(() => {
+    mounted.current = true;
     return () => {
-      const state = useDocumentStore.getState();
-      if (state.featureEdit) state.endFeatureEdit("commit");
+      mounted.current = false;
+      const session = useDocumentStore.getState().featureEdit;
+      // Strict Mode rehearses cleanup/setup without leaving the panel. Also avoid
+      // confirming a different command that started during the real unmount.
+      queueMicrotask(() => {
+        const state = useDocumentStore.getState();
+        if (!mounted.current && session && state.featureEdit === session) state.endFeatureEdit("commit");
+      });
     };
   }, []);
 

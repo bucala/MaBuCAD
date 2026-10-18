@@ -314,9 +314,8 @@ export interface DrawingHoleCalloutData {
  * vertex belongs to); or, for an annotation placed in free space with nothing to snap to,
  * by whichever view is currently "active" (double-click a view's frame to activate it,
  * double-click empty sheet to clear) at the moment it's created. A bound annotation moves
- * with its view — `documentStore.ts`'s `moveDrawingView` shifts every annotation whose
- * `parentViewId` matches by the same delta the view itself moved by, rather than the plain
- * `updateDrawingView` every other view-position write still uses. An unbound annotation
+ * with its view — `documentStore.ts` applies the same per-view delta during a drag or a
+ * projection relayout to every annotation whose `parentViewId` matches. An unbound annotation
  * (no active view, no snap) stays exactly where every annotation always has: independent,
  * fixed-position sheet coordinates.
  */
@@ -324,8 +323,8 @@ export interface DrawingViewData {
   id: string;
   label: string;
   projection: DrawingProjectionKind;
-  /** Sheet position (mm) of this view's own bounding-box centre. Freely draggable — see
-   * `documentStore.ts`'s `updateDrawingView`. */
+  /** Sheet position (mm) of this view's own bounding-box centre. Linked views slide along
+   * their projection direction; `alignmentUnlocked` permits free dragging. */
   x: number;
   y: number;
   /** 1 = full size. */
@@ -364,7 +363,7 @@ export interface DrawingViewData {
    * alignment (see `commands/drawingViewLayout.ts`'s `alignmentLinkFor`). Absent means a
    * view with a source — a standard view relative to Front, a Section, an Auxiliary —
    * slides only along its projection direction when dragged, and follows its source view
-   * along the free axis when the source itself moves. Detail/Crop/Broken views are always
+   * along the shared axis when the source itself moves. Detail/Crop/Broken views are always
    * free (drafting places them arbitrarily), so the flag is meaningless for them. */
   alignmentUnlocked?: boolean;
   /** Section view only: the world-space cut plane used to produce it, plus enough of the
@@ -445,9 +444,8 @@ export interface DrawingNoteData {
  *
  * `x1,y1`/`x2,y2` are both sheet mm, snapped from the picked view's own projected vertices
  * (see `kernel/drawingGeometry.ts`'s `nearestVertex`) at the moment the dimension was
- * created — not live-linked to the view, so dragging/rescaling a view afterward leaves an
- * existing dimension where it was measured, matching how a Model View's own cached
- * `visiblePaths` already work (`DrawingViewData`'s own doc comment).
+ * created. A bound dimension translates with its view, but rescaling or refreshing the
+ * projected geometry does not re-measure it automatically.
  */
 export interface DrawingDimensionData {
   id: string;

@@ -1,6 +1,6 @@
 import type { Language } from "@/i18n/languages";
 import { translateFor } from "@/i18n/useTranslation";
-import { viewPointToSheet } from "@/kernel/drawingGeometry";
+import { isViewPointVisible, viewPointToSheet } from "@/kernel/drawingGeometry";
 import type { DrawingHoleCalloutMetadata, DrawingHoleTargetData, DrawingViewData } from "@/types/document";
 
 function formatMillimetres(value: number): string {
@@ -102,7 +102,15 @@ export function nearestHoleTarget(
   for (const view of views) {
     for (const target of view.holeTargets ?? []) {
       const sheet = holeTargetSheetPoint(view, target);
-      const radialDistance = Math.abs(Math.hypot(point.x - sheet.x, point.y - sheet.y) - sheet.radius);
+      const dx = point.x - sheet.x;
+      const dy = point.y - sheet.y;
+      const distance = Math.hypot(dx, dy);
+      const rim = {
+        x: target.cx + (distance > 0 ? dx / distance : 1) * target.radius,
+        y: target.cy + (distance > 0 ? dy / distance : 0) * target.radius,
+      };
+      if (!isViewPointVisible(view, rim)) continue;
+      const radialDistance = Math.abs(distance - sheet.radius);
       if (radialDistance < bestDistance) {
         bestDistance = radialDistance;
         best = { viewId: view.id, target, x: sheet.x, y: sheet.y };

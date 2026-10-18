@@ -53,12 +53,9 @@ test("a drawn sketch survives a save/open round trip as a current-format documen
   const sketchRow = page.getByRole("treeitem", { name: /Sketch1/ });
   await expect(sketchRow).toBeVisible();
 
-  // Selecting the feature swings the dock to its property panel (which detaches the tree
-  // mid-gesture, swallowing a plain double-click). Step back to the tree first: the row is
-  // now already selected, so a further double-click no longer swings the panel and the
-  // edit-sketch gesture completes.
+  // Browsing keeps the feature tree mounted; an explicit double-click opens the sketch.
   await sketchRow.click();
-  await page.getByRole("tab", { name: "Feature Manager" }).click();
+  await expect(page.getByRole("tab", { name: "Feature Manager" })).toHaveAttribute("aria-selected", "true");
   await expect(sketchRow).toBeVisible();
   await sketchRow.dblclick();
   await expect(page.getByTestId("sketch-entity-count")).toHaveText("4");

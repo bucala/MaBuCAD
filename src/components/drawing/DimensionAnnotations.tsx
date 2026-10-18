@@ -160,7 +160,7 @@ export function DimensionView({
   const box = LABEL_BOX[dimension.toleranceMode ?? "none"];
 
   return (
-    <g className={selected ? styles.dimensionSelected : styles.dimension}>
+    <g data-drawing-dimension={dimension.id} className={selected ? styles.dimensionSelected : styles.dimension}>
       <line x1={dimension.x1} y1={dimension.y1} x2={q1.x} y2={q1.y} className={styles.extensionLine} />
       <line x1={dimension.x2} y1={dimension.y2} x2={q2.x} y2={q2.y} className={styles.extensionLine} />
       <line x1={q1.x} y1={q1.y} x2={q2.x} y2={q2.y} className={styles.dimensionLine} />

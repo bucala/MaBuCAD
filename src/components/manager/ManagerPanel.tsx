@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ListTree, Settings2, SlidersHorizontal } from "lucide-react";
 
 import { InspectPanel } from "@/components/property/InspectPanel";
@@ -12,6 +12,7 @@ import { FeatureTree } from "@/components/tree/FeatureTree";
 import { PropertyManager } from "@/components/property/PropertyManager";
 import type { ManagerTabId } from "@/types/ui";
 
+import { INITIAL_MANAGER_TAB_STATE, syncManagerCommands } from "./managerTabState";
 import styles from "./ManagerPanel.module.css";
 
 const TABS: { id: ManagerTabId; label: string; icon: typeof ListTree }[] = [
@@ -25,42 +26,22 @@ const TABS: { id: ManagerTabId; label: string; icon: typeof ListTree }[] = [
  * switch by tab, the way SolidWorks stacks its managers rather than showing them at once.
  */
 export function ManagerPanel() {
-  const [activeTab, setActiveTab] = useState<ManagerTabId>("features");
+  const [tabState, setTabState] = useState(INITIAL_MANAGER_TAB_STATE);
+  const { activeTab } = tabState;
   const isSketchMode = useSketchStore(selectIsSketchMode);
   const inspectTool = useInspectStore((state) => state.activeTool);
   const featureEditId = useDocumentStore((state) => state.featureEdit?.featureId ?? null);
-  // The tab an auto-switch took over from, restored when the reason clears — and cancelled
-  // the moment the user picks a tab themselves mid-takeover, since an explicit choice
-  // always outranks the pending return.
-  const returnTab = useRef<ManagerTabId | null>(null);
-  const autoSwitched = useRef(false);
-
-  // A command that owns the properties slot — sketch mode (sketch tools), an Inspect tool
-  // (Measure, Appearance) or a feature edit session (new or edited feature, whose
-  // OK/Cancel live there) — swings the panel to it, the SolidWorks "command takes over"
-  // convention. Plain *selection* deliberately no longer does: clicking tree rows or a
-  // viewport plane just selects, so browsing never yanks the panel away mid-task. When the
-  // last reason clears, the panel returns to the tab it was taken from.
-  const takeover = isSketchMode || Boolean(inspectTool) || Boolean(featureEditId);
+  // Commands take over the properties slot; ordinary selection never switches tabs.
   useEffect(() => {
-    if (takeover) {
-      setActiveTab((current) => {
-        if (current !== "properties" && !autoSwitched.current) returnTab.current = current;
-        autoSwitched.current = true;
-        return "properties";
-      });
-    } else if (autoSwitched.current) {
-      autoSwitched.current = false;
-      const target = returnTab.current;
-      returnTab.current = null;
-      if (target) setActiveTab(target);
-    }
-  }, [takeover]);
+    setTabState((state) => syncManagerCommands(state, {
+      sketch: selectIsSketchMode(useSketchStore.getState()),
+      inspect: useInspectStore.getState().activeTool,
+      featureEditId: useDocumentStore.getState().featureEdit?.featureId ?? null,
+    }));
+  }, [isSketchMode, inspectTool, featureEditId]);
 
   const pickTab = (id: ManagerTabId) => {
-    autoSwitched.current = false;
-    returnTab.current = null;
-    setActiveTab(id);
+    setTabState((state) => ({ ...state, activeTab: id, returnTab: null }));
   };
 
   return (

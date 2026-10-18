@@ -3,7 +3,7 @@ import {
   clampBrokenBand,
   clampCropRegion,
   layoutInitialViews,
-  repositionStandardViews,
+  positionDerivedView,
   VIEW_GAP,
   SHEET_MARGIN,
 } from "@/commands/drawingViewLayout";
@@ -115,11 +115,7 @@ export function runToggleProjectionMethod(): void {
   const sheet = useDocumentStore.getState().document.drawing;
   if (!sheet) return;
   const next = (sheet.projectionMethod ?? DEFAULT_PROJECTION_METHOD) === "ISO-E" ? "ISO-A" : "ISO-E";
-  useDocumentStore.getState().setDrawingSheet({
-    ...sheet,
-    projectionMethod: next,
-    views: repositionStandardViews(sheet.views, next),
-  });
+  useDocumentStore.getState().layoutDrawingViews(next);
 }
 
 /**
@@ -292,8 +288,11 @@ export async function runCreateSectionView(
       label: `SECTION ${letter}-${letter}`,
       projection: sectionViewCamera(axis, !flipped),
       kind: "section",
-      x: sourceView.x + sourceView.width * sourceView.scale + 40,
-      y: sourceView.y,
+      ...positionDerivedView(
+        sourceView,
+        { ...projected, scale: sourceView.scale },
+        orientation === "vertical" ? "horizontal" : "vertical",
+      ),
       scale: sourceView.scale,
       visiblePaths: projected.visiblePaths,
       hiddenPaths: projected.hiddenPaths,
@@ -491,8 +490,11 @@ export async function runCreateAuxiliaryView(
       label: `AUXILIARY ${letter}`,
       projection: sourceView.projection,
       kind: "auxiliary",
-      x: sourceView.x + sourceView.width * sourceView.scale + 50,
-      y: sourceView.y,
+      ...positionDerivedView(
+        sourceView,
+        { ...projected, scale: sourceView.scale },
+        tiltAxis === "horizontal" ? "vertical" : "horizontal",
+      ),
       scale: sourceView.scale,
       ...projected,
       auxiliaryOf: {
@@ -586,11 +588,6 @@ export async function runCreateProjectedView(sourceView: DrawingViewData): Promi
     };
 
     useDocumentStore.getState().addDrawingView(newView);
-    const method = sheet.projectionMethod ?? DEFAULT_PROJECTION_METHOD;
-    const afterAdd = useDocumentStore.getState().document.drawing;
-    if (afterAdd) {
-      useDocumentStore.getState().setDrawingSheet({ ...afterAdd, views: repositionStandardViews(afterAdd.views, method) });
-    }
     useDrawingToolStore.getState().resetPicking();
     showToast(`${target.toUpperCase()} view projected`);
   } catch (error) {

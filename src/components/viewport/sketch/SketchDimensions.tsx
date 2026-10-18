@@ -6,7 +6,7 @@ import { Plane, Raycaster, Vector2, Vector3 } from "three";
 import { DimensionValueField } from "@/components/shared/DimensionValueField";
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
-import { angleDimensionGeometry, clampAngleToArcSweep, defaultDimensionAnchor, pointById } from "@/sketch/sketchModel";
+import { angleDimensionGeometry, angleDimensionLayout, angleDimensionWitness, clampAngleToArcSweep, defaultDimensionAnchor, linearDimensionLeader, pointById } from "@/sketch/sketchModel";
 import type { Dimension, Sketch } from "@/sketch/types";
 import { useSketchStore } from "@/state/sketchStore";
 
@@ -239,9 +239,8 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
 
   let leader: [number, number, number][] = [];
   let arrows: [number, number, number][][] = [];
-  // Disjoint single-segment strokes that aren't arrowheads — an angle dimension's witness
-  // (extension) lines. Rendered exactly like arrow strokes below.
-  let witnesses: [number, number, number][][] = [];
+  // Disjoint extension lines and connectors to text outside the measured span.
+  const witnesses: [number, number, number][][] = [];
   let labelPosition: [number, number, number] = [0, 0, 0.05];
   let text = "";
 
@@ -272,10 +271,18 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
         [second.x, first.y - offset, 0],
         [first.x, first.y - offset, 0],
       ];
-      // Points back along the leader's first segment, toward the datum end — the same
-      // "arrowhead touches the measured point" convention the linear/radius dimensions use.
-      arrows = arrowheadPoints(second.x, second.y, 0, Math.sign(first.y - offset - second.y) || 1);
-      labelPosition = [second.x + nudge.x, first.y - offset - 3, 0.05];
+      if (isOrdinate) {
+        arrows = arrowheadPoints(second.x, second.y, 0, Math.sign(first.y - offset - second.y) || 1);
+        labelPosition = [second.x + nudge.x, first.y - offset - 3, 0.05];
+      } else {
+        leader.push([first.x, first.y, 0]);
+        const direction = Math.sign(second.x - first.x) || 1;
+        arrows = [
+          ...arrowheadPoints(first.x, first.y - offset, direction, 0),
+          ...arrowheadPoints(second.x, first.y - offset, -direction, 0),
+        ];
+        labelPosition = [(first.x + second.x) / 2 + nudge.x, first.y - offset - 3, 0.05];
+      }
     } else {
       const offset = baseOffset - nudge.x;
       leader = [
@@ -283,8 +290,18 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
         [first.x - offset, second.y, 0],
         [first.x - offset, first.y, 0],
       ];
-      arrows = arrowheadPoints(second.x, second.y, Math.sign(first.x - offset - second.x) || 1, 0);
-      labelPosition = [first.x - offset - 3, second.y + nudge.y, 0.05];
+      if (isOrdinate) {
+        arrows = arrowheadPoints(second.x, second.y, Math.sign(first.x - offset - second.x) || 1, 0);
+        labelPosition = [first.x - offset - 3, second.y + nudge.y, 0.05];
+      } else {
+        leader.push([first.x, first.y, 0]);
+        const direction = Math.sign(second.y - first.y) || 1;
+        arrows = [
+          ...arrowheadPoints(first.x - offset, first.y, 0, direction),
+          ...arrowheadPoints(first.x - offset, second.y, 0, -direction),
+        ];
+        labelPosition = [first.x - offset - 3, (first.y + second.y) / 2 + nudge.y, 0.05];
+      }
     }
 
     text = `${dimension.value.toFixed(2)}`;
@@ -455,14 +472,7 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     const angle = angleDimensionGeometry(sketch, dimension);
     if (angle) {
       const { vertex, rayA, rayB, startAngle, sweep, spanA, spanB } = angle;
-      const bisectorX = Math.cos(startAngle + sweep / 2);
-      const bisectorY = Math.sin(startAngle + sweep / 2);
-      // Same nudge convention as the linear kinds: the drag component along the bisector
-      // grows/shrinks the arc (arc and label move together), the cross component slides
-      // the label around the arc.
-      const nudgeRadial = nudge.x * bisectorX + nudge.y * bisectorY;
-      const nudgeTangent = nudge.x * -bisectorY + nudge.y * bisectorX;
-      const radius = Math.max(6, 12 + nudgeRadial);
+      const { radius, label, leaderStart } = angleDimensionLayout(angle, nudge);
 
       const segments = Math.max(8, Math.ceil((Math.abs(sweep) * 180) / (Math.PI * 5)));
       for (let i = 0; i <= segments; i++) {
@@ -471,9 +481,9 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
       }
 
       const witness = (ray: { x: number; y: number }, span: { near: number; far: number }) => {
-        const from = span.near <= 0.8 ? span.far + 0.8 : 0.8;
-        const to = radius + 2;
-        if (to - from <= 1) return;
+        const extension = angleDimensionWitness(radius, span);
+        if (!extension) return;
+        const [from, to] = extension;
         witnesses.push([
           [vertex.x + ray.x * from, vertex.y + ray.y * from, 0],
           [vertex.x + ray.x * to, vertex.y + ray.y * to, 0],
@@ -481,6 +491,9 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
       };
       witness(rayA, spanA);
       witness(rayB, spanB);
+      if (leaderStart) {
+        witnesses.push([[leaderStart.x, leaderStart.y, 0], [label.x, label.y, 0]]);
+      }
 
       // Arrowheads tangent to the arc at both ends, each pointing into the arc — the same
       // "tip on the line, pointing inward" convention the linear branches use.
@@ -500,29 +513,29 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
           -Math.cos(endAngle) * turn,
         ),
       ];
-      labelPosition = [
-        vertex.x + bisectorX * (radius + 4) - bisectorY * nudgeTangent,
-        vertex.y + bisectorY * (radius + 4) + bisectorX * nudgeTangent,
-        0.05,
-      ];
+      labelPosition = [label.x, label.y, 0.05];
       text = `${dimension.value.toFixed(1)}°`;
     } else {
       // Parallel lines have no vertex to centre an arc on — fall back to the bare label at
       // the endpoints' centroid (the only render this dimension kind had at all before).
-      const [firstEntityId, secondEntityId] = dimension.entities;
-      const a = firstEntityId ? sketch.entities.find((candidate) => candidate.id === firstEntityId) : undefined;
-      const b = secondEntityId ? sketch.entities.find((candidate) => candidate.id === secondEntityId) : undefined;
-      const endpoints = [a, b]
-        .filter((line): line is Extract<typeof line, { kind: "line" }> => line?.kind === "line")
-        .flatMap((line) => [pointById(sketch, line.start), pointById(sketch, line.end)])
-        .filter((point): point is NonNullable<typeof point> => Boolean(point));
-
-      if (endpoints.length === 0) return null;
-      const centroidX = endpoints.reduce((sum, point) => sum + point.x, 0) / endpoints.length;
-      const centroidY = endpoints.reduce((sum, point) => sum + point.y, 0) / endpoints.length;
-
-      labelPosition = [centroidX + nudge.x, centroidY + nudge.y, 0.05];
+      const anchor = defaultDimensionAnchor(sketch, "angle", dimension.points, dimension.entities);
+      if (!anchor) return null;
+      labelPosition = [anchor.x + nudge.x, anchor.y + nudge.y, 0.05];
       text = `${dimension.value.toFixed(1)}°`;
+    }
+  }
+
+  if (
+    (dimension.kind === "distance" || isAxisLockedDistance || dimension.kind === "point-line-distance") &&
+    leader.length >= 4
+  ) {
+    const connector = linearDimensionLeader(
+      { x: leader[1][0], y: leader[1][1] },
+      { x: leader[2][0], y: leader[2][1] },
+      { x: labelPosition[0], y: labelPosition[1] },
+    );
+    if (connector) {
+      witnesses.push(connector.map(({ x, y }): [number, number, number] => [x, y, 0]));
     }
   }
 

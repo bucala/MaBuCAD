@@ -19,6 +19,7 @@ export default defineConfig({
   use: {
     baseURL: CSP_PREVIEW_URL,
     viewport: { width: 1600, height: 950 },
+    actionTimeout: 15_000,
   },
   webServer: {
     // Vite's development HTML injects an inline React-refresh preamble, which the

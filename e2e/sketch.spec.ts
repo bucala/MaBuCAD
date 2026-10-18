@@ -65,3 +65,66 @@ test("a constrained sketch reports fewer degrees of freedom", async ({ page }) =
   expect(dof).toBeLessThan(8);
   await expect(page.getByTestId("sketch-status")).toContainText(/under defined/i);
 });
+
+test("linear dimension orientations preserve identity and gesture history", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Sketch" }).click();
+  await ribbonButton(page, "Sketch").click();
+  await expect(page.getByTestId("sketch-entity-count")).toHaveText("0");
+
+  const canvas = page.locator("canvas").first();
+  await ribbonButton(page, "Line").click();
+  await canvas.click({ position: { x: 600, y: 300 } });
+  await canvas.click({ position: { x: 800, y: 450 } });
+  await expect(page.getByTestId("sketch-entity-count")).toHaveText("1");
+  await page.keyboard.press("Escape");
+  await ribbonButton(page, "Smart Dimension").click();
+  await canvas.click({ position: { x: 700, y: 375 } });
+  await canvas.click({ position: { x: 850, y: 225 } });
+  await page.keyboard.press("Escape");
+
+  const label = page.locator("button[data-dimension-id]");
+  await expect(label).toHaveCount(1);
+  await expect(label).toHaveText("50.00");
+  const dimensionId = await label.getAttribute("data-dimension-id");
+  const canvasBounds = (await canvas.boundingBox())!;
+  const center = async () => {
+    const bounds = (await label.boundingBox())!;
+    return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+  };
+  const expectCenter = async (position: { x: number; y: number }) => {
+    await expect.poll(async () => {
+      const actual = await center();
+      return Math.hypot(actual.x - position.x, actual.y - position.y);
+    }).toBeLessThan(1);
+  };
+
+  for (const [orientation, value] of [
+    ["Horizontal", "40.00"],
+    ["Vertical", "30.00"],
+    ["Aligned", "50.00"],
+  ] as const) {
+    await label.click({ button: "right" });
+    await page.getByRole("menuitemradio", { name: orientation, exact: true }).click();
+    await expect(label).toHaveText(value);
+    await expect(label).toHaveAttribute("data-dimension-id", dimensionId!);
+    await page.screenshot({ path: testInfo.outputPath(`sketch-${orientation.toLowerCase()}-orientation.png`) });
+
+    const before = await center();
+    const after = { x: canvasBounds.x + 930, y: canvasBounds.y + 560 };
+    await page.mouse.move(before.x, before.y);
+    await page.mouse.down();
+    await page.mouse.move(after.x, after.y, { steps: 8 });
+    await page.mouse.up();
+    await expectCenter(after);
+    await expect(label).toHaveText(value);
+
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await expectCenter(before);
+    await page.getByRole("button", { name: "Redo", exact: true }).click();
+    await expectCenter(after);
+    await expect(label).toHaveAttribute("data-dimension-id", dimensionId!);
+    await expect(label).toHaveText(value);
+    await page.screenshot({ path: testInfo.outputPath(`sketch-${orientation.toLowerCase()}-outside-span.png`) });
+  }
+});

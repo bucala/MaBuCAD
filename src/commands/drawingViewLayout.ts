@@ -1,4 +1,4 @@
-import type { DrawingHoleTargetData, DrawingViewData, ProjectionMethod, StandardProjectionKind } from "@/types/document";
+import type { DrawingHoleTargetData, DrawingViewData, ProjectionMethod, ScreenAxis, StandardProjectionKind } from "@/types/document";
 
 /**
  * Pure sheet-position math for the standard six-view (plus Isometric) layout — factored out
@@ -242,28 +242,28 @@ export function layoutInitialViews(
  * Re-derives every placed `"standard"` view's sheet position from Front's own current
  * position under `method` — called both right after adding a further Projected View (so
  * the whole group stays internally consistent, not just the two views directly involved)
- * and whenever the sheet's `projectionMethod` itself is toggled. Section/Detail views are
- * left exactly where they are: they aren't part of the associated six-view set, and their
- * own position was chosen relative to whichever view they were cut/cropped from, not
- * derived from Front.
+ * and whenever the sheet's `projectionMethod` itself is toggled. Linked descendants follow
+ * source movement along their shared axis; unlinked and freely placed views stay put.
  */
 export function repositionStandardViews(views: DrawingViewData[], method: ProjectionMethod): DrawingViewData[] {
-  const front = views.find((view) => view.kind === "standard" && view.projection === "front");
+  const front = views.find((view) => (!view.kind || view.kind === "standard") && view.projection === "front");
   if (!front) return views;
 
   const sized: Partial<Record<StandardProjectionKind, SizedView>> = {};
   for (const view of views) {
-    if (view.kind !== "standard") continue;
+    if (view.kind && view.kind !== "standard") continue;
     sized[view.projection as StandardProjectionKind] = { width: view.width, height: view.height, scale: view.scale };
   }
 
   const positions = computeStandardViewPositions(front, sized, method);
 
-  return views.map((view) => {
-    if (view.kind !== "standard") return view;
+  let result = views;
+  for (const view of views) {
+    if ((view.kind && view.kind !== "standard") || view.alignmentUnlocked) continue;
     const position = positions[view.projection as StandardProjectionKind];
-    return position ? { ...view, x: position.x, y: position.y } : view;
-  });
+    if (position) result = moveAlignedViews(result, view.id, position.x, position.y);
+  }
+  return result;
 }
 
 /**
@@ -284,7 +284,7 @@ export function alignmentLinkFor(
   view: DrawingViewData,
   views: DrawingViewData[],
 ): { axis: "x" | "y"; coordinate: number; sourceId: string } | null {
-  const source = (id: string | undefined) => views.find((candidate) => candidate.id === id);
+  const source = (id: string) => views.find((candidate) => candidate.id === id && candidate.id !== view.id);
 
   if (view.kind === "section" && view.section) {
     const parent = source(view.section.sourceViewId);
@@ -302,8 +302,10 @@ export function alignmentLinkFor(
   }
   if (!view.kind || view.kind === "standard") {
     if (view.projection === "front" || view.projection === "iso") return null;
-    const front = views.find(
-      (candidate) => candidate.id !== view.id && (!candidate.kind || candidate.kind === "standard") && candidate.projection === "front",
+    const front = views.find((candidate) =>
+      candidate.id !== view.id &&
+      (!candidate.kind || candidate.kind === "standard") &&
+      candidate.projection === "front",
     );
     if (!front) return null;
     return view.projection === "top" || view.projection === "bottom"
@@ -320,6 +322,57 @@ export function alignmentTargetFor(
   views: DrawingViewData[],
 ): { axis: "x" | "y"; coordinate: number; sourceId: string } | null {
   return view.alignmentUnlocked ? null : alignmentLinkFor(view, views);
+}
+
+/** Constrains a drag and carries linked descendants along their shared axis, without
+ * changing their distance from the source along the free axis. A visited set also keeps
+ * malformed source cycles in imported documents from looping forever. */
+export function moveAlignedViews(
+  views: DrawingViewData[],
+  id: string,
+  x: number,
+  y: number,
+  alignment?: { alignmentUnlocked: boolean },
+): DrawingViewData[] {
+  const original = views.find((view) => view.id === id);
+  if (!original || !Number.isFinite(x) || !Number.isFinite(y)) return views;
+
+  const moved = { ...original, ...alignment, x, y };
+  const link = alignmentTargetFor(moved, views);
+  if (link) moved[link.axis] = link.coordinate;
+  if (moved.x === original.x && moved.y === original.y &&
+      moved.alignmentUnlocked === original.alignmentUnlocked) return views;
+
+  const positions = new Map([[id, moved]]);
+  const queue = [id];
+  for (let index = 0; index < queue.length; index += 1) {
+    const sourceId = queue[index];
+    const source = positions.get(sourceId)!;
+    for (const candidate of views) {
+      if (positions.has(candidate.id)) continue;
+      const target = alignmentTargetFor(candidate, views);
+      if (!target || target.sourceId !== sourceId) continue;
+      positions.set(candidate.id, { ...candidate, [target.axis]: source[target.axis] });
+      queue.push(candidate.id);
+    }
+  }
+
+  return views.map((view) => {
+    const position = positions.get(view.id);
+    return position && (position.x !== view.x || position.y !== view.y ||
+      position.alignmentUnlocked !== view.alignmentUnlocked) ? position : view;
+  });
+}
+
+/** Initial placement uses the same row/column a later linked drag preserves. */
+export function positionDerivedView(
+  source: DrawingViewData,
+  size: SizedView,
+  direction: ScreenAxis,
+): { x: number; y: number } {
+  return direction === "horizontal"
+    ? { x: source.x + (source.width * source.scale + size.width * size.scale) / 2 + VIEW_GAP, y: source.y }
+    : { x: source.x, y: source.y + (source.height * source.scale + size.height * size.scale) / 2 + VIEW_GAP };
 }
 
 export interface CropRegion {

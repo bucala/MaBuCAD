@@ -82,11 +82,9 @@ export interface DrawingVertex extends Point {
 
 /**
  * Converts a pointer's client (viewport pixel) coordinates into sheet-mm using the sheet
- * `<svg>`'s own bounding rect. This deliberately avoids `getScreenCTM()`: zoom/pan is
- * applied to that `<svg>` as a *CSS* transform (`DrawingSheet.tsx`), which Chromium's
- * `getScreenCTM()` does not include (long-standing Chromium bug 641537) — so the CTM path
- * silently misplaces every pick the moment the sheet is zoomed or panned, while
- * `getBoundingClientRect()` always reflects the final rendered box.
+ * `<svg>`'s own bounding rect. The sheet only translates and scales, so this maps the
+ * final rendered box directly without depending on nested SVG coordinate systems or
+ * how the browser combines SVG and CSS transforms in `getScreenCTM()`.
  */
 export function sheetPointFromClientRect(
   clientX: number,
@@ -137,11 +135,33 @@ export function viewPointToSheet(view: DrawingViewData, point: Point): Point {
   };
 }
 
-/** `view`'s own projected path endpoints, in sheet-mm via `viewPointToSheet`. */
+/** Whether a raw cached point survives the view's clip or omitted band. Derived views
+ * keep the source's full cache, so hidden endpoints must not become phantom pick targets. */
+export function isViewPointVisible(view: DrawingViewData, point: Point): boolean {
+  const epsilon = 1e-6;
+  const detail = view.kind === "detail" ? view.detailOf : undefined;
+  if (detail) {
+    return Math.hypot(point.x - detail.cx, point.y + detail.sourceHeight - detail.cy) <= detail.radius + epsilon;
+  }
+  const crop = view.kind === "crop" ? view.cropOf : undefined;
+  if (crop) {
+    const y = point.y + crop.sourceHeight;
+    return point.x >= crop.x - epsilon && point.x <= crop.x + crop.width + epsilon &&
+      y >= crop.y - epsilon && y <= crop.y + crop.height + epsilon;
+  }
+  const broken = view.kind === "broken" ? view.brokenOf : undefined;
+  if (broken) {
+    const coordinate = broken.orientation === "vertical" ? point.x : point.y + view.height;
+    return coordinate <= broken.start + epsilon || coordinate >= broken.end - epsilon;
+  }
+  return true;
+}
+
+/** `view`'s visible projected path endpoints, in sheet-mm via `viewPointToSheet`. */
 export function viewVertices(view: DrawingViewData): DrawingVertex[] {
   const toSheet = (point: Point): DrawingVertex => ({ ...viewPointToSheet(view, point), viewId: view.id });
   const paths = [...view.visiblePaths, ...view.hiddenPaths];
-  return paths.flatMap((d) => pathEndpoints(d).map(toSheet));
+  return paths.flatMap((d) => pathEndpoints(d).filter((point) => isViewPointVisible(view, point)).map(toSheet));
 }
 
 /**

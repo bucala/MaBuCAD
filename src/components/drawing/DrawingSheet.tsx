@@ -3,7 +3,7 @@ import { FileUp, Frame, Link2, Maximize, RotateCw, Settings2, Trash2, Unlink2, Z
 
 import { runCommand } from "@/commands/commandRegistry";
 import { runCreateProjectedView, runToggleProjectionMethod } from "@/commands/drawingCommands";
-import { DEFAULT_PROJECTION_METHOD, alignmentLinkFor, alignmentTargetFor } from "@/commands/drawingViewLayout";
+import { DEFAULT_PROJECTION_METHOD, alignmentLinkFor } from "@/commands/drawingViewLayout";
 import { nearestHoleTarget } from "@/commands/holeCallout";
 import { useTranslation } from "@/i18n/useTranslation";
 import { statAtPath } from "@/io/files";
@@ -135,7 +135,7 @@ function View({ view }: { view: DrawingViewData }) {
 
   return (
     <>
-      <svg x={x} y={y} width={width} height={height} viewBox={viewBoxStr} overflow="visible">
+      <svg data-view-id={view.id} x={x} y={y} width={width} height={height} viewBox={viewBoxStr} overflow="visible">
         {clipId && (
           <clipPath id={clipId}>
             {detail ? (
@@ -1161,7 +1161,7 @@ export function DrawingSheet() {
 
   /** Unlink: the selected view drags freely from now on. Re-link: snap straight back onto
    * its source's alignment axis and re-arm the constraint — one undo step for both, via
-   * `moveDrawingView`'s patch parameter. */
+   * `moveDrawingView`'s alignment parameter. */
   const toggleViewAlignment = () => {
     if (!selectedView) return;
     const link = alignmentLinkFor(selectedView, views);
@@ -1169,8 +1169,8 @@ export function DrawingSheet() {
     if (selectedView.alignmentUnlocked) {
       moveDrawingView(
         selectedView.id,
-        link.axis === "x" ? link.coordinate : selectedView.x,
-        link.axis === "y" ? link.coordinate : selectedView.y,
+        selectedView.x,
+        selectedView.y,
         { alignmentUnlocked: false },
       );
     } else {
@@ -1178,10 +1178,7 @@ export function DrawingSheet() {
     }
   };
 
-  /** Converts a pointer event to sheet-mm via the sheet `<svg>`'s bounding rect — NOT
-   * `getScreenCTM()`, which ignores the CSS zoom/pan transform in Chromium/WebView2 and so
-   * silently broke every pick below the moment the sheet wasn't at 100%/origin (see
-   * `sheetPointFromClientRect`'s own doc comment). */
+  /** Converts a pointer event against the sheet's final CSS-transformed rectangle. */
   const sheetPointFromEvent = (event: React.MouseEvent): { x: number; y: number } | null => {
     const svg = sheetRef.current;
     if (!svg) return null;
@@ -1324,12 +1321,13 @@ export function DrawingSheet() {
     if (tool === "ordinate") {
       const local = sheetPointFromEvent(event);
       if (!local) return;
-      const vertex = nearestVertex(views, local, PICK_TOLERANCE);
+      const vertex = nearestVertex(views, local, PICK_TOLERANCE, ordinateDatum?.viewId);
       if (!vertex) return;
       if (!ordinateDatum) {
-        pickOrdinateDatum(vertex.x, vertex.y);
+        pickOrdinateDatum(vertex.viewId, vertex.x, vertex.y);
         return;
       }
+      if (Math.hypot(vertex.x - ordinateDatum.x, vertex.y - ordinateDatum.y) < 1e-6) return;
       const scale = viewScaleFor(views, vertex.viewId);
       if (!ordinateChainId || !ordinateAxis) {
         const dx = Math.abs(vertex.x - ordinateDatum.x);
@@ -1498,6 +1496,7 @@ export function DrawingSheet() {
       >
         <svg
           ref={sheetRef}
+          data-testid="drawing-sheet"
           className={styles.sheet}
           width={sheetWidth * SHEET_SCALE}
           height={sheetHeight * SHEET_SCALE}
@@ -1557,17 +1556,7 @@ export function DrawingSheet() {
                 setSelectedAnnotation(null);
               }}
               onToggleActive={() => setActiveViewId((current) => (current === view.id ? null : view.id))}
-              onMove={(x, y) => {
-                // A linked view slides only along its projection direction — the locked
-                // axis snaps to the source's coordinate, so the view can never drift out
-                // of square with the view it was created from (unlink to drag freely).
-                const alignment = alignmentTargetFor(view, views);
-                moveDrawingView(
-                  view.id,
-                  alignment?.axis === "x" ? alignment.coordinate : x,
-                  alignment?.axis === "y" ? alignment.coordinate : y,
-                );
-              }}
+              onMove={(x, y) => moveDrawingView(view.id, x, y)}
               onPick={(localX, localY) => {
                 if (tool === "section") pickSectionSource(view.id, localX);
                 else if (tool === "detail") pickDetailSource(view.id, localX, localY);
@@ -1647,10 +1636,10 @@ export function DrawingSheet() {
           {/* The picked-but-uncommitted first point of an in-progress dimension, so the
               click visibly did something even before the second pick exists. */}
           {tool === "smart-dimension" && dimensionFirstPoint && (
-            <circle cx={dimensionFirstPoint.x} cy={dimensionFirstPoint.y} r={1.2} className={styles.dimensionPickMarker} />
+            <circle data-testid="dimension-first-pick" cx={dimensionFirstPoint.x} cy={dimensionFirstPoint.y} r={1.2} className={styles.dimensionPickMarker} />
           )}
           {tool === "ordinate" && ordinateDatum && (
-            <circle cx={ordinateDatum.x} cy={ordinateDatum.y} r={1.2} className={styles.dimensionPickMarker} />
+            <circle data-testid="ordinate-datum-pick" cx={ordinateDatum.x} cy={ordinateDatum.y} r={1.2} className={styles.dimensionPickMarker} />
           )}
 
           {notes.map((note) => (

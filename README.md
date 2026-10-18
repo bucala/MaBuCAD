@@ -48,7 +48,9 @@ Tauri.
 Every feature (sketch, extrude, fillet, pattern…) is a step in an ordered, replayable
 history — rollback, suppress, rename, reorder by dragging the rollback bar, undo/redo, all
 live in the Feature Manager tree. Undo is gesture-aware: dragging a view, a note or a
-dimension label costs exactly one undo step, not one per pointer frame.
+dimension label costs exactly one undo step, not one per pointer frame. Ordinary selection
+keeps your chosen manager tab; an explicit command opens Properties and returns to the
+previous tab when finished.
 
   </td>
   <td width="33%" valign="top">
@@ -63,7 +65,9 @@ coincident/tangent/midpoint relations live ("constrains smart") — both shown a
 until you commit to them. Relations work select-then-apply or apply-then-select, either
 order; a length dimension can be switched between Horizontal/Vertical/Aligned from its
 right-click menu without re-adding it; and selected geometry gets a real halo highlight, not
-just a colour swap.
+just a colour swap. Length dimensions have two endpoint arrows, extension lines and a
+connecting leader when their text moves beyond the measured span. Angle dimensions have a
+real arc and arrows, with a connecting leader outside the measured sector.
 
   </td>
   <td width="33%" valign="top">
@@ -133,7 +137,7 @@ Mica backdrop — Fluent 2 design tokens throughout, not an imitation.
 
 A committed Playwright suite drives the actual app end to end — the sketcher and the
 constraint solver's live DOF readout, an extrude through the WASM kernel, undo/redo, a
-document Save As/Open round-trip, the language switcher — plus a 185-test unit suite that
+document Save As/Open round-trip, the language switcher — plus a 250-test unit suite that
 runs the real WASM kernel under Node (the rebuild cache is proven byte-identical cached
 vs. from-scratch) and pins the sketch renderer's drag memoisation at a 240-entity scale,
 typecheck and a CI workflow that runs all of it on every push, not just typecheck and hope.
@@ -503,6 +507,12 @@ eslint.config.js              ESLint flat config: hook discipline + unused code,
 | Assembly | Components, mates, exploded views | ⬜ |
 | Drawing | ISO E/ISO A projection method (per-document, symbol in the title block, click to toggle), six-view Model View set (Front/Top/Bottom/Left/Right/Back, all associated to Front and re-laid-out on demand, with an amber out-of-date marker on the Update Views button whenever the source part file changed on disk since the last projection — cleared by the update itself, which also recognises a byte-identical part file and skips the multi-second rebuild instead of reproducing the cache it already has) plus Isometric, Projected View, Section (real kernel cut, ISO 128-3 hatched, cutting-plane line + arrows + A-A callout left on the source view), Detail (2D crop, ISO 128 torn boundary, leadered letter left on the source view), Auxiliary (bounded 30° tilted kernel projection), Broken (masked band with break marks) and Crop (rectangular same-scale crop) views, ISO 6410 thread circles on tapped holes, draggable views/notes, active-view annotation binding (double-click a view to activate it — new/re-anchored annotations bind to it and move with it), sheet zoom-to-cursor + middle-mouse pan, Edit Background shortcut, ISO 5457 zone-label sizing, Sheet Formats/Borders/Title Blocks (A4–A0, import/export as templates); Smart Dimension (5 tolerance modes: symmetric/deviation/limits/basic/fit), Ordinate, Datum Feature, Geometric Tolerance (14 characteristics, ⌀ prefix, MMC/LMC modifiers, per-datum modifiers, draggable leader anchor), Surface Finish (ISO 21920-1: machining required/prohibited, all-around, lay direction, allowance, draggable leader anchor), Weld (ISO 2553: 13 joint types, arrow/other side, all-around, field weld, draggable leader anchor), Hole Callout (picked straight from a projected Hole Wizard circle — designation/class with LH-only direction, drilled depth vs. THRU (adopted ASME wording — ISO 15786 itself signals a through hole by omitting the depth), ISO 15786 ⌴/⌵ counterbore/spotface/countersink seat lines, Slovak-localised wording) annotations; Hole Table and BOM tables. A fast/precise (coarse) hidden-line toggle was investigated and dropped: the shipped WASM kernel binds only OCCT's exact `HLRBRep_Algo`, never the tessellated `HLRBRep_PolyAlgo` that FreeCAD TechDraw's Coarse View uses, and the one knob replicad does expose measures 60 ms against 59 ms per view — a toggle trading fidelity for nothing, in a command where the part rebuild (~70%, 2.4 s on a 64-hole plate) is the real cost | ✅ |
 | Inspect | Measure, Mass Properties, Section Properties, Check Geometry, Draft Analysis, Parent/Child, Equations, Sensors, Appearance; Curvature dropped (no kernel support) | ✅ |
+
+Standard, Section and Auxiliary drawing views keep their creation-direction alignment
+while dragging, with **Unlink Position / Re-link Position** for independent placement.
+Bound annotations follow both dragging and projection relayouts. Smart Dimension and
+Ordinate pick real vertices within one view at any sheet zoom or pan, ignoring geometry
+hidden by Detail/Crop clips or a Broken mask. Escape exits the active drawing tool.
 
 <sub>✅ done &nbsp;•&nbsp; 🟡 partial &nbsp;•&nbsp; ⬜ planned — see
 [`CHANGELOG.md`](./CHANGELOG.md) for the full dated history, including bugs found and fixed
