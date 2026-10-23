@@ -244,6 +244,18 @@ export const sk: Record<string, string> = {
   "drawing.unlink-view.title": "Umožniť voľné ťahanie pohľadu mimo smeru premietania",
   "drawing.relink-view.title": "Prichytiť späť do zarovnania so zdrojovým pohľadom a držať ho pri ťahaní",
 
+  // --------------------------------------------------- model view orientation dialog
+  "drawing.orientation-dialog.title": "Orientácia pohľadu na model",
+  "drawing.orientation-dialog.subtitle": "Vyberte, ktorý smer sa stane hlavným (čelným) pohľadom výkresu.",
+  "drawing.orientation-dialog.cancel": "Zrušiť",
+  "drawing.orientation.front": "Čelný",
+  "drawing.orientation.top": "Pôdorys",
+  "drawing.orientation.right": "Bočný pravý",
+  "drawing.orientation.left": "Bočný ľavý",
+  "drawing.orientation.bottom": "Spodný",
+  "drawing.orientation.back": "Zadný",
+  "drawing.orientation.iso": "Izometrický",
+
   // ------------------------------------------------------------- hole callout (drawing)
   // The manufacturing note the sheet renders from a projected Hole Wizard circle.
   // Words only — the ⌀/↧/×/⌴/⌵ symbols are the drawing standards' own and never

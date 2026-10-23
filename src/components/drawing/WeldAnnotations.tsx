@@ -221,7 +221,7 @@ export function WeldView({
           )}
         </g>
         {editing && (
-          <foreignObject x={-10} y={8} width={220} height={130}>
+          <foreignObject x={-10} y={8} width={260} height={175}>
             <WeldEditForm
               weld={weld}
               onDone={(patch) => {
@@ -246,25 +246,27 @@ function WeldSideFields({
   onChange: (side: WeldSideData | null) => void;
 }) {
   return (
-    <div className={styles.gdtFormRow}>
-      <span className={styles.gdtFormCheckLabel}>{label}</span>
-      <select
-        value={side?.symbol ?? ""}
-        onChange={(event) => {
-          const symbol = event.target.value as WeldSymbolType | "";
-          onChange(symbol ? { ...side, symbol } : null);
-        }}
-        className={styles.gdtFormInput}
-      >
-        <option value="">— none —</option>
-        {(Object.keys(WELD_SYMBOL_LABELS) as WeldSymbolType[]).map((type) => (
-          <option key={type} value={type}>
-            {WELD_SYMBOL_LABELS[type]}
-          </option>
-        ))}
-      </select>
+    <div className={styles.gdtFormGroup}>
+      <div className={styles.gdtFormRow}>
+        <span className={styles.gdtFormCheckLabel}>{label}</span>
+        <select
+          value={side?.symbol ?? ""}
+          onChange={(event) => {
+            const symbol = event.target.value as WeldSymbolType | "";
+            onChange(symbol ? { ...side, symbol } : null);
+          }}
+          className={styles.gdtFormInput}
+        >
+          <option value="">— none —</option>
+          {(Object.keys(WELD_SYMBOL_LABELS) as WeldSymbolType[]).map((type) => (
+            <option key={type} value={type}>
+              {WELD_SYMBOL_LABELS[type]}
+            </option>
+          ))}
+        </select>
+      </div>
       {side && (
-        <>
+        <div className={styles.gdtFormRow}>
           <input
             value={side.size ?? ""}
             placeholder="size"
@@ -295,7 +297,7 @@ function WeldSideFields({
             <option value="convex">convex</option>
             <option value="concave">concave</option>
           </select>
-        </>
+        </div>
       )}
     </div>
   );
@@ -323,6 +325,8 @@ function WeldEditForm({ weld, onDone }: { weld: DrawingWeldData; onDone: (patch:
           <input type="checkbox" checked={fieldWeld} onChange={(event) => setFieldWeld(event.target.checked)} />
           field weld
         </label>
+      </div>
+      <div className={styles.gdtFormRow}>
         <input
           value={tail}
           placeholder="tail (process/spec)"

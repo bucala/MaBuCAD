@@ -57,15 +57,10 @@ function isSavedPart(value: unknown): value is SavedDocument {
   );
 }
 
-/** The four standard views Insert Model View places by default — the other two axis-aligned
- * directions (Bottom, Left, Back) and the rest can be added one at a time via Projected
- * View, the same "start small, add what's actually needed" default the ribbon's own
- * `PROJECTED_VIEW_PREFERENCE` below already assumes. */
-const DEFAULT_DIRECTIONS: StandardProjectionKind[] = ["front", "top", "right", "iso"];
-
-/** Picks a saved Part file and generates the default set of standard views onto the active
- * Drawing's (empty) sheet, replacing whatever was there before — laid out per the sheet's
- * own `projectionMethod` (ISO-E by default). */
+/** Picks a saved Part file, projects every direction (cheap — `rebuildAndProjectPart`
+ * always computes all seven regardless of how many get placed), and opens the orientation
+ * picker rather than placing any view itself — the user's chosen direction becomes the
+ * drawing's own "front" and is the only view `runPlaceModelView` places. */
 export async function runInsertModelView(): Promise<void> {
   const { showToast } = useGeometryStore.getState();
 
@@ -84,28 +79,52 @@ export async function runInsertModelView(): Promise<void> {
       return;
     }
 
-    const existingMethod = useDocumentStore.getState().document.drawing?.projectionMethod;
-    const method = existingMethod ?? DEFAULT_PROJECTION_METHOD;
-    const geometry = Object.fromEntries(
-      DEFAULT_DIRECTIONS.map((direction) => [direction, { ...projected.views[direction], scale: 1 }]),
-    );
-
-    useDocumentStore.getState().setDrawingSheet({
-      sourcePart: { fileName: picked.name, path: picked.path },
-      // Stamp the part file as it is right now, so the drawing can later tell (against a
-      // fresh stat) whether the file changed since these views were projected — the
-      // "out of date" hint `DrawingSheet.tsx` shows on Update Views.
+    useDrawingToolStore.getState().openModelViewPicker({
+      fileName: picked.name,
+      path: picked.path,
+      // Stamped/hashed here, while the picked file is still in hand, and carried through to
+      // `runPlaceModelView` unchanged — same provenance `DrawingSheetData.sourceStamp` and
+      // `sourceContentHash` always needed, just computed before the user's orientation pick
+      // instead of after.
       sourceStamp: picked.path ? (await statAtPath(picked.path)) ?? undefined : undefined,
-      // The exact provenance of this cache, so a later Update Views can tell whether
-      // re-projecting would change anything at all — see `DrawingSheetData`'s own comment.
       sourceContentHash: contentHash(text),
-      views: layoutInitialViews(geometry, method),
-      projectionMethod: method,
+      views: projected.views,
     });
-    showToast(`Inserted views of ${picked.name}`);
+    showToast("Choose the model's main view orientation", 3000);
   } catch (error) {
     showToast(`Insert Model View failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
   }
+}
+
+/** `ModelViewOrientationDialog.tsx`'s own confirm action: places the picked direction as the
+ * drawing's sole initial view, tagged `projection: "front"` — `layoutInitialViews` and every
+ * later Projected View/alignment computation already anchor the whole standard-view set on
+ * whichever view *is* front, so the chosen direction becoming "front" is what makes the rest
+ * of the layout machinery treat it as the main view without any further change. */
+export function runPlaceModelView(direction: StandardProjectionKind): void {
+  const picker = useDrawingToolStore.getState().modelViewPicker;
+  if (!picker) return;
+
+  const existingMethod = useDocumentStore.getState().document.drawing?.projectionMethod;
+  const method = existingMethod ?? DEFAULT_PROJECTION_METHOD;
+  const geometry = { front: { ...picker.views[direction], scale: 1 } };
+  // Every direction's real projected size, for `layoutInitialViews`'s room reservation —
+  // whichever ones the user adds later via Projected View use these exact labels/sizes
+  // (`runCreateProjectedView` re-projects the same seven directions), so reserving space
+  // for them now means the group never has to shift once they actually appear.
+  const roomSizes = Object.fromEntries(
+    (Object.keys(picker.views) as StandardProjectionKind[]).map((key) => [key, { ...picker.views[key], scale: 1 }]),
+  );
+
+  useDocumentStore.getState().setDrawingSheet({
+    sourcePart: { fileName: picker.fileName, path: picker.path },
+    sourceStamp: picker.sourceStamp,
+    sourceContentHash: picker.sourceContentHash,
+    views: layoutInitialViews(geometry, method, roomSizes),
+    projectionMethod: method,
+  });
+  useDrawingToolStore.getState().closeModelViewPicker();
+  useGeometryStore.getState().showToast(`Inserted view of ${picker.fileName}`);
 }
 
 /** Toggles the sheet's `projectionMethod` (ISO-E ↔ ISO-A) and re-lays out every placed
@@ -514,44 +533,25 @@ export async function runCreateAuxiliaryView(
   }
 }
 
-/** `drawing.projected`: preference order of the other directions, given whichever one was
- * picked as the source — mirrors Inventor's own "click a base view, get the next logical
- * projection" default. There is no drag-to-direction UI here; the six-view layout's own
- * fixed slots (`drawingViewLayout.ts`) are the only positions a standard view can occupy. */
-const PROJECTED_VIEW_PREFERENCE: Record<StandardProjectionKind, StandardProjectionKind[]> = {
-  front: ["top", "right", "iso", "bottom", "left", "back"],
-  top: ["front", "right", "iso", "bottom", "left", "back"],
-  bottom: ["front", "right", "iso", "top", "left", "back"],
-  right: ["front", "top", "iso", "bottom", "left", "back"],
-  left: ["front", "top", "iso", "bottom", "right", "back"],
-  back: ["front", "top", "iso", "bottom", "left", "right"],
-  iso: ["front", "top", "right", "bottom", "left", "back"],
-};
-
 /**
- * Creates a Projected View: whichever standard projection isn't on the sheet yet
- * (`PROJECTED_VIEW_PREFERENCE`, filtered to what's missing), then re-derives *every* placed
- * standard view's position from Front (`repositionStandardViews`) rather than just placing
- * the new one relative to `sourceView` — keeps the whole associated set internally
- * consistent even if `sourceView` itself wasn't Front. Re-reads the source part and
- * re-projects every direction the same way Update Views does, since only the views already
- * placed have cached paths — an unplaced projection has none.
+ * Creates a Projected View in `target`'s direction from `sourceView` — the direction comes
+ * from `ProjectedViewOverlay.tsx`'s own cardinal-arrow/Iso-corner pick
+ * (`drawingViewLayout.ts`'s `projectableDirections`), not an auto-picked "next logical
+ * projection"; there is a real drag-to-direction choice before this ever runs. Re-derives
+ * *every* placed standard view's position from Front (`repositionStandardViews`, via
+ * `addDrawingView`) rather than just placing the new one relative to `sourceView` — keeps
+ * the whole associated set internally consistent even if `sourceView` itself wasn't Front.
+ * Re-reads the source part and re-projects every direction the same way Update Views does,
+ * since only the views already placed have cached paths — an unplaced projection has none.
  */
-export async function runCreateProjectedView(sourceView: DrawingViewData): Promise<void> {
+export async function runCreateProjectedView(
+  sourceView: DrawingViewData,
+  target: StandardProjectionKind,
+): Promise<void> {
   const { showToast } = useGeometryStore.getState();
   const sheet = useDocumentStore.getState().document.drawing;
   const sourcePart = sheet?.sourcePart;
   if (!sheet || !sourcePart || sourceView.kind !== "standard") return;
-
-  const existing = new Set(
-    sheet.views.filter((view) => view.kind === "standard").map((view) => view.projection),
-  );
-  const preference = PROJECTED_VIEW_PREFERENCE[sourceView.projection as StandardProjectionKind];
-  const target = preference.find((projection) => !existing.has(projection));
-  if (!target) {
-    showToast("Every standard view is already on the sheet");
-    return;
-  }
 
   try {
     const source = await readSourcePart(sourcePart, `Pick ${sourcePart.fileName} again to create the projected view`);

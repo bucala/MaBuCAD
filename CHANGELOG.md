@@ -7,6 +7,66 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-10-23 — Model View orientation picker, directional Projected View, edge/axis leader snapping (v0.29.0)
+
+A reconciliation round: picks up five outstanding Drawing feedback items that predate the
+v0.20–v0.28 direct-to-`main` work (manager tabs, view alignment, driven dimensions, Sketch
+Doctor, auxiliary/broken/crop views, and more) and rebuilds them against that current code,
+rather than reapplying a stale diff. One design decision from the earlier attempt is dropped
+outright: v0.28.0 already ships Unlink/Re-link Position as a deliberate, user-facing escape
+hatch from a standard view's axis alignment, which directly contradicts a permanent,
+inescapable axis lock — so this round does not touch alignment locking at all and builds
+everything else on top of the existing `alignmentLinkFor`/`alignmentUnlocked` model.
+
+### Changed — Insert Model View is an orientation choice, not four views at once
+- Picking **Insert Model View** now opens a **Model View Orientation** dialog (seven cards:
+  Front/Top/Right/Left/Bottom/Back/Isometric) instead of placing Front/Top/Right/Iso
+  unprompted. Only the chosen direction is placed, tagged `projection: "front"` internally
+  so the existing anchor-on-Front layout/alignment machinery treats it as the main view
+  without any further change.
+- `rebuildAndProjectPart` still computes all seven directions up front (cheap, unchanged) —
+  the picker just defers *placing* the other six to a later Projected View pick, and reuses
+  their already-computed sizes to reserve room above/left of Front for whichever one lands
+  there later (`drawingViewLayout.ts`'s `layoutInitialViews` gained an optional `roomSizes`
+  parameter for this), so the group never has to shift once a neighbour actually appears.
+
+### Changed — Projected View shows real directional arrows
+- Clicking a placed standard view while **Projected** is armed now overlays up to four
+  cardinal arrows (and, when applicable, a separate Isometric corner button) around it,
+  computed from the real ISO-E/ISO-A per-direction step tables (`projectableDirections`) so
+  only geometrically valid further directions are ever offered. Clicking an arrow creates
+  that view — replacing the previous "auto-pick the next missing standard view" default.
+
+### Added — Leader anchors snap to edges and circle centres, not just corners
+- `kernel/drawingGeometry.ts`'s `nearestVertex()` now also considers the nearest point along
+  any straight segment of a view's projected geometry and a circular edge's own fitted centre
+  (reusing the existing `fitCircle` helper), alongside the pre-existing corner-vertex search —
+  so a GD&T frame, datum, or dimension pick can anchor mid-edge or onto a hole's own axis.
+  Respects clipped/masked derived-view geometry (Detail/Crop/Broken) exactly as the existing
+  corner search already did, so neither new candidate kind can become a phantom pick target.
+
+### Fixed
+- The Weld edit form's controls (symbol, size, length, pitch, contour, checkboxes, tail) were
+  crammed onto two unbounded flex rows and visibly overlapped/truncated at the form's fixed
+  width. Split into two rows per logical group (`WeldAnnotations.tsx`'s `WeldSideFields`/
+  `WeldEditForm`, a new `.gdtFormGroup` wrapper in `DrawingSheet.module.css`) and widened the
+  containing `foreignObject` (220×130 → 260×175).
+- The active-view highlight frame was drawn flush with the view's own bounding box, so it
+  doubled as an outline of whatever geometry happened to sit at the view's own edge. A new
+  `ACTIVE_FRAME_MARGIN` (15 sheet-mm) now offsets it outward on every side.
+
+### Validation
+- New regression pins: `projectableDirections` (cardinal-neighbour selection, nearer-view
+  precedence, exclusion of already-placed views, no diagonal false positives) and
+  `layoutInitialViews`'s room reservation in `drawingViewLayout.spec.ts`; mid-edge segment
+  snap, clipped-edge exclusion, circle-centre snap, and closed-vs-open path wrap-edge
+  handling in `drawingGeometry.spec.ts`. 261 unit tests total, up from 250.
+- `e2e/drawing-model-view.spec.ts` updated for the new orientation-picker/directional-arrow
+  flow (an added `addProjectedView` helper drives the arrow overlay); all four CSP-suite
+  cases and the full ten-case dev-server suite pass. Verified visually via the dev server:
+  the orientation dialog, the arrow overlay (with a real `RIGHT` view projected and
+  positioned fully on-sheet), the offset active-view frame, and the two-row Weld form.
+
 ## 2026-10-07 — Dimensioning, manager tabs, and view alignment fixes (v0.28.0)
 
 This feedback round addresses all four interaction issues together.
