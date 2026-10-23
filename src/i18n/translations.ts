@@ -608,6 +608,10 @@ export const sk: Record<string, string> = {
   "sketchPanel.offsetToast": "Najprv vyberte jednu alebo viac čiar, kružníc alebo oblúkov na odsadenie.",
   "sketchPanel.patternToast": "Najprv vyberte jeden alebo viac prvkov na rozmiestnenie do poľa.",
 
+  // ------------------------------------------------------------------- manager panel
+  "managerPanel.crashed": "Tento panel narazil na neočakávanú chybu a musel sa zastaviť. Váš model nie je ovplyvnený — kliknutím nižšie ho zavriete.",
+  "managerPanel.crashedReset": "Zavrieť panel",
+
   // ------------------------------------------------------------- inspect panel (dock)
   // Section titles reuse the `inspect.*` command labels; these are the panels' own strings.
   "inspectPanel.closeAria": "Zavrieť kontrolu",

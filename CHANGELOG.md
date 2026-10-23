@@ -7,6 +7,64 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-10-23 — Mass Properties/Measure crash fix, Fillet/Chamfer single-edge correctness (v0.30.0)
+
+Two bugs reported directly against v0.29.0.
+
+### Fixed — Inspect ▸ Mass Properties could freeze the whole app
+- `InspectPanel.tsx`'s Mass Properties, Measure, Section Properties and Check Geometry
+  sections each call straight into OCCT (`kernel/measure.ts`/`kernel/checkGeometry.ts`)
+  from an unguarded `useMemo`, and this app has no React error boundary anywhere. A
+  picked sub-shape momentarily backed by a disposed/degenerate kernel handle throwing
+  (e.g. a stale pick surviving a preview rebuild) unmounted the whole Inspect panel
+  mid-render — including its own Close button and Escape handler — which is exactly what
+  "activates and the app can no longer be used correctly" looks like: not a stuck flag,
+  a crash that took the one UI that could recover from it down with it.
+- `computeMassProperties`/`computeMeasureSummary`/`computeSectionProperties`/
+  `computeGeometryCheck` now catch any kernel-call failure and return `null` — the
+  "nothing to show" state each section already rendered for an absent body, reused for
+  "couldn't compute" too.
+- Added a narrow `ErrorBoundary` (`src/components/ErrorBoundary.tsx`) around the Manager
+  Panel's Properties tab as defense-in-depth, so any other still-unguarded throw in that
+  region degrades to a recoverable "this panel crashed, click to close" message instead
+  of silently freezing the app again.
+- Four new pins (`measure.spec.ts`, `checkGeometry.spec.ts`) force each of the four
+  compute functions to throw via a mocked OCCT call and assert `null`, not a throw.
+
+### Fixed — Chamfer/Fillet could affect edges the user never picked
+- `pickedEdgeFilter` (`kernel/rebuild.ts`) handed a plain `EdgeFinder.withinDistance`
+  radius filter straight to `fillet`/`chamfer`, which keeps *every* edge within that
+  radius of a picked point rather than just the nearest one. Near a corner or a tight
+  bevel — exactly the geometry in the report's own screenshots — several real edges
+  routinely sit within `EDGE_PICK_TOLERANCE` (0.75mm) of each other, so one click could
+  legitimately resolve to two or more real edges, all of which got rounded/chamfered
+  together.
+- `pickedEdgeFilter` now resolves each picked point to the single nearest real edge
+  first (`nearestEdgeTo`, sampling 32 points along each candidate's own parametric curve
+  — replicad exposes no direct "closest point to an external point" query), then filters
+  with `EdgeFinder.inList` on that already-resolved set, so exactly one real edge comes
+  out of exactly one click.
+- Audited every other edge/face-pick-based feature (Shell, Draft, Rib, Linear/Circular
+  Pattern, Mirror) for the same bug class: none share this code path. Shell/Draft
+  intentionally select every face sharing a chosen axis orientation (a separate, already
+  documented face-picking limitation, not a hidden multi-match bug); Rib and the
+  pattern/mirror features don't reference edges or faces at all.
+- Five new pins (`rebuild.spec.ts`, against the real OCCT kernel): a pick resolves to
+  exactly the one edge it landed on; a pick near a shared corner — where a neighbouring
+  edge's own endpoint also falls within tolerance — resolves to only the nearer edge; no
+  picks means "every edge" (replicad's own fillet/chamfer default, unchanged); a stale
+  pick that no longer resolves to anything is dropped rather than erroring.
+
+### Investigated, not changed
+- **3D thread visualization**: already shipped and pitch-accurate (`HoleThreadOverlay.tsx`
+  draws a real helix from each tapped hole's actual ISO pitch/diameter/depth/winding —
+  confirmed, not a gap), but shown for every built tapped hole at once rather than only
+  the selected one. Left as-is pending the user's preference on visibility gating.
+
+### Validation
+- 269 unit tests total (up from 261), typecheck/lint/build clean, full dev-server and
+  CSP-production Playwright suites (14 cases) pass.
+
 ## 2026-10-23 — Model View orientation picker, directional Projected View, edge/axis leader snapping (v0.29.0)
 
 A reconciliation round: picks up five outstanding Drawing feedback items that predate the

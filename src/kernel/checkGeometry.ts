@@ -27,21 +27,30 @@ export function computeGeometryCheck(): GeometryCheckResult | null {
   const shape = getCurrentShape();
   if (!shape) return null;
 
-  const issues: string[] = [];
+  // Also covers the OCCT measurement calls below throwing — see `kernel/measure.ts`'s
+  // `computeMassProperties` doc comment for why an uncaught throw here, inside the
+  // section's own `useMemo` with no error boundary above it, would freeze the whole
+  // Inspect panel rather than just showing its "nothing to check" state.
+  try {
+    const issues: string[] = [];
 
-  shape.faces.forEach((face, index) => {
-    const area = measureArea(face);
-    if (!Number.isFinite(area) || area <= 1e-9) {
-      issues.push(`Face ${index + 1} has zero area`);
-    }
-  });
+    shape.faces.forEach((face, index) => {
+      const area = measureArea(face);
+      if (!Number.isFinite(area) || area <= 1e-9) {
+        issues.push(`Face ${index + 1} has zero area`);
+      }
+    });
 
-  shape.edges.forEach((edge, index) => {
-    const length = measureLength(edge);
-    if (!Number.isFinite(length) || length <= 1e-9) {
-      issues.push(`Edge ${index + 1} has zero length`);
-    }
-  });
+    shape.edges.forEach((edge, index) => {
+      const length = measureLength(edge);
+      if (!Number.isFinite(length) || length <= 1e-9) {
+        issues.push(`Edge ${index + 1} has zero length`);
+      }
+    });
 
-  return { faceCount: shape.faces.length, edgeCount: shape.edges.length, issues };
+    return { faceCount: shape.faces.length, edgeCount: shape.edges.length, issues };
+  } catch (error) {
+    console.error("computeGeometryCheck failed", error);
+    return null;
+  }
 }

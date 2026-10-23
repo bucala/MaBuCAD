@@ -45,37 +45,46 @@ function resolveSubShape(shape: Solid, pick: MeasurePick): Face | Edge | null {
  * length, plus the distance between the two once there are exactly two. Resolves every
  * pick against `getCurrentShape()` — the kernel's own last-built body — so the numbers
  * are exact, not derived from the triangulated mesh. Returns `null` if there is no
- * current body, or a pick's id no longer exists on it (a stale pick left over from
- * before a rebuild changed the body's topology).
+ * current body, a pick's id no longer exists on it (a stale pick left over from before a
+ * rebuild changed the body's topology), or the underlying OCCT measurement call itself
+ * throws (a picked sub-shape momentarily backed by a disposed/degenerate kernel handle,
+ * e.g. mid-rebuild) — the caller's `useMemo` has no error boundary above it, so a
+ * well-behaved `null` here is what keeps a transient kernel failure from taking the whole
+ * Inspect panel down instead of just showing its existing "nothing to measure" state.
  */
 export function computeMeasureSummary(picks: MeasurePick[]): MeasureSummary | null {
   const shape = getCurrentShape();
   if (!shape) return null;
 
-  const subShapes: (Face | Edge)[] = [];
-  for (const pick of picks) {
-    const subShape = resolveSubShape(shape, pick);
-    if (!subShape) return null;
-    subShapes.push(subShape);
+  try {
+    const subShapes: (Face | Edge)[] = [];
+    for (const pick of picks) {
+      const subShape = resolveSubShape(shape, pick);
+      if (!subShape) return null;
+      subShapes.push(subShape);
+    }
+
+    // `pick.kind` and `subShapes[index]`'s actual class are kept in lockstep by
+    // `resolveSubShape` above, so the cast on each branch below is just telling TypeScript
+    // what that invariant already guarantees.
+    const picksResult: PickMeasurement[] = picks.map((pick, index) => ({
+      ...pick,
+      value:
+        pick.kind === "face"
+          ? measureArea(subShapes[index] as Face)
+          : measureLength(subShapes[index] as AnyShape),
+    }));
+
+    const distance =
+      subShapes.length === 2
+        ? measureDistanceBetween(subShapes[0] as AnyShape, subShapes[1] as AnyShape)
+        : null;
+
+    return { picks: picksResult, distance };
+  } catch (error) {
+    console.error("computeMeasureSummary failed", error);
+    return null;
   }
-
-  // `pick.kind` and `subShapes[index]`'s actual class are kept in lockstep by
-  // `resolveSubShape` above, so the cast on each branch below is just telling TypeScript
-  // what that invariant already guarantees.
-  const picksResult: PickMeasurement[] = picks.map((pick, index) => ({
-    ...pick,
-    value:
-      pick.kind === "face"
-        ? measureArea(subShapes[index] as Face)
-        : measureLength(subShapes[index] as AnyShape),
-  }));
-
-  const distance =
-    subShapes.length === 2
-      ? measureDistanceBetween(subShapes[0] as AnyShape, subShapes[1] as AnyShape)
-      : null;
-
-  return { picks: picksResult, distance };
 }
 
 export interface SectionProperties {
@@ -89,19 +98,26 @@ export interface SectionProperties {
  * `measureShapeSurfaceProperties`, plus the face's own surface type (e.g. `"PLANE"`) so a
  * non-planar pick reads honestly rather than silently reporting numbers for a face the
  * ribbon description promises are only meaningful for a planar one. `null` when there is
- * no current body or the id no longer resolves to a face on it.
+ * no current body, the id no longer resolves to a face on it, or the OCCT measurement
+ * call itself throws (see `computeMeasureSummary`'s doc comment on why that must not
+ * propagate past here).
  */
 export function computeSectionProperties(faceId: number): SectionProperties | null {
   const shape = getCurrentShape();
   const face = shape?.faces[faceId];
   if (!face) return null;
 
-  const surfaceProperties = measureShapeSurfaceProperties(face);
-  return {
-    area: surfaceProperties.area,
-    centroid: surfaceProperties.centerOfMass,
-    surfaceType: face.geomType,
-  };
+  try {
+    const surfaceProperties = measureShapeSurfaceProperties(face);
+    return {
+      area: surfaceProperties.area,
+      centroid: surfaceProperties.centerOfMass,
+      surfaceType: face.geomType,
+    };
+  } catch (error) {
+    console.error("computeSectionProperties failed", error);
+    return null;
+  }
 }
 
 export interface MassProperties {
@@ -113,22 +129,32 @@ export interface MassProperties {
 /**
  * Volume, surface area and centre of mass of the whole current body, straight from the
  * kernel's own B-Rep via `measureShapeVolumeProperties`/`measureArea` — exact, not
- * approximated from the triangulated mesh. `null` when there is no solid body yet.
+ * approximated from the triangulated mesh. `null` when there is no solid body yet, or the
+ * OCCT measurement call itself throws (see `computeMeasureSummary`'s doc comment on why
+ * that must not propagate past here — this was the exact crash reported as "Mass
+ * Properties gets stuck and the app stops responding correctly": an uncaught throw here,
+ * inside the section's own `useMemo` with no error boundary above it, used to unmount the
+ * whole panel mid-render, including its own Close button and Escape handler).
  */
 export function computeMassProperties(): MassProperties | null {
   const shape = getCurrentShape();
   if (!shape) return null;
 
-  // `getCurrentShape()`'s own return type is wider than what it actually ever holds —
-  // `rebuildDocument()` only ever stores a genuine boolean-operation-built solid (see its
-  // own comment on `currentShape`) — the same "the declared type undersells the runtime
-  // guarantee" gap `kernel/io.ts`'s STEP/STL export already casts through for the same
-  // reason.
-  const volumeShape = shape as unknown as Shape3D;
-  const volumeProperties = measureShapeVolumeProperties(volumeShape);
-  return {
-    volume: volumeProperties.volume,
-    area: measureArea(volumeShape),
-    centerOfMass: volumeProperties.centerOfMass,
-  };
+  try {
+    // `getCurrentShape()`'s own return type is wider than what it actually ever holds —
+    // `rebuildDocument()` only ever stores a genuine boolean-operation-built solid (see its
+    // own comment on `currentShape`) — the same "the declared type undersells the runtime
+    // guarantee" gap `kernel/io.ts`'s STEP/STL export already casts through for the same
+    // reason.
+    const volumeShape = shape as unknown as Shape3D;
+    const volumeProperties = measureShapeVolumeProperties(volumeShape);
+    return {
+      volume: volumeProperties.volume,
+      area: measureArea(volumeShape),
+      centerOfMass: volumeProperties.centerOfMass,
+    };
+  } catch (error) {
+    console.error("computeMassProperties failed", error);
+    return null;
+  }
 }

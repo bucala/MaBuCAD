@@ -1,4 +1,5 @@
-import { draw, drawCircle, drawPointsInterpolation, EdgeFinder, FaceFinder, genericSweep, Plane } from "replicad";
+import { draw, drawCircle, drawPointsInterpolation, EdgeFinder, FaceFinder, genericSweep, Plane, Vector } from "replicad";
+import type { AnyShape, Edge } from "replicad";
 import { Vector3 } from "three";
 
 import { planeBasis, sketchToWorld } from "@/sketch/planeBasis";
@@ -368,18 +369,68 @@ function buildMirrorSolid(source: Solid, feature: Feature): Solid {
  */
 const EDGE_PICK_TOLERANCE = 0.75;
 
+/** How many points along each candidate edge `nearestEdgeTo` samples — fine enough that
+ * two edges meeting at a shared vertex (where a coarse start/mid/end sample would tie,
+ * since both edges' nearest *sample* is that same shared point) still resolve correctly:
+ * at `EDGE_PICK_TOLERANCE` (0.75mm), a pick landing within a fraction of a mm of one edge
+ * but merely near the other's endpoint needs a sample spacing well under that margin. On a
+ * typical small-part edge length this keeps sample spacing comfortably under 0.1mm. */
+const EDGE_SAMPLE_COUNT = 32;
+
 /**
- * Builds an edge filter from picked points — see `FeatureParameters.edgePoints`'s own note
- * on why this is a geometric proximity match (`EdgeFinder.withinDistance`) rather than true
- * persistent naming, which this app's kernel has no way to provide. `undefined` means "every
- * edge", replicad's own convention for a fillet/chamfer's optional filter.
+ * Among the real edges on the rebuilt solid within `EDGE_PICK_TOLERANCE` of `point`, the
+ * one actually nearest it — approximated by sampling `EDGE_SAMPLE_COUNT` points along each
+ * candidate's own parametric curve (replicad's `Edge` exposes no direct "closest point to
+ * an external point" query), which is what disambiguates the short, closely-spaced edges a
+ * corner or tight-bevel pick tends to land near (exactly the geometry a radius-only match
+ * confuses — see `pickedEdgeFilter`'s own doc comment). `null` when nothing is within
+ * tolerance at all (a stale pick from before a rebuild changed the body's topology).
  */
-function pickedEdgeFilter(
+export function nearestEdgeTo(solid: Solid, point: [number, number, number]): Edge | null {
+  const candidates = new EdgeFinder().withinDistance(EDGE_PICK_TOLERANCE, point).find(solid as unknown as AnyShape);
+  if (candidates.length === 0) return null;
+
+  const target = new Vector(point);
+  let best: Edge | null = null;
+  let bestDistance = Infinity;
+  for (const edge of candidates) {
+    for (let step = 0; step <= EDGE_SAMPLE_COUNT; step += 1) {
+      const sample = edge.pointAt(step / EDGE_SAMPLE_COUNT);
+      const distance = sample.sub(target).Length;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = edge;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Builds an edge filter from picked points — resolves each picked point to the single
+ * nearest real edge on the rebuilt solid, not every edge within `EDGE_PICK_TOLERANCE` of
+ * it. A plain `EdgeFinder.withinDistance` radius filter (the previous approach) keeps
+ * *every* candidate inside that radius, and several short/adjacent edges routinely sit
+ * within 0.75mm of a single point near a corner, a sharp bevel, or anywhere edges
+ * converge tightly — so one click could resolve to two or more real edges, and the whole
+ * neighbourhood got rounded/chamfered along with the one edge actually picked. Resolving
+ * to the nearest candidate first (`nearestEdgeTo`), then filtering with `EdgeFinder.inList`
+ * on that already-resolved set, makes exactly one real edge come out of exactly one click.
+ * This is still a geometric proximity match rather than true persistent naming, which this
+ * app's kernel has no way to provide — see `FeatureParameters.edgePoints`'s own note.
+ * `undefined` means "every edge", replicad's own convention for a fillet/chamfer's
+ * optional filter.
+ */
+export function pickedEdgeFilter(
+  solid: Solid,
   edgePoints: [number, number, number][] | undefined,
 ): ((finder: EdgeFinder) => EdgeFinder) | undefined {
   if (!edgePoints || edgePoints.length === 0) return undefined;
-  return (finder) =>
-    finder.either(edgePoints.map((point) => (f: EdgeFinder) => f.withinDistance(EDGE_PICK_TOLERANCE, point)));
+  const resolved = edgePoints
+    .map((point) => nearestEdgeTo(solid, point))
+    .filter((edge): edge is Edge => edge !== null);
+  if (resolved.length === 0) return undefined;
+  return (finder) => finder.inList(resolved);
 }
 
 /** True only in the brief window between a Fillet/Chamfer being created and the user
@@ -399,7 +450,7 @@ function buildFilletedSolid(solid: Solid, feature: Feature): Solid {
   if (isAwaitingFirstEdgePick(feature)) return solid;
   const radius = Math.max(feature.parameters.radius ?? 2, 0.05);
   const target = solid as unknown as { fillet: (radiusConfig: number, filter?: (f: EdgeFinder) => EdgeFinder) => Solid };
-  return target.fillet(radius, pickedEdgeFilter(feature.parameters.edgePoints));
+  return target.fillet(radius, pickedEdgeFilter(solid, feature.parameters.edgePoints));
 }
 
 /** A plain-number chamfer distance is symmetric; see `buildFilletedSolid`'s own note on
@@ -411,7 +462,7 @@ function buildChamferedSolid(solid: Solid, feature: Feature): Solid {
   const target = solid as unknown as {
     chamfer: (radiusConfig: number, filter?: (f: EdgeFinder) => EdgeFinder) => Solid;
   };
-  return target.chamfer(distance, pickedEdgeFilter(feature.parameters.edgePoints));
+  return target.chamfer(distance, pickedEdgeFilter(solid, feature.parameters.edgePoints));
 }
 
 function facingDirection(axis: "x" | "y" | "z"): [number, number, number] {
