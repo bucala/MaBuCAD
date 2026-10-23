@@ -157,6 +157,22 @@ export function isViewPointVisible(view: DrawingViewData, point: Point): boolean
   return true;
 }
 
+/** The closest point on the closed segment AB to `point`, via a clamped vector projection —
+ * `nearestVertex`'s mid-edge snap candidate. Both `a`/`b` and `point` must already be in the
+ * same space; `viewPointToSheet`'s transform is a uniform scale plus translation (every
+ * placed view's `width`/`height` and the `point.y + view.height` term share one `scale`
+ * factor), a similarity that preserves nearest-point relationships, so converting `a`/`b`
+ * to sheet-mm first and projecting there gives the same result as projecting in raw path
+ * space and converting afterward. */
+function nearestPointOnSegment(a: Point, b: Point, point: Point): Point {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const lengthSq = abx * abx + aby * aby;
+  if (lengthSq < 1e-9) return a;
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * abx + (point.y - a.y) * aby) / lengthSq));
+  return { x: a.x + abx * t, y: a.y + aby * t };
+}
+
 /** `view`'s visible projected path endpoints, in sheet-mm via `viewPointToSheet`. */
 export function viewVertices(view: DrawingViewData): DrawingVertex[] {
   const toSheet = (point: Point): DrawingVertex => ({ ...viewPointToSheet(view, point), viewId: view.id });
@@ -165,10 +181,14 @@ export function viewVertices(view: DrawingViewData): DrawingVertex[] {
 }
 
 /**
- * The closest vertex, across every view on the sheet, to `point` (sheet-mm) — `null` if
- * nothing is within `tolerance` mm. Dimensioning/datum/GD&T tools all pick against real
- * geometry rather than an arbitrary sheet position, the same "click has to land near
- * something real" convention the sketch tools already enforce for their own picks.
+ * The closest snap candidate, across every view on the sheet, to `point` (sheet-mm) —
+ * `null` if nothing is within `tolerance` mm. Dimensioning/datum/GD&T/leader tools all pick
+ * against real geometry rather than an arbitrary sheet position, the same "click has to
+ * land near something real" convention the sketch tools already enforce for their own
+ * picks — extended here beyond path corner vertices (`viewVertices`) to also cover the
+ * nearest point anywhere along a straight edge and a circular edge's own fitted centre
+ * (a hole's axis), so a leader can anchor mid-edge or onto a hole rather than only its
+ * corners.
  */
 export function nearestVertex(
   views: DrawingViewData[],
@@ -179,13 +199,36 @@ export function nearestVertex(
   let best: DrawingVertex | null = null;
   let bestDistance = tolerance;
 
+  const consider = (candidate: Point, viewId: string) => {
+    const distance = Math.hypot(candidate.x - point.x, candidate.y - point.y);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = { ...candidate, viewId };
+    }
+  };
+
   for (const view of views) {
     if (onlyViewId && view.id !== onlyViewId) continue;
-    for (const vertex of viewVertices(view)) {
-      const distance = Math.hypot(vertex.x - point.x, vertex.y - point.y);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = vertex;
+
+    for (const vertex of viewVertices(view)) consider(vertex, vertex.viewId);
+
+    for (const d of [...view.visiblePaths, ...view.hiddenPaths]) {
+      const raw = pathEndpoints(d);
+      const closed = /Z/i.test(d) && raw.length > 1;
+      const edges: [Point, Point][] = [];
+      for (let index = 0; index < raw.length - 1; index += 1) edges.push([raw[index], raw[index + 1]]);
+      if (closed) edges.push([raw[raw.length - 1], raw[0]]);
+
+      for (const [a, b] of edges) {
+        if (!isViewPointVisible(view, a) || !isViewPointVisible(view, b)) continue;
+        const sheetA = viewPointToSheet(view, a);
+        const sheetB = viewPointToSheet(view, b);
+        consider(nearestPointOnSegment(sheetA, sheetB, point), view.id);
+      }
+
+      const circle = fitCircle(d);
+      if (circle && raw.every((candidate) => isViewPointVisible(view, candidate))) {
+        consider(viewPointToSheet(view, { x: circle.cx, y: circle.cy }), view.id);
       }
     }
   }

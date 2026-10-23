@@ -1,6 +1,19 @@
 import { create } from "zustand";
 
-import type { ScreenAxis } from "@/types/document";
+import type { ProjectedViews } from "@/kernel/drawingProjection";
+import type { DrawingSourceStamp, ScreenAxis } from "@/types/document";
+
+/** Insert Model View: every direction is already projected (cheap — `rebuildAndProjectPart`
+ * always computes all seven), waiting for the user to pick which one becomes the drawing's
+ * own "front" — `ModelViewOrientationDialog.tsx` renders this, `runPlaceModelView` consumes
+ * it. `null` while no picker is open. */
+export interface ModelViewPickerState {
+  fileName: string;
+  path: string | null;
+  sourceStamp: DrawingSourceStamp | undefined;
+  sourceContentHash: string;
+  views: ProjectedViews;
+}
 
 /**
  * Which interactive tool the Drawing sheet is in — the same "arm a tool, then pick/drag on
@@ -36,6 +49,20 @@ export type DrawingTool =
 interface DrawingToolStore {
   tool: DrawingTool;
   setTool: (tool: DrawingTool) => void;
+
+  /** Insert Model View's orientation picker — see `ModelViewPickerState`'s own comment.
+   * Not reset by `setTool`/`resetPicking`: it's a modal dialog opened directly by the
+   * command, not a tool's own armed-picking state, and closes itself on pick or Cancel. */
+  modelViewPicker: ModelViewPickerState | null;
+  openModelViewPicker: (picker: ModelViewPickerState) => void;
+  closeModelViewPicker: () => void;
+
+  /** Projected View: the standard view just clicked while the tool is armed, waiting for a
+   * direction pick from `ProjectedViewOverlay`'s cardinal arrows or its Iso corner button —
+   * replaces auto-picking "the next missing view" with a real directional choice. `null`
+   * until a standard view is clicked. */
+  projectedSourceViewId: string | null;
+  pickProjectedSource: (viewId: string) => void;
 
   /** Section tool: which existing Front/Top/Right view the cut is taken from, `null` until
    * picked. Reset (along with the rest below) whenever the tool changes or the cut is
@@ -138,6 +165,7 @@ const PICKING_RESET = {
   auxiliarySourceViewId: null,
   cropSourceViewId: null,
   brokenSourceViewId: null,
+  projectedSourceViewId: null,
   dimensionFirstPoint: null,
   ordinateDatum: null,
   ordinateChainId: null,
@@ -147,6 +175,13 @@ const PICKING_RESET = {
 export const useDrawingToolStore = create<DrawingToolStore>((set) => ({
   tool: "select",
   setTool: (tool) => set({ tool, ...PICKING_RESET }),
+
+  modelViewPicker: null,
+  openModelViewPicker: (picker) => set({ modelViewPicker: picker }),
+  closeModelViewPicker: () => set({ modelViewPicker: null }),
+
+  projectedSourceViewId: null,
+  pickProjectedSource: (viewId) => set({ projectedSourceViewId: viewId }),
 
   sectionSourceViewId: null,
   sectionOrientation: "vertical",

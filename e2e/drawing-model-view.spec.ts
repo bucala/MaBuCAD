@@ -58,9 +58,11 @@ async function buildAndSavePart(page: Page): Promise<string> {
   return path;
 }
 
-/** Creates a fresh Drawing and runs Insert Model View against the saved Part — the browser's
- * file-input fallback is what Playwright's `filechooser` event lands on (`io/files.ts`). */
-async function insertModelViews(page: Page, partPath: string) {
+/** Creates a fresh Drawing and picks `partPath` for Insert Model View — the browser's
+ * file-input fallback is what Playwright's `filechooser` event lands on (`io/files.ts`).
+ * Stops right after the pick: a failed projection (the CSP control test) never opens the
+ * orientation dialog this leaves to its own caller. */
+async function pickModelViewPart(page: Page, partPath: string) {
   await page.getByRole("button", { name: "File" }).click();
   await page.getByRole("menuitem", { name: "New" }).click();
   await page
@@ -72,6 +74,17 @@ async function insertModelViews(page: Page, partPath: string) {
   await page.getByRole("button", { name: "Insert Model View" }).click();
   const fileChooser = await fileChooserPromise;
   await fileChooser.setFiles(partPath);
+}
+
+/** `pickModelViewPart` plus picking "Front" from the orientation dialog that opens once the
+ * part is projected — matching every test below's assumption of a `front`-projection view
+ * at the start. */
+async function insertModelViews(page: Page, partPath: string) {
+  await pickModelViewPart(page, partPath);
+  await page
+    .getByRole("dialog", { name: "Choose Model View Orientation" })
+    .getByRole("button", { name: "Front", exact: true })
+    .click();
 }
 
 async function savedSheet(page: Page): Promise<DrawingSheetData> {
@@ -88,6 +101,25 @@ async function renderedCorner(page: Page, viewId: string, right = false) {
   const rect = await page.locator(`svg[data-view-id="${viewId}"]`).boundingBox();
   if (!rect) throw new Error("The drawing view is not rendered");
   return { x: rect.x + (right ? rect.width : 0), y: rect.y };
+}
+
+/** Arms `drawing.projected`, clicks `sourceViewId` to open its directional-arrow overlay,
+ * then clicks the arrow for `target` (each arrow is titled "Project <DIRECTION>" regardless
+ * of which screen side it floats on) — pairing the click with the re-pick file chooser
+ * `runCreateProjectedView` always triggers in the browser build (no persisted path). */
+async function addProjectedView(page: Page, sourceViewId: string, target: string, partPath: string) {
+  await ribbonButton(page, "Projected").click();
+  const sourceRect = await page.locator(`svg[data-view-id="${sourceViewId}"]`).boundingBox();
+  if (!sourceRect) throw new Error("The projected view's source is not rendered");
+  await page.mouse.click(sourceRect.x + sourceRect.width / 2, sourceRect.y + sourceRect.height / 2);
+
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.locator(`button[title="Project ${target.toUpperCase()}"]`).click();
+  await (await chooserPromise).setFiles(partPath);
+  await expect(page.getByTestId("geometry-status")).toContainText(
+    new RegExp(`${target.toUpperCase()} view projected`, "i"),
+    { timeout: 60_000 },
+  );
 }
 
 async function dragView(page: Page, viewId: string, dx: number, dy: number) {
@@ -107,7 +139,7 @@ async function dragView(page: Page, viewId: string, dx: number, dy: number) {
   await page.mouse.up();
 }
 
-test("Insert Model View projects the default views under the shipped Tauri CSP", async ({ page, baseURL }) => {
+test("Insert Model View projects the chosen orientation under the shipped Tauri CSP", async ({ page, baseURL }) => {
   test.setTimeout(120_000);
 
   // The whole flow — extrude and projection both — runs under the exact shipped policy,
@@ -118,8 +150,8 @@ test("Insert Model View projects the default views under the shipped Tauri CSP",
   const partPath = await buildAndSavePart(page);
   await insertModelViews(page, partPath);
 
-  // Success lands as the "Inserted views of…" toast in the status bar readout.
-  await expect(page.getByTestId("geometry-status")).toContainText(/Inserted views of/i, {
+  // Success lands as the "Inserted view of…" toast in the status bar readout.
+  await expect(page.getByTestId("geometry-status")).toContainText(/Inserted view of/i, {
     timeout: 60_000,
   });
   // And the sheet really took the views: the toolbar's Update Views button only renders
@@ -158,7 +190,7 @@ test("the same flow under the previous CSP (no 'unsafe-eval') fails the way the 
 
   await enforceCsp(page, baseURL, SHIPPED_CSP.replace(" 'unsafe-eval'", ""));
   await page.goto("/");
-  await insertModelViews(page, partPath);
+  await pickModelViewPart(page, partPath);
 
   // The projection dies inside the kernel's embind glue and surfaces as the command's own
   // failure toast — the exact symptom the CSP fix exists to keep from coming back. This
@@ -173,13 +205,15 @@ test("zoomed and panned drawing picks create real dimensions and view alignment 
   test.setTimeout(120_000);
   await enforceCsp(page, baseURL, SHIPPED_CSP);
   await page.goto("/");
-  await insertModelViews(page, await buildAndSavePart(page));
-  await expect(page.getByTestId("geometry-status")).toContainText(/Inserted views of/i, { timeout: 60_000 });
+  const partPath = await buildAndSavePart(page);
+  await insertModelViews(page, partPath);
+  await expect(page.getByTestId("geometry-status")).toContainText(/Inserted view of/i, { timeout: 60_000 });
   const initial = await savedSheet(page);
   const front = initial.views.find((view) => view.projection === "front")!;
-  const right = initial.views.find((view) => view.projection === "right")!;
-
   await page.getByTestId("ribbon").getByRole("tab", { name: "Drawing" }).click();
+  await addProjectedView(page, front.id, "right", partPath);
+  const right = (await savedSheet(page)).views.find((view) => view.projection === "right")!;
+
   await page.getByRole("button", { name: "Zoom out", exact: true }).click();
   await page.getByRole("button", { name: "Zoom out", exact: true }).click();
   const paper = await page.getByTestId("drawing-sheet").boundingBox();
@@ -259,7 +293,7 @@ test("horizontal sections and horizontal-axis auxiliary views start in their sou
   await page.goto("/");
   const partPath = await buildAndSavePart(page);
   await insertModelViews(page, partPath);
-  await expect(page.getByTestId("geometry-status")).toContainText(/Inserted views of/i, { timeout: 60_000 });
+  await expect(page.getByTestId("geometry-status")).toContainText(/Inserted view of/i, { timeout: 60_000 });
   const initial = await savedSheet(page);
   const front = initial.views.find((view) => view.projection === "front")!;
   await page.getByTestId("ribbon").getByRole("tab", { name: "Drawing" }).click();

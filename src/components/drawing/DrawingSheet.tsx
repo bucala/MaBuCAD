@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { FileUp, Frame, Link2, Maximize, RotateCw, Settings2, Trash2, Unlink2, ZoomIn, ZoomOut } from "lucide-react";
 
 import { runCommand } from "@/commands/commandRegistry";
-import { runCreateProjectedView, runToggleProjectionMethod } from "@/commands/drawingCommands";
+import { runToggleProjectionMethod } from "@/commands/drawingCommands";
 import { DEFAULT_PROJECTION_METHOD, alignmentLinkFor } from "@/commands/drawingViewLayout";
 import { nearestHoleTarget } from "@/commands/holeCallout";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -24,6 +24,8 @@ import { DetailOverlay } from "./DetailOverlay";
 import { DimensionView, OrdinateChainView } from "./DimensionAnnotations";
 import styles from "./DrawingSheet.module.css";
 import { HoleCalloutView } from "./HoleCalloutAnnotations";
+import { ModelViewOrientationDialog } from "./ModelViewOrientationDialog";
+import { ProjectedViewOverlay } from "./ProjectedViewOverlay";
 import { SectionOverlay } from "./SectionOverlay";
 import { DatumView, GdtView, SurfaceFinishView } from "./SymbolAnnotations";
 import { TableView } from "./TableAnnotations";
@@ -63,6 +65,12 @@ const PASSTHROUGH_TOOLS = new Set(["note", "hole-callout", "datum", "gdt", "surf
 /** px per sheet-mm the outer sheet `<svg>` is rendered at — every drag handler in this
  * file (views, notes) converts screen-pixel deltas back to sheet-mm by dividing by this. */
 const SHEET_SCALE = 2.5;
+
+/** How far the active-view highlight frame sits outside the view's own bounding box, sheet
+ * mm — drawn clear of the geometry/annotations it contains rather than flush with the
+ * body's own contour, so the frame reads as "this view is active" instead of doubling as
+ * an outline of whatever happens to be at the view's own edge. */
+const ACTIVE_FRAME_MARGIN = 15;
 
 /** Views only Front/Top/Right standard views can take a Section cut from — Iso's projection
  * axes aren't world-axis-aligned, and a derived view has no stable source plane of its own. */
@@ -292,7 +300,15 @@ function PlacedView({
           }}
         />
       )}
-      {active && !passthrough && <rect x={x} y={y} width={width} height={height} className={styles.viewFrameActive} />}
+      {active && !passthrough && (
+        <rect
+          x={x - ACTIVE_FRAME_MARGIN}
+          y={y - ACTIVE_FRAME_MARGIN}
+          width={width + ACTIVE_FRAME_MARGIN * 2}
+          height={height + ACTIVE_FRAME_MARGIN * 2}
+          className={styles.viewFrameActive}
+        />
+      )}
     </g>
   );
 }
@@ -928,6 +944,8 @@ export function DrawingSheet() {
   const pickCropSource = useDrawingToolStore((state) => state.pickCropSource);
   const brokenSourceViewId = useDrawingToolStore((state) => state.brokenSourceViewId);
   const pickBrokenSource = useDrawingToolStore((state) => state.pickBrokenSource);
+  const projectedSourceViewId = useDrawingToolStore((state) => state.projectedSourceViewId);
+  const pickProjectedSource = useDrawingToolStore((state) => state.pickProjectedSource);
   const dimensionFirstPoint = useDrawingToolStore((state) => state.dimensionFirstPoint);
   const pickDimensionFirstPoint = useDrawingToolStore((state) => state.pickDimensionFirstPoint);
   const ordinateDatum = useDrawingToolStore((state) => state.ordinateDatum);
@@ -1534,7 +1552,7 @@ export function DrawingSheet() {
               pickable={
                 (tool === "section" && !sectionSourceViewId && isSectionable(view)) ||
                 (tool === "detail" && !detailSourceViewId) ||
-                (tool === "projected" && view.kind === "standard") ||
+                (tool === "projected" && !projectedSourceViewId && view.kind === "standard") ||
                 (tool === "auxiliary" &&
                   !auxiliarySourceViewId &&
                   view.kind === "standard" &&
@@ -1561,8 +1579,7 @@ export function DrawingSheet() {
                 if (tool === "section") pickSectionSource(view.id, localX);
                 else if (tool === "detail") pickDetailSource(view.id, localX, localY);
                 else if (tool === "projected") {
-                  void runCreateProjectedView(view);
-                  setTool("select");
+                  pickProjectedSource(view.id);
                 } else if (tool === "auxiliary") {
                   pickAuxiliarySource(view.id);
                 } else if (tool === "crop") {
@@ -1760,6 +1777,7 @@ export function DrawingSheet() {
           {tool === "auxiliary" && <AuxiliaryOverlay />}
           {tool === "crop" && <CropOverlay />}
           {tool === "broken" && <BrokenOverlay />}
+          {tool === "projected" && projectedSourceViewId && <ProjectedViewOverlay />}
 
           {titleBlock && border && (
             <g
@@ -1785,6 +1803,7 @@ export function DrawingSheet() {
       </div>
 
       <TemplateManagerDialog />
+      <ModelViewOrientationDialog />
     </div>
   );
 }

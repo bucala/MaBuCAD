@@ -185,10 +185,19 @@ export function computeStandardViewPositions(
  * margin — used by Insert Model View, which is always starting from an empty sheet. Leaves
  * room above/left of Front for whichever directions the active `method` puts there, so the
  * whole group (not just Front) ends up inset from the margin.
+ *
+ * `roomSizes` (defaulting to `geometry` itself, the old behaviour) is what the above/left
+ * reservation is actually sized from — kept as a separate parameter because the orientation
+ * picker (`runPlaceModelView`) only ever places *one* view in `geometry`, but still knows
+ * every other direction's real projected size up front (`rebuildAndProjectPart` always
+ * computes all seven). Passing those sizes here means a Projected View added later still
+ * lands with room already reserved for it, rather than the group needing to shift once a
+ * neighbour actually appears above/left of a Front that was inset for nothing but itself.
  */
 export function layoutInitialViews(
   geometry: Partial<Record<StandardProjectionKind, InitialViewGeometry>>,
   method: ProjectionMethod,
+  roomSizes: Partial<Record<StandardProjectionKind, SizedView>> = geometry,
 ): DrawingViewData[] {
   const front = geometry.front;
   if (!front) return [];
@@ -196,17 +205,17 @@ export function layoutInitialViews(
   const halfExtent = (view: SizedView) => ({ w: (view.width * view.scale) / 2, h: (view.height * view.scale) / 2 });
   const frontHalf = halfExtent(front);
 
-  const aboveDirection = (Object.keys(geometry) as StandardProjectionKind[]).find((direction) => {
+  const aboveDirection = (Object.keys(roomSizes) as StandardProjectionKind[]).find((direction) => {
     const step = stepFor(direction, method);
     return step.stepX === 0 && step.stepY === -1;
   });
-  const leftDirection = (Object.keys(geometry) as StandardProjectionKind[]).find((direction) => {
+  const leftDirection = (Object.keys(roomSizes) as StandardProjectionKind[]).find((direction) => {
     const step = stepFor(direction, method);
     return step.stepX < 0 && step.stepY === 0;
   });
 
-  const aboveRoom = aboveDirection && geometry[aboveDirection] ? halfExtent(geometry[aboveDirection]!).h * 2 + VIEW_GAP : 0;
-  const leftRoom = leftDirection && geometry[leftDirection] ? halfExtent(geometry[leftDirection]!).w * 2 + VIEW_GAP : 0;
+  const aboveRoom = aboveDirection && roomSizes[aboveDirection] ? halfExtent(roomSizes[aboveDirection]!).h * 2 + VIEW_GAP : 0;
+  const leftRoom = leftDirection && roomSizes[leftDirection] ? halfExtent(roomSizes[leftDirection]!).w * 2 + VIEW_GAP : 0;
 
   const frontCentre = {
     x: SHEET_MARGIN + leftRoom + frontHalf.w,
@@ -373,6 +382,46 @@ export function positionDerivedView(
   return direction === "horizontal"
     ? { x: source.x + (source.width * source.scale + size.width * size.scale) / 2 + VIEW_GAP, y: source.y }
     : { x: source.x, y: source.y + (source.height * source.scale + size.height * size.scale) / 2 + VIEW_GAP };
+}
+
+const CARDINAL_DIRECTIONS: StandardProjectionKind[] = ["front", "top", "bottom", "left", "right", "back"];
+
+/** One further standard view reachable from a Projected View's source by exactly one
+ * cardinal step, plus which screen arrow it belongs under. */
+export interface ProjectableCandidate {
+  direction: StandardProjectionKind;
+  arrow: "up" | "down" | "left" | "right";
+}
+
+/**
+ * `drawing.projected`'s own directional-arrow picker (`ProjectedViewOverlay.tsx`) needs to
+ * know which further standard views make sense to offer around a clicked source, and under
+ * which arrow — replacing a fixed "next logical projection" preference order with a real
+ * direction choice. A candidate only qualifies when it differs from the source by a pure
+ * step along one sheet axis (the same `stepFor` table `computeStandardViewPositions` already
+ * uses), so the arrow shown is always the direction the new view will actually appear in.
+ * Iso never qualifies (its projection isn't axis-aligned) — callers offer it separately.
+ */
+export function projectableDirections(
+  source: StandardProjectionKind,
+  existing: ReadonlySet<StandardProjectionKind>,
+  method: ProjectionMethod,
+): ProjectableCandidate[] {
+  const sourceStep = stepFor(source, method);
+  const byArrow = new Map<ProjectableCandidate["arrow"], ProjectableCandidate & { distance: number }>();
+  for (const candidate of CARDINAL_DIRECTIONS) {
+    if (candidate === source || existing.has(candidate)) continue;
+    const step = stepFor(candidate, method);
+    const dx = step.stepX - sourceStep.stepX;
+    const dy = step.stepY - sourceStep.stepY;
+    if (dx !== 0 && dy !== 0) continue;
+    if (dx === 0 && dy === 0) continue;
+    const arrow: ProjectableCandidate["arrow"] = dx !== 0 ? (dx > 0 ? "right" : "left") : dy > 0 ? "down" : "up";
+    const distance = Math.abs(dx) + Math.abs(dy);
+    const current = byArrow.get(arrow);
+    if (!current || distance < current.distance) byArrow.set(arrow, { direction: candidate, arrow, distance });
+  }
+  return Array.from(byArrow.values()).map(({ direction, arrow }) => ({ direction, arrow }));
 }
 
 export interface CropRegion {

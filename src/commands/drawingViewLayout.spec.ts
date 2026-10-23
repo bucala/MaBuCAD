@@ -7,9 +7,12 @@ import {
   alignmentTargetFor,
   clampBrokenBand,
   clampCropRegion,
+  layoutInitialViews,
   moveAlignedViews,
   positionDerivedView,
+  projectableDirections,
   repositionStandardViews,
+  SHEET_MARGIN,
   VIEW_GAP,
 } from "./drawingViewLayout";
 
@@ -161,6 +164,72 @@ describe("derived view placement", () => {
       x: 100,
       y: 60 + 30 + 24 + VIEW_GAP,
     });
+  });
+});
+
+describe("layoutInitialViews room reservation", () => {
+  const front = { width: 40, height: 30, scale: 1, visiblePaths: [], hiddenPaths: [], originX: 0, originY: 0 };
+
+  it("reserves no above/left room when roomSizes is omitted and only Front is placed", () => {
+    // The orientation picker's single-view placement, with no foreknowledge of other
+    // directions' sizes passed in — the pre-existing (pre-`roomSizes`) default behaviour.
+    const [placed] = layoutInitialViews({ front }, "ISO-E");
+    expect(placed.x).toBe(SHEET_MARGIN + front.width / 2);
+    expect(placed.y).toBe(SHEET_MARGIN + front.height / 2);
+  });
+
+  it("reserves above/left room from roomSizes even though only Front is being placed", () => {
+    // Under ISO-E, Right sits left of Front and Bottom sits above it — exactly the
+    // directions `runPlaceModelView` passes every other projected size in as, so a
+    // Projected View added later along either axis lands with room already waiting,
+    // instead of pushing the group (and Front itself) off the sheet's own margin.
+    const roomSizes = {
+      right: { width: 20, height: 10, scale: 1 },
+      bottom: { width: 16, height: 8, scale: 1 },
+    };
+    const [placed] = layoutInitialViews({ front }, "ISO-E", roomSizes);
+    expect(placed.x).toBe(SHEET_MARGIN + (20 + VIEW_GAP) + front.width / 2);
+    expect(placed.y).toBe(SHEET_MARGIN + (8 + VIEW_GAP) + front.height / 2);
+  });
+});
+
+describe("projectableDirections", () => {
+  it("offers Front's four cardinal neighbours, one per arrow, under ISO-E", () => {
+    const candidates = projectableDirections("front", new Set(), "ISO-E");
+    expect(new Set(candidates)).toEqual(
+      new Set([
+        { direction: "top", arrow: "down" },
+        { direction: "bottom", arrow: "up" },
+        { direction: "right", arrow: "left" },
+        { direction: "left", arrow: "right" },
+      ]),
+    );
+  });
+
+  it("prefers the nearer direction when two candidates would share an arrow", () => {
+    // Under ISO-E, Left (step 1) and Back (step 2) both sit to Front's own "right" arrow —
+    // Left is the single-step neighbour, so Back must not win that slot.
+    const candidates = projectableDirections("front", new Set(), "ISO-E");
+    expect(candidates.filter((candidate) => candidate.arrow === "right")).toEqual([
+      { direction: "left", arrow: "right" },
+    ]);
+  });
+
+  it("excludes whatever is already placed, letting a farther view take a freed arrow", () => {
+    // With Left excluded, Back (two steps out, same side as Left) takes over its "right"
+    // arrow slot instead of that arrow disappearing.
+    const candidates = projectableDirections("front", new Set(["top", "left"]), "ISO-E");
+    expect(candidates).toEqual([
+      { direction: "bottom", arrow: "up" },
+      { direction: "right", arrow: "left" },
+      { direction: "back", arrow: "right" },
+    ]);
+  });
+
+  it("only offers a direction truly one axial step away — not every remaining standard view", () => {
+    // From Top, Right/Left/Back are each a diagonal step away (differ from Top on both
+    // axes), so only Front (straight back down) qualifies.
+    expect(projectableDirections("top", new Set(), "ISO-E")).toEqual([{ direction: "front", arrow: "up" }]);
   });
 });
 

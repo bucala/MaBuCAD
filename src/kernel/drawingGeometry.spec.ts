@@ -156,3 +156,56 @@ describe("clipped view vertices", () => {
     expect(nearestVertex([broken], viewPointToSheet(broken, { x: orientation === "vertical" ? 15 : 20, y: -15 }), 1)).toBeNull();
   });
 });
+
+describe("nearestVertex: mid-edge and circle-centre snapping", () => {
+  it("snaps to the nearest point anywhere along a straight edge, not just its corners", () => {
+    const view = makeView({ x: 0, y: 0, visiblePaths: ["M 0 0 L 20 0"] });
+    // The segment's own midpoint, far from either corner endpoint (10 mm away from each) —
+    // a corner-only search would find nothing within a tight tolerance.
+    const midpoint = viewPointToSheet(view, { x: 10, y: 0 });
+    expect(nearestVertex([view], midpoint, 1)?.viewId).toBe(view.id);
+    expect(nearestVertex([view], midpoint, 1)).toMatchObject(midpoint);
+  });
+
+  it("does not snap mid-edge when either endpoint of that edge is clipped out", () => {
+    const broken = makeView({
+      kind: "broken",
+      visiblePaths: ["M 0 -15 L 15 -15 L 40 -15"],
+      brokenOf: { sourceViewId: "source", orientation: "vertical", start: 10, end: 20, letter: "A" },
+    });
+    // The masked middle point (x=15) sits inside the band on both adjoining edges, so
+    // neither edge may offer a mid-edge snap through the gap.
+    const maskedMidpoint = viewPointToSheet(broken, { x: 7.5, y: -15 });
+    expect(nearestVertex([broken], maskedMidpoint, 1)).toBeNull();
+  });
+
+  it("snaps to a circular edge's own fitted centre — a hole's axis", () => {
+    // Four points equidistant (r=5) from the origin, with an "A" command so `fitCircle`
+    // recognises it as a real arc rather than a plain polyline.
+    const view = makeView({
+      x: 0,
+      y: 0,
+      visiblePaths: ["M 5 0 A 5 5 0 0 1 0 5 A 5 5 0 0 1 -5 0 A 5 5 0 0 1 0 -5 A 5 5 0 0 1 5 0"],
+    });
+    const centre = viewPointToSheet(view, { x: 0, y: 0 });
+    // Farther than any individual path point, so only the fitted centre itself — not a
+    // corner — can be within tolerance.
+    expect(nearestVertex([view], centre, 1)?.viewId).toBe(view.id);
+    expect(nearestVertex([view], centre, 1)).toMatchObject(centre);
+  });
+
+  it("closes the final corner-to-start edge of a closed path for mid-edge snapping", () => {
+    const view = makeView({ x: 0, y: 0, visiblePaths: ["M 0 0 L 20 0 L 20 10 Z"] });
+    // The midpoint of the implicit closing edge (20,10) -> (0,0) — not covered by either
+    // explicit L segment, only reachable because `Z` closes the loop.
+    const closingMidpoint = viewPointToSheet(view, { x: 10, y: 5 });
+    expect(nearestVertex([view], closingMidpoint, 0.5)?.viewId).toBe(view.id);
+    expect(nearestVertex([view], closingMidpoint, 0.5)).toMatchObject(closingMidpoint);
+  });
+
+  it("leaves an open (non-Z) path without an implicit closing edge", () => {
+    const view = makeView({ x: 0, y: 0, visiblePaths: ["M 0 0 L 20 0 L 20 10"] });
+    const wouldBeClosingMidpoint = viewPointToSheet(view, { x: 10, y: 5 });
+    expect(nearestVertex([view], wouldBeClosingMidpoint, 0.5)).toBeNull();
+  });
+});

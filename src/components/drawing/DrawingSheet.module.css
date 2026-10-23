@@ -690,6 +690,15 @@
   align-items: center;
 }
 
+/* Groups a form's own related `.gdtFormRow`s onto their own lines within `.gdtForm` —
+   e.g. a Weld side's label+symbol row and its size/length/pitch/contour row — so a wide
+   control set wraps across rows instead of overflowing one unbounded flex row. */
+.gdtFormGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .gdtFormCheckLabel {
   display: flex;
   align-items: center;
