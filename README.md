@@ -492,7 +492,7 @@ eslint.config.js              ESLint flat config: hook discipline + unused code,
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
 | Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Fillet, Offset, Mirror, Linear/Circular Pattern, Convert to Construction | ✅ |
 | Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence | ✅ |
-| Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point, cosmetic thread indicator on tapped holes | ✅ |
+| Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point, Inventor-style cosmetic thread texture on tapped holes (a real diagonal-line wrap at the hole's actual pitch/diameter/winding, not a plain indicator) | ✅ |
 | Dress-up | Fillet, Chamfer, Shell, Draft, Rib — Fillet/Chamfer start pass-through and arm edge-pick mode immediately, applying to every edge only if none are ever picked | ✅ |
 | Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft | ✅ |
 | Pattern/Mirror (feature-level) | Linear Pattern, Circular Pattern, Mirror | ✅ |

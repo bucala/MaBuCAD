@@ -7,6 +7,27 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-10-24 — Inventor-style cosmetic thread texture (v0.31.0)
+
+### Changed — tapped-hole thread indicator is now a textured bore surface, not a wireframe helix
+- `HoleThreadOverlay.tsx` previously drew the cosmetic thread as a thin 3D polyline tracing
+  a helix through the hole. It now renders a cylindrical shell over the bore with a
+  repeating diagonal-line texture instead — the same "cosmetic thread" convention Inventor
+  uses, closer to how a thread actually reads on a shaded surface than a wire-frame curve.
+- The texture tile holds one diagonal line corner-to-corner; mapped with `repeat.x = ±1`
+  (one wrap around the circumference, sign giving the thread's handedness) and
+  `repeat.y = depth / pitch` (one wrap per pitch of height), it chains into a continuous,
+  correctly-pitched helix — exactly as many turns as the real thread has, at the real
+  diameter, for every tapped/taper-tapped hole already on the model.
+- All the existing depth/pitch/standard/winding computation (`buildThreadCylinders`,
+  unchanged from the previous `buildThreadRuns`) carries over unmodified; only how each
+  hole gets drawn changed. Each hole's texture is its own cloned `CanvasTexture` instance
+  (independent repeat/winding per hole) and is explicitly disposed on unmount/change, the
+  same manual-disposal convention `SolidModel.tsx` already uses for its own geometries.
+- Verified visually via the dev server: a real tapped hole (M12, real pitch) renders a
+  clean diagonal-line wrap around its bore at the correct turn count; no console errors;
+  typecheck/lint/269 unit tests/full Playwright suites all pass unchanged.
+
 ## 2026-10-23 — Mass Properties/Measure crash fix, Fillet/Chamfer single-edge correctness (v0.30.0)
 
 Two bugs reported directly against v0.29.0.

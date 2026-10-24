@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { Line } from "@react-three/drei";
+import { useEffect, useMemo } from "react";
+import { CanvasTexture, DoubleSide, RepeatWrapping, type Texture } from "three";
 
 import { resolveTapDrill } from "@/data/holeResolution";
 import type { TappedStandardId } from "@/data/holeStandards";
@@ -15,62 +15,76 @@ import type { Feature } from "@/types/document";
  * `FeatureParameters.threadDirection`/`fullDepthThread`'s own doc comments in
  * `types/document.ts`, which were added in anticipation of exactly this — so a tapped hole
  * otherwise cuts and displays as a perfectly plain cylinder, indistinguishable from a Simple
- * hole. This draws a helical polyline into that cylinder purely for display (it contributes
- * no geometry to the kernel body, and Export STEP/STL never sees it), the same convention
- * SolidWorks' own "cosmetic thread" uses: close enough to read as "this is threaded" without
- * the cost and fragility of actually machining a thread profile into the B-Rep.
+ * hole. This renders a textured cylindrical shell into that cylinder purely for display (it
+ * contributes no geometry to the kernel body, and Export STEP/STL never sees it) — the same
+ * convention Inventor's own cosmetic thread uses: a repeating diagonal-line texture on the
+ * bore's cylindrical surface rather than an actually-modelled thread profile, close enough to
+ * read as "this is threaded" without the cost and fragility of machining one into the B-Rep.
  *
  * Lives inside `SolidModel.tsx`'s own `<group rotation={mesh.rotation}>` rather than
  * computing a world transform of its own: a hole's cut cylinder is built in the sketch
  * plane's local, un-rotated XY space exactly like the rest of the fused body (see
  * `kernel/rebuild.ts`'s `buildHoleSolid`/`extrusionRange`), so the same rotation that orients
- * the mesh for display orients this line identically, with no separate plane-basis lookup.
+ * the mesh for display orients this cylinder identically, with no separate plane-basis lookup.
  */
 
-const SEGMENTS_PER_TURN = 24;
-const MIN_TURNS = 3;
-const MAX_TURNS = 28;
+const RADIAL_SEGMENTS = 48;
 /** How far into the hole the cosmetic thread is drawn, in multiples of its own major
  * diameter — a real thread only needs to be visible near the opening to read correctly, and
  * a through-all hole's `extrusionRange` is a deliberately oversized cut (see its own doc
- * comment) that would otherwise demand thousands of turns for no visual benefit. */
+ * comment) that would otherwise demand hundreds of turns for no visual benefit. */
 const DEPTH_IN_DIAMETERS = 6;
 /** Fallback engagement length for a Full-Depth-off thread with no `threadDepth` value —
  * only possible in a document saved before the field existed; a fresh toggle-off seeds a
  * real value (see `PropertyManager.tsx`'s Full Depth handler). */
 const PARTIAL_DEPTH_FRACTION = 0.55;
+/** Square texture tile holding one diagonal line corner-to-corner — see `threadTexture`'s
+ * own doc comment for why this single tile, repeated, draws a continuous helix. */
+const TEXTURE_SIZE = 128;
 
-function threadHelixPoints(
-  centre: { x: number; y: number },
-  majorRadius: number,
-  pitch: number,
-  zStart: number,
-  depth: number,
-  directionSign: number,
-  winding: 1 | -1,
-): [number, number, number][] {
-  const turns = Math.min(MAX_TURNS, Math.max(MIN_TURNS, depth / Math.max(pitch, 0.05)));
-  const totalSegments = Math.round(turns * SEGMENTS_PER_TURN);
-  const points: [number, number, number][] = [];
+/**
+ * One diagonal line across a square tile. Mapped onto a cylinder with U wrapping exactly
+ * once around its circumference (`repeat.x = ±1`, the sign giving a thread's handedness)
+ * and V repeated once per pitch of height (`repeat.y`, set per-instance since depth and
+ * pitch vary per hole), the line advances by exactly one pitch for each full revolution —
+ * the definition of a helix — and chains seamlessly from one V-repeat into the next
+ * because it both starts and ends exactly at the tile's own corners.
+ */
+function threadTexture(color: string): Texture {
+  const canvas = document.createElement("canvas");
+  canvas.width = TEXTURE_SIZE;
+  canvas.height = TEXTURE_SIZE;
+  const ctx = canvas.getContext("2d")!;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, TEXTURE_SIZE * 0.035);
+  ctx.beginPath();
+  ctx.moveTo(0, TEXTURE_SIZE);
+  ctx.lineTo(TEXTURE_SIZE, 0);
+  ctx.stroke();
 
-  for (let i = 0; i <= totalSegments; i += 1) {
-    const t = i / SEGMENTS_PER_TURN;
-    const angle = winding * t * Math.PI * 2;
-    const z = zStart + directionSign * Math.min(t * pitch, depth);
-    points.push([centre.x + majorRadius * Math.cos(angle), centre.y + majorRadius * Math.sin(angle), z]);
-    if (z * directionSign >= zStart * directionSign + depth) break;
-  }
-
-  return points;
+  const texture = new CanvasTexture(canvas);
+  texture.wrapS = RepeatWrapping;
+  texture.wrapT = RepeatWrapping;
+  return texture;
 }
 
-interface ThreadRun {
+interface ThreadCylinder {
   key: string;
-  points: [number, number, number][];
+  centre: { x: number; y: number };
+  radius: number;
+  zStart: number;
+  depth: number;
+  directionSign: number;
+  winding: 1 | -1;
+  pitch: number;
 }
 
-function buildThreadRuns(features: Feature[], rollbackIndex: number, sketches: Record<string, Sketch>): ThreadRun[] {
-  const runs: ThreadRun[] = [];
+function buildThreadCylinders(
+  features: Feature[],
+  rollbackIndex: number,
+  sketches: Record<string, Sketch>,
+): ThreadCylinder[] {
+  const cylinders: ThreadCylinder[] = [];
 
   for (const feature of features.slice(0, rollbackIndex)) {
     if (feature.kind !== "hole" || feature.suppressed) continue;
@@ -120,14 +134,62 @@ function buildThreadRuns(features: Feature[], rollbackIndex: number, sketches: R
     // either face purely to guarantee full penetration (see its own doc comment) — using
     // `offset` here would start the cosmetic thread far outside the visible material.
     for (const point of points) {
-      runs.push({
+      cylinders.push({
         key: `${feature.id}-${point.id}`,
-        points: threadHelixPoints(point, majorRadius, entry.pitch, 0, depth, directionSign, winding),
+        centre: point,
+        radius: majorRadius,
+        zStart: 0,
+        depth,
+        directionSign,
+        winding,
+        pitch: entry.pitch,
       });
     }
   }
 
-  return runs;
+  return cylinders;
+}
+
+interface ThreadInstance {
+  key: string;
+  centre: { x: number; y: number };
+  radius: number;
+  zStart: number;
+  depth: number;
+  directionSign: number;
+  texture: Texture;
+}
+
+/** One cloned, independently-configured texture per hole — a shared instance can't carry
+ * a different `repeat` (turn count) and handedness per cylinder at once. The shared base
+ * is disposed immediately after cloning: nothing renders it directly, and a clone's own
+ * GPU upload is independent of the instance it was cloned from. */
+function buildThreadInstances(
+  features: Feature[],
+  rollbackIndex: number,
+  sketches: Record<string, Sketch>,
+  color: string,
+): ThreadInstance[] {
+  const cylinders = buildThreadCylinders(features, rollbackIndex, sketches);
+  if (cylinders.length === 0) return [];
+
+  const base = threadTexture(color);
+  const instances = cylinders.map((cylinder) => {
+    const texture = base.clone();
+    texture.needsUpdate = true;
+    texture.repeat.set(cylinder.winding, Math.max(cylinder.depth / Math.max(cylinder.pitch, 0.05), 1));
+    return {
+      key: cylinder.key,
+      centre: cylinder.centre,
+      radius: cylinder.radius,
+      zStart: cylinder.zStart,
+      depth: cylinder.depth,
+      directionSign: cylinder.directionSign,
+      texture,
+    };
+  });
+  base.dispose();
+  return instances;
 }
 
 export function HoleThreadOverlay({
@@ -141,20 +203,34 @@ export function HoleThreadOverlay({
   sketches: Record<string, Sketch>;
   color: string;
 }) {
-  const runs = useMemo(() => buildThreadRuns(features, rollbackIndex, sketches), [features, rollbackIndex, sketches]);
+  const instances = useMemo(
+    () => buildThreadInstances(features, rollbackIndex, sketches, color),
+    [features, rollbackIndex, sketches, color],
+  );
+
+  // Manually-created textures aren't owned by R3F's own JSX disposal (unlike a
+  // `<meshBasicMaterial>` tag, which R3F does construct and dispose itself) — the same
+  // reason `SolidModel.tsx` disposes its own manually-built geometries, applied here to
+  // each batch of cloned textures in turn.
+  useEffect(
+    () => () => {
+      for (const instance of instances) instance.texture.dispose();
+    },
+    [instances],
+  );
 
   return (
     <>
-      {runs.map((run) => (
-        <Line
-          key={run.key}
-          points={run.points}
-          color={color}
-          lineWidth={1}
-          transparent
-          opacity={0.55}
+      {instances.map(({ key, centre, radius, zStart, depth, directionSign, texture }) => (
+        <mesh
+          key={key}
+          position={[centre.x, centre.y, zStart + (directionSign * depth) / 2]}
+          rotation={[directionSign * (Math.PI / 2), 0, 0]}
           raycast={() => null}
-        />
+        >
+          <cylinderGeometry args={[radius, radius, depth, RADIAL_SEGMENTS, 1, true]} />
+          <meshBasicMaterial map={texture} transparent opacity={0.6} side={DoubleSide} depthWrite={false} />
+        </mesh>
       ))}
     </>
   );
