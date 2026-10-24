@@ -23,6 +23,8 @@ import type {
 } from "@/types/document";
 import type { UnitSystemId } from "@/types/ui";
 
+import { highestIdSuffix } from "@/utils/idSuffix";
+
 import { FEATURE_CATALOG } from "./featureCatalog";
 import { withDrawingViewPositions } from "./drawingViewMovement";
 import { DEFAULT_SHEET_FORMAT_ID, DEFAULT_TITLE_BLOCK_VALUES_SEED } from "./templateStore";
@@ -34,6 +36,17 @@ let idCounter = 0;
 function nextId(prefix: string): string {
   idCounter += 1;
   return `${prefix}-${idCounter}`;
+}
+
+/** Raises the shared id counter to at least `atLeast`, never lowers it — called from
+ * `restoreSession` whenever a document becomes the active one (Open, autosave restore, or
+ * switching tabs; see `workspaceStore.ts`'s `applySession`), seeded from that document's
+ * own highest existing id (`highestIdSuffix`). Without this, the counter stays wherever
+ * this session's own feature/dimension/... creation last left it — 0 on a fresh app
+ * launch — so the very next `nextId()` call can mint an id that collides with one the
+ * just-opened document already uses, silently overwriting that feature/entity. */
+function seedDocumentIdCounter(atLeast: number): void {
+  if (atLeast > idCounter) idCounter = atLeast;
 }
 
 function createDefaultFeatures(): Feature[] {
@@ -1138,6 +1151,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
       inDragGesture = false;
       dragSnapshot = null;
       clearEditSession();
+      seedDocumentIdCounter(highestIdSuffix(document));
       set({
         document,
         past,
