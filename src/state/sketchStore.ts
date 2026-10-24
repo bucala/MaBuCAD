@@ -25,6 +25,7 @@ import {
   patternEntities,
   roundDimensionValue,
   pointById,
+  seedSketchIdCounter,
   trimEntitiesInWindow,
   trimEntityAt,
 } from "@/sketch/sketchModel";
@@ -40,6 +41,7 @@ import type {
 import { useGeometryStore } from "@/state/geometryStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import type { SketchStatus } from "@/types/ui";
+import { highestIdSuffix } from "@/utils/idSuffix";
 
 /** Tools available while a sketch is open. */
 export type SketchTool =
@@ -573,6 +575,7 @@ export const useSketchStore = create<SketchStore>((set, get) => {
     loadSketches: (sketches) => {
       inDragGesture = false;
       dragSnapshot = null;
+      seedSketchIdCounter(highestIdSuffix(sketches));
       set({
         sketches,
         activeSketchId: null,

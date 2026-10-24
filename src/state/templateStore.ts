@@ -10,6 +10,7 @@ import type {
   TitleBlockField,
   TitleBlockTemplate,
 } from "@/types/drawingTemplates";
+import { highestIdSuffix } from "@/utils/idSuffix";
 
 /**
  * The Drawing Resources library: every Border, Title Block and Sheet Format the app
@@ -26,6 +27,17 @@ let idCounter = 0;
 function nextId(prefix: string): string {
   idCounter += 1;
   return `${prefix}-${idCounter}`;
+}
+
+/** `idCounter` above is a plain module-level variable, not part of this store's
+ * zustand `persist`ed state, so a page reload rehydrates `borders`/`titleBlocks`/
+ * `sheetFormats` from `localStorage` while `idCounter` itself resets to 0 — the next
+ * `addBorder`/`addTitleBlock`/`addSheetFormat`/`addTitleBlockField` call would then
+ * generate an id that already exists in what was just rehydrated. `onRehydrateStorage`
+ * below reseeds it from the rehydrated state's own highest existing id the same way
+ * `documentStore.ts` and `sketchModel.ts` reseed theirs on load. */
+export function seedTemplateIdCounter(atLeast: number): void {
+  if (atLeast > idCounter) idCounter = atLeast;
 }
 
 const EXTENSION = "mabutpl";
@@ -350,6 +362,9 @@ export const useTemplateStore = create<TemplateStore>()(
         titleBlocks: state.titleBlocks,
         sheetFormats: state.sheetFormats,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state) seedTemplateIdCounter(highestIdSuffix(state));
+      },
     },
   ),
 );

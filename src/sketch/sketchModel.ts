@@ -11,6 +11,18 @@ import type {
 let counter = 0;
 const uid = (prefix: string) => `${prefix}-${(counter += 1)}`;
 
+/** Raises this module's own id counter to at least `atLeast`, never lowers it — called by
+ * `sketchStore.ts`'s `loadSketches` whenever a document's sketches become the active set
+ * (Open, autosave restore, a tab switch), seeded from the highest id already present in
+ * them (`highestIdSuffix`). Without this, a point/entity/constraint/dimension id created
+ * in a freshly loaded sketch can collide with one this session's own counter was already
+ * about to mint — the exact "a new sketch overwrites existing geometry" failure mode this
+ * exists to close. See `documentStore.ts`'s `seedDocumentIdCounter` for the same fix
+ * applied to feature-level ids, which this module's own point/entity ids sit outside of. */
+export function seedSketchIdCounter(atLeast: number): void {
+  if (atLeast > counter) counter = atLeast;
+}
+
 /** Every sketch owns a fixed origin, which is what ordinate dimensions measure from. */
 export const ORIGIN_SUFFIX = "origin";
 

@@ -271,15 +271,25 @@ Hole Wizard bolt pattern and a fillet — shown in the Feature Manager tree.</su
   deterministic — there is never a body to choose between — and every feature's picks stay
   geometric proxies. Multi-body modelling (bodies as boolean operand *sets*, per-body
   display and BOM) is a consciously deferred capability, not an oversight.
-- **Sketches build in their own plane's local, un-rotated space**; only the final
-  triangulated mesh gets a cosmetic display rotation for on-screen placement. The
-  alternative — mapping this app's plane conventions onto the kernel's own — risks a
-  mirrored axis silently flipping a part, so every sketch-based feature (extrude, revolve,
-  fillet's edge picks, …) works in that same local space and only rotates for display.
+- **Every sketch-based feature embeds its own profile via its true world-space plane**
+  (`kernel/rebuild.ts`'s `replicadPlaneFor`), derived from the same quaternion the 3D
+  viewport's reference planes and sketch mode already use (`sketch/planeBasis.ts`) — not
+  the kernel's own literal "XY" plane regardless of which plane the sketch was actually
+  drawn on. An earlier version of this app took that shortcut (build everything in a
+  shared local "XY" frame, then apply a single whole-mesh *cosmetic* rotation — the last
+  feature's own plane — for on-screen placement only), which only ever produced correct
+  underlying kernel geometry when every feature in the document happened to share one
+  plane that also happened to be the kernel's own "XY" (the Front plane, not coincidentally
+  the default) — a lone feature on the Top or Right plane was already wrong in the actual
+  B-Rep even by itself, and two features on *different* planes combined by a boolean fused
+  or cut geometry each built as if both were on Front. Fixed by building every profile,
+  and (for Revolve) its axis, in its own plane's real world coordinates from the start, so
+  `fuse`/`cut` always combines solids that are already correctly placed.
 - **Fillet and Chamfer can target specific edges with no persistent edge naming to lean
   on** — this kernel has none, since it rebuilds from scratch every time. A picked click is
-  stored as a world-space point, converted into the kernel's own un-rotated solid space, and
-  re-resolved on every rebuild via replicad's `EdgeFinder.withinDistance()`. Documented
+  stored as a world-space point (the kernel's own solid is already in true world space —
+  see the plane bullet above) and re-resolved on every rebuild via replicad's
+  `EdgeFinder.withinDistance()`. Documented
   honestly as a geometric-proxy approximation, not true persistent naming: it can
   occasionally latch onto the wrong edge if the body changes drastically between picks.
   Picking against an already-rounded result would mean clicking edges that already moved, so
@@ -492,7 +502,7 @@ eslint.config.js              ESLint flat config: hook discipline + unused code,
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
 | Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Fillet, Offset, Mirror, Linear/Circular Pattern, Convert to Construction | ✅ |
 | Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence | ✅ |
-| Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point, cosmetic thread indicator on tapped holes | ✅ |
+| Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point, Inventor-style cosmetic thread texture on tapped holes (a real diagonal-line wrap at the hole's actual pitch/diameter/winding, not a plain indicator) | ✅ |
 | Dress-up | Fillet, Chamfer, Shell, Draft, Rib — Fillet/Chamfer start pass-through and arm edge-pick mode immediately, applying to every edge only if none are ever picked | ✅ |
 | Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft | ✅ |
 | Pattern/Mirror (feature-level) | Linear Pattern, Circular Pattern, Mirror | ✅ |
