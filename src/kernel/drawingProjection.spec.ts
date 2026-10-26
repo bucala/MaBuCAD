@@ -8,8 +8,15 @@ import { auxiliaryCamera, rebuildAndProjectAuxiliary, rebuildAndProjectPart } fr
 import { initKernel } from "./occ";
 import { __clearRebuildCacheForTesting } from "./rebuild";
 
-/** A 20 mm block on the Top plane with one tapped Hole Wizard point at its centre.
- * `seat` splices extra parameters (a counterbore seat, …) into the hole feature. */
+/** A 20 mm block on the Front plane with one tapped Hole Wizard point at its centre —
+ * Front, not Top: `rebuildPartShape`'s raw kernel shape feeds straight into replicad's own
+ * Front/Top/Right projection cameras with no adjustment for which of *this app's* reference
+ * planes (`REFERENCE_PLANES`) the sketch was actually drawn on, and only the Front plane's
+ * own normal (world +Z) lines up with the axis replicad's "top" camera (looking down world
+ * −Z) expects a hole target to run along; this fixture needs a circle in the "top" drawing
+ * view, so it has to be built on the plane that actually produces one, not the
+ * similarly-named reference plane that doesn't. `seat` splices extra parameters (a
+ * counterbore seat, …) into the hole feature. */
 function tappedHoleDocument(
   seat?: Feature["parameters"],
 ): { document: CadDocument; sketches: Record<string, Sketch> } {
@@ -22,7 +29,7 @@ function tappedHoleDocument(
   const sketches: Record<string, Sketch> = {
     "sketch-base": {
       id: "sketch-base",
-      planeId: "plane-top",
+      planeId: "plane-front",
       points: basePoints,
       entities: [
         { id: "bl1", kind: "line", start: "bp1", end: "bp2", construction: false },
@@ -35,7 +42,7 @@ function tappedHoleDocument(
     },
     "sketch-hole": {
       id: "sketch-hole",
-      planeId: "plane-top",
+      planeId: "plane-front",
       points: [{ id: "hp1", x: 10, y: 10 }],
       entities: [{ id: "hole-point", kind: "point", at: "hp1", construction: false }],
       constraints: [],
@@ -56,9 +63,9 @@ function tappedHoleDocument(
   if (!tap) throw new Error("M6x1 must exist in the tapped-hole standard");
 
   const features: Feature[] = [
-    feature("sketch-base", "sketch", ["plane-top"], {}),
+    feature("sketch-base", "sketch", ["plane-front"], {}),
     feature("extrude-base", "extrude", ["sketch-base"], { depth: 8, endCondition: "blind", operation: "join" }),
-    feature("sketch-hole", "sketch", ["plane-top"], {}),
+    feature("sketch-hole", "sketch", ["plane-front"], {}),
     feature("hole-1", "hole", ["sketch-hole"], {
       radius: tap.tapDrill / 2,
       depth: 8,

@@ -1,4 +1,5 @@
-import { draw, drawCircle, drawPointsInterpolation, EdgeFinder, FaceFinder, genericSweep, Plane } from "replicad";
+import { draw, drawCircle, drawPointsInterpolation, EdgeFinder, FaceFinder, genericSweep, Plane, Vector } from "replicad";
+import type { AnyShape, Edge } from "replicad";
 import { Vector3 } from "three";
 
 import { planeBasis, sketchToWorld } from "@/sketch/planeBasis";
@@ -197,17 +198,24 @@ function profileEntityFilter(feature: Feature): ReadonlySet<string> | undefined 
 }
 
 /**
- * Finds the revolve axis for a sketch: a line explicitly marked as an axis line takes
- * priority (unambiguous even when the sketch also has an ordinary construction line doing
- * something else, e.g. a mirror axis); otherwise the first construction line's endpoints;
- * otherwise the sketch's local Y axis through the origin.
+ * Finds the revolve axis for a sketch, in true world coordinates: a line explicitly marked
+ * as an axis line takes priority (unambiguous even when the sketch also has an ordinary
+ * construction line doing something else, e.g. a mirror axis); otherwise the first
+ * construction line's endpoints; otherwise the sketch's local Y axis through the origin.
+ *
+ * `replicad`'s `revolve` takes its `origin`/`direction` as absolute world coordinates (it
+ * feeds them straight to OpenCascade's `makeAx1`, with no notion of "relative to the sketch
+ * being revolved"), so a sketch-local 2D point/direction has to be mapped through `plane`
+ * (`planePointToWorld`/`planeDirectionToWorld`) before it means anything outside the Front
+ * plane — passing the raw local coordinates straight through (as if local and world always
+ * agreed) produced a plausible-looking but wrong axis for any other sketch plane.
  *
  * The fallback matters more than it looks: replicad defaults an omitted revolve axis to
  * the sketch plane's own normal, which is coplanar with (not swept around by) a profile
  * drawn flat in local XY, producing a degenerate result rather than a safe no-op — so an
  * explicit in-plane axis must always be supplied.
  */
-function revolveAxis(sketch: Sketch): RevolveAxis {
+function revolveAxis(sketch: Sketch, plane: Plane): RevolveAxis {
   const axisLine =
     sketch.entities.find(
       (entity): entity is LineEntity => entity.kind === "line" && entity.construction && !!entity.isAxis,
@@ -221,13 +229,13 @@ function revolveAxis(sketch: Sketch): RevolveAxis {
     const end = pointById(sketch, axisLine.end);
     if (start && end) {
       return {
-        origin: [start.x, start.y, 0],
-        direction: [end.x - start.x, end.y - start.y, 0],
+        origin: planePointToWorld(plane, start.x, start.y),
+        direction: planeDirectionToWorld(plane, end.x - start.x, end.y - start.y),
       };
     }
   }
 
-  return { origin: [0, 0, 0], direction: [0, 1, 0] };
+  return { origin: planePointToWorld(plane, 0, 0), direction: planeDirectionToWorld(plane, 0, 1) };
 }
 
 function buildRevolveSolid(sketch: Sketch, feature: Feature): Solid | null {
@@ -235,7 +243,8 @@ function buildRevolveSolid(sketch: Sketch, feature: Feature): Solid | null {
   if (groups.length === 0) return null;
 
   const angle = feature.parameters.angle ?? 360;
-  const axis = revolveAxis(sketch);
+  const plane = replicadPlaneFor(sketch.planeId);
+  const axis = revolveAxis(sketch, plane);
 
   // Each disjoint contour group (see `profileRegionGroups`'s own doc comment) revolves and
   // cuts its own holes independently, then the whole set fuses into the one body a revolve
@@ -243,7 +252,7 @@ function buildRevolveSolid(sketch: Sketch, feature: Feature): Solid | null {
   let combined: Solid | null = null;
   for (const regions of groups) {
     let solid = drawRegion(regions.outer)
-      .sketchOnPlane("XY")
+      .sketchOnPlane(plane)
       .revolve(axis.direction, { origin: axis.origin, angle }) as Solid;
 
     // Outer and inner regions sweep the identical axis/angle, so subtracting the swept hole
@@ -251,7 +260,7 @@ function buildRevolveSolid(sketch: Sketch, feature: Feature): Solid | null {
     // over-length trick is needed to guarantee the cut fully passes through.
     for (const inner of regions.inner) {
       const tool = drawRegion(inner)
-        .sketchOnPlane("XY")
+        .sketchOnPlane(plane)
         .revolve(axis.direction, { origin: axis.origin, angle }) as Solid;
       solid = (solid as unknown as { cut: (other: Solid) => Solid }).cut(tool);
     }
@@ -368,18 +377,68 @@ function buildMirrorSolid(source: Solid, feature: Feature): Solid {
  */
 const EDGE_PICK_TOLERANCE = 0.75;
 
+/** How many points along each candidate edge `nearestEdgeTo` samples — fine enough that
+ * two edges meeting at a shared vertex (where a coarse start/mid/end sample would tie,
+ * since both edges' nearest *sample* is that same shared point) still resolve correctly:
+ * at `EDGE_PICK_TOLERANCE` (0.75mm), a pick landing within a fraction of a mm of one edge
+ * but merely near the other's endpoint needs a sample spacing well under that margin. On a
+ * typical small-part edge length this keeps sample spacing comfortably under 0.1mm. */
+const EDGE_SAMPLE_COUNT = 32;
+
 /**
- * Builds an edge filter from picked points — see `FeatureParameters.edgePoints`'s own note
- * on why this is a geometric proximity match (`EdgeFinder.withinDistance`) rather than true
- * persistent naming, which this app's kernel has no way to provide. `undefined` means "every
- * edge", replicad's own convention for a fillet/chamfer's optional filter.
+ * Among the real edges on the rebuilt solid within `EDGE_PICK_TOLERANCE` of `point`, the
+ * one actually nearest it — approximated by sampling `EDGE_SAMPLE_COUNT` points along each
+ * candidate's own parametric curve (replicad's `Edge` exposes no direct "closest point to
+ * an external point" query), which is what disambiguates the short, closely-spaced edges a
+ * corner or tight-bevel pick tends to land near (exactly the geometry a radius-only match
+ * confuses — see `pickedEdgeFilter`'s own doc comment). `null` when nothing is within
+ * tolerance at all (a stale pick from before a rebuild changed the body's topology).
  */
-function pickedEdgeFilter(
+export function nearestEdgeTo(solid: Solid, point: [number, number, number]): Edge | null {
+  const candidates = new EdgeFinder().withinDistance(EDGE_PICK_TOLERANCE, point).find(solid as unknown as AnyShape);
+  if (candidates.length === 0) return null;
+
+  const target = new Vector(point);
+  let best: Edge | null = null;
+  let bestDistance = Infinity;
+  for (const edge of candidates) {
+    for (let step = 0; step <= EDGE_SAMPLE_COUNT; step += 1) {
+      const sample = edge.pointAt(step / EDGE_SAMPLE_COUNT);
+      const distance = sample.sub(target).Length;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = edge;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Builds an edge filter from picked points — resolves each picked point to the single
+ * nearest real edge on the rebuilt solid, not every edge within `EDGE_PICK_TOLERANCE` of
+ * it. A plain `EdgeFinder.withinDistance` radius filter (the previous approach) keeps
+ * *every* candidate inside that radius, and several short/adjacent edges routinely sit
+ * within 0.75mm of a single point near a corner, a sharp bevel, or anywhere edges
+ * converge tightly — so one click could resolve to two or more real edges, and the whole
+ * neighbourhood got rounded/chamfered along with the one edge actually picked. Resolving
+ * to the nearest candidate first (`nearestEdgeTo`), then filtering with `EdgeFinder.inList`
+ * on that already-resolved set, makes exactly one real edge come out of exactly one click.
+ * This is still a geometric proximity match rather than true persistent naming, which this
+ * app's kernel has no way to provide — see `FeatureParameters.edgePoints`'s own note.
+ * `undefined` means "every edge", replicad's own convention for a fillet/chamfer's
+ * optional filter.
+ */
+export function pickedEdgeFilter(
+  solid: Solid,
   edgePoints: [number, number, number][] | undefined,
 ): ((finder: EdgeFinder) => EdgeFinder) | undefined {
   if (!edgePoints || edgePoints.length === 0) return undefined;
-  return (finder) =>
-    finder.either(edgePoints.map((point) => (f: EdgeFinder) => f.withinDistance(EDGE_PICK_TOLERANCE, point)));
+  const resolved = edgePoints
+    .map((point) => nearestEdgeTo(solid, point))
+    .filter((edge): edge is Edge => edge !== null);
+  if (resolved.length === 0) return undefined;
+  return (finder) => finder.inList(resolved);
 }
 
 /** True only in the brief window between a Fillet/Chamfer being created and the user
@@ -399,7 +458,7 @@ function buildFilletedSolid(solid: Solid, feature: Feature): Solid {
   if (isAwaitingFirstEdgePick(feature)) return solid;
   const radius = Math.max(feature.parameters.radius ?? 2, 0.05);
   const target = solid as unknown as { fillet: (radiusConfig: number, filter?: (f: EdgeFinder) => EdgeFinder) => Solid };
-  return target.fillet(radius, pickedEdgeFilter(feature.parameters.edgePoints));
+  return target.fillet(radius, pickedEdgeFilter(solid, feature.parameters.edgePoints));
 }
 
 /** A plain-number chamfer distance is symmetric; see `buildFilletedSolid`'s own note on
@@ -411,7 +470,7 @@ function buildChamferedSolid(solid: Solid, feature: Feature): Solid {
   const target = solid as unknown as {
     chamfer: (radiusConfig: number, filter?: (f: EdgeFinder) => EdgeFinder) => Solid;
   };
-  return target.chamfer(distance, pickedEdgeFilter(feature.parameters.edgePoints));
+  return target.chamfer(distance, pickedEdgeFilter(solid, feature.parameters.edgePoints));
 }
 
 function facingDirection(axis: "x" | "y" | "z"): [number, number, number] {
@@ -455,6 +514,7 @@ function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
     feature.parameters.depth ?? 10,
     feature.parameters.reversed ?? false,
   );
+  const plane = replicadPlaneFor(sketch.planeId);
 
   // Each disjoint contour group (see `profileRegionGroups`'s own doc comment) extrudes and
   // cuts its own holes independently, then the whole set fuses into the one body an Extrude
@@ -462,14 +522,12 @@ function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
   // "cutting" the other when they don't even overlap.
   let combined: Solid | null = null;
   for (const regions of groups) {
-    let solid = drawRegion(regions.outer).sketchOnPlane("XY").extrude(distance) as Solid;
+    let solid = drawRegion(regions.outer).sketchOnPlane(plane).extrude(distance) as Solid;
 
     // Inner regions become through holes rather than separate bodies.
     for (const inner of regions.inner) {
-      const tool = drawRegion(inner)
-        .sketchOnPlane("XY")
-        .extrude(distance * 2)
-        .translate([0, 0, -Math.abs(distance) / 2]) as Solid;
+      let tool = drawRegion(inner).sketchOnPlane(plane).extrude(distance * 2) as Solid;
+      tool = translateAlongPlaneNormal(tool, plane, -Math.abs(distance) / 2);
       solid = (solid as unknown as { cut: (other: Solid) => Solid }).cut(tool);
     }
 
@@ -477,11 +535,7 @@ function buildFeatureSolid(sketch: Sketch, feature: Feature): Solid | null {
   }
 
   if (combined && offset !== 0) {
-    combined = (combined as unknown as { translate: (v: [number, number, number]) => Solid }).translate([
-      0,
-      0,
-      offset,
-    ]);
+    combined = translateAlongPlaneNormal(combined, plane, offset);
   }
 
   return combined;
@@ -529,11 +583,10 @@ function buildRibSolid(sketch: Sketch, feature: Feature): Solid | null {
     feature.parameters.depth ?? 10,
     feature.parameters.reversed ?? false,
   );
+  const plane = replicadPlaneFor(sketch.planeId);
 
-  let solid = wallProfile.sketchOnPlane("XY").extrude(distance) as Solid;
-  if (offset !== 0) {
-    solid = (solid as unknown as { translate: (v: [number, number, number]) => Solid }).translate([0, 0, offset]);
-  }
+  let solid = wallProfile.sketchOnPlane(plane).extrude(distance) as Solid;
+  solid = translateAlongPlaneNormal(solid, plane, offset);
 
   return solid;
 }
@@ -549,17 +602,28 @@ const DRILL_POINT_INCLUDED_ANGLE_DEGREES = 118;
  * completely unaffected. `cylinderEndZ` is the Z the plain cylindrical tool already ends
  * at; `direction` is which way it was cut (matching `extrusionRange`'s own sign
  * convention), so the cone's apex extends a little further the same way rather than back
- * into the cylinder it's attached to.
+ * into the cylinder it's attached to. `cylinderEndZ`/`tipZ` are both distances along the
+ * hole's own sketch plane normal, not world Z — `offsetPlane` places each circle's sketch
+ * at the right point along `plane` itself, the plane-object counterpart of the numeric
+ * z-offset a named-plane string would take (see `offsetPlane`'s own note on why that
+ * argument can't just be forwarded to `sketchOnPlane` once `plane` is already an object).
  */
-function buildDrillPointCone(x: number, y: number, radius: number, cylinderEndZ: number, direction: number): Solid {
+function buildDrillPointCone(
+  plane: Plane,
+  x: number,
+  y: number,
+  radius: number,
+  cylinderEndZ: number,
+  direction: number,
+): Solid {
   const halfAngleRadians = (DRILL_POINT_INCLUDED_ANGLE_DEGREES / 2) * (Math.PI / 180);
   const coneHeight = radius / Math.tan(halfAngleRadians);
   const tipZ = cylinderEndZ + direction * coneHeight;
 
-  const base = drawCircle(radius).translate(x, y).sketchOnPlane("XY", cylinderEndZ);
+  const base = drawCircle(radius).translate(x, y).sketchOnPlane(offsetPlane(plane, cylinderEndZ));
   // A true zero-radius loft endpoint isn't reliably supported, so the "point" is a very
   // small circle instead — small enough that the taper still reads as a sharp drill tip.
-  const tip = drawCircle(Math.max(radius * 0.02, 0.01)).translate(x, y).sketchOnPlane("XY", tipZ);
+  const tip = drawCircle(Math.max(radius * 0.02, 0.01)).translate(x, y).sketchOnPlane(offsetPlane(plane, tipZ));
   return (base as unknown as { loftWith: (other: unknown) => Solid }).loftWith(tip);
 }
 
@@ -572,8 +636,13 @@ function buildDrillPointCone(x: number, y: number, radius: number, cylinderEndZ:
  * shallow counterbore by convention); countersink is a truncated cone widening from the
  * hole's own radius up to the seat radius, sized from the seat's included angle so the
  * taper meets the through-hole at exactly its own diameter rather than leaving a step.
+ *
+ * `direction`/`seatDepthOrAngle` are both relative to the hole's own sketch plane, same as
+ * `buildDrillPointCone` — see `offsetPlane`'s own note on why the countersink's narrow end
+ * needs a plane moved along its own normal rather than a numeric `sketchOnPlane` origin.
  */
 function buildSeatTool(
+  plane: Plane,
   x: number,
   y: number,
   holeRadius: number,
@@ -587,13 +656,13 @@ function buildSeatTool(
   if (seatType === "countersink") {
     const halfAngleRadians = (seatDepthOrAngle / 2) * (Math.PI / 180);
     const depth = Math.max((seatRadius - holeRadius) / Math.max(Math.tan(halfAngleRadians), 1e-3), 0.05);
-    const wide = drawCircle(seatRadius).translate(x, y).sketchOnPlane("XY", 0);
-    const narrow = drawCircle(holeRadius).translate(x, y).sketchOnPlane("XY", direction * depth);
+    const wide = drawCircle(seatRadius).translate(x, y).sketchOnPlane(plane);
+    const narrow = drawCircle(holeRadius).translate(x, y).sketchOnPlane(offsetPlane(plane, direction * depth));
     return (wide as unknown as { loftWith: (other: unknown) => Solid }).loftWith(narrow);
   }
 
   const depth = Math.max(seatDepthOrAngle, 0.1);
-  return drawCircle(seatRadius).translate(x, y).sketchOnPlane("XY").extrude(direction * depth) as Solid;
+  return drawCircle(seatRadius).translate(x, y).sketchOnPlane(plane).extrude(direction * depth) as Solid;
 }
 
 /**
@@ -619,6 +688,7 @@ function buildHoleSolid(sketch: Sketch, feature: Feature): Solid | null {
   const endCondition = feature.parameters.endCondition ?? "through-all";
   const reversed = feature.parameters.reversed ?? false;
   const { distance, offset } = extrusionRange(endCondition, feature.parameters.depth ?? 10, reversed);
+  const plane = replicadPlaneFor(sketch.planeId);
 
   const seatType = feature.parameters.seatType ?? "none";
   // Which way the hole cuts, for the seat/drill-point tools' own `direction` — same sign
@@ -630,20 +700,18 @@ function buildHoleSolid(sketch: Sketch, feature: Feature): Solid | null {
 
   let solid: Solid | null = null;
   for (const point of points) {
-    let tool = drawCircle(radius).translate(point.x, point.y).sketchOnPlane("XY").extrude(distance) as Solid;
-    if (offset !== 0) {
-      tool = (tool as unknown as { translate: (v: [number, number, number]) => Solid }).translate([0, 0, offset]);
-    }
+    let tool = drawCircle(radius).translate(point.x, point.y).sketchOnPlane(plane).extrude(distance) as Solid;
+    tool = translateAlongPlaneNormal(tool, plane, offset);
 
     if (addsDrillPoint) {
-      const cone = buildDrillPointCone(point.x, point.y, radius, offset + distance, cutDirection);
+      const cone = buildDrillPointCone(plane, point.x, point.y, radius, offset + distance, cutDirection);
       tool = asBoolean(tool).fuse(cone);
     }
 
     if (seatType !== "none") {
       const seatDiameter = feature.parameters.seatDiameter ?? radius * 2 * 1.8;
       const seatDepthOrAngle = feature.parameters.seatDepthOrAngle ?? (seatType === "countersink" ? 90 : radius);
-      const seat = buildSeatTool(point.x, point.y, radius, seatType, seatDiameter, seatDepthOrAngle, cutDirection);
+      const seat = buildSeatTool(plane, point.x, point.y, radius, seatType, seatDiameter, seatDepthOrAngle, cutDirection);
       tool = asBoolean(tool).fuse(seat);
     }
 
@@ -668,6 +736,10 @@ function buildHoleSolid(sketch: Sketch, feature: Feature): Solid | null {
  * Only the outer profile of each sketch is used; inner loops (holes) are not lofted — a hole
  * cut afterward composes better anyway, the same as every other feature that already leans on
  * boolean composition instead of doing everything in one operation.
+ *
+ * The caller guarantees every sketch shares one `planeId`, so one `Plane` serves them all —
+ * each profile sits `offsetPlane`d along that shared plane's own normal rather than literal
+ * world Z, the same reasoning as `buildDrillPointCone`/`buildSeatTool`'s own offsets.
  */
 function buildLoftSolid(sketches: Sketch[], feature: Feature): Solid | null {
   const regionsList = sketches.map((sketch) => profileRegions(sketch));
@@ -675,9 +747,10 @@ function buildLoftSolid(sketches: Sketch[], feature: Feature): Solid | null {
 
   const totalDepth = feature.parameters.depth ?? 20;
   const spacing = sketches.length > 1 ? totalDepth / (sketches.length - 1) : 0;
+  const plane = replicadPlaneFor(sketches[0]!.planeId);
 
   const profileSketches = regionsList.map((regions, index) =>
-    drawRegion(regions!.outer).sketchOnPlane("XY", [0, 0, spacing * index]),
+    drawRegion(regions!.outer).sketchOnPlane(offsetPlane(plane, spacing * index)),
   );
 
   const [base, ...rest] = profileSketches;
@@ -692,11 +765,66 @@ function perpendicularTo(direction: Vector3): Vector3 {
 
 /** The world-space basis a sketch's plane maps onto, as a replicad `Plane` object — origin
  * at the sketch's own origin (always [0, 0, 0]; sketches don't support a position offset
- * yet), oriented by the same quaternion `sketchToWorld` uses. */
+ * yet), oriented by the same quaternion `sketchToWorld` uses.
+ *
+ * Every sketch-based feature builder below (`buildFeatureSolid`, `buildRevolveSolid`,
+ * `buildHoleSolid`, `buildRibSolid`, `buildLoftSolid`) embeds its sketch's own 2D profile
+ * via this plane instead of the kernel's literal "XY" plane, so the resulting solid already
+ * sits in true world position/orientation the moment it's built — not just when displayed.
+ * `buildSweepSolid` already worked this way (see its own doc comment); the others used to
+ * build everything in a shared local "XY" frame regardless of the sketch's real plane, and
+ * rely on a single whole-mesh cosmetic rotation (the last-built feature's own plane) for
+ * *display* only, while `current.fuse()/cut()` combined the un-transformed local solids
+ * directly — correct only when every feature in the document happened to share one plane
+ * that was also the kernel's literal "XY" (`REFERENCE_PLANES`'s Front plane, not
+ * coincidentally the default), and silently wrong geometry otherwise: a boolean between a
+ * Top-plane feature and a Front-plane feature combined two solids that were each built as if
+ * *they* were on Front, not their own actual plane. */
 function replicadPlaneFor(planeId: string): Plane {
   const basis = planeBasis(planeId);
   const xDir = new Vector3(1, 0, 0).applyQuaternion(basis.quaternion);
   return new Plane([0, 0, 0], [xDir.x, xDir.y, xDir.z], [basis.normal.x, basis.normal.y, basis.normal.z]);
+}
+
+/** A local-plane 2D point (sketches have no position offset, so its implicit local Z is
+ * always 0) mapped into the world coordinates `plane` itself places it at — origin AND
+ * orientation both apply, unlike `planeDirectionToWorld` below. Used wherever a sketch-local
+ * 2D coordinate (a revolve axis's origin point) has to become a real 3D point for a kernel
+ * call that doesn't take a plane-relative frame itself (`revolution`'s own `center`). */
+function planePointToWorld(plane: Plane, x: number, y: number): [number, number, number] {
+  const world = plane.toWorldCoords([x, y, 0]);
+  return [world.x, world.y, world.z];
+}
+
+/** A local-plane 2D DIRECTION (a revolve axis's own direction, which — unlike a point — has
+ * no position to translate, only an orientation to rotate) mapped into world space by
+ * `plane`'s own basis vectors. */
+function planeDirectionToWorld(plane: Plane, x: number, y: number): [number, number, number] {
+  const world = plane.xDir.multiply(x).add(plane.yDir.multiply(y));
+  return [world.x, world.y, world.z];
+}
+
+/** Moves an already-built solid by `distance` along `plane`'s own normal — the plane-aware
+ * replacement for a plain `translate([0, 0, distance])`, which only ever moved correctly
+ * along *world* Z and happened to be right exactly when `plane` was the Front plane (the
+ * kernel's literal "XY", see `replicadPlaneFor`'s own note). Used for a mid-plane/offset
+ * end condition and an inner hole-cut tool's own centering shift, both of which mean "along
+ * this feature's own sketch-plane normal," not literally along world Z. */
+function translateAlongPlaneNormal(solid: Solid, plane: Plane, distance: number): Solid {
+  if (distance === 0) return solid;
+  const n = plane.zDir;
+  return asTransformable(solid).translate([n.x * distance, n.y * distance, n.z * distance]);
+}
+
+/** `plane`, moved `distance` along its own normal — the plane-object counterpart of the
+ * numeric z-offset `sketchOnPlane(planeName, zOffset)` accepts for a named plane string.
+ * replicad's own `sketchOnPlane` silently drops that second argument once `plane` is already
+ * a `Plane` instance (it only forwards `origin` to `makePlane` on the *string* overload), so
+ * a tool that needs to sit a known distance along the sketch plane's normal — a drill
+ * point's cone apex, a countersink's narrower end — has to arrive already offset like this,
+ * not via a second `sketchOnPlane` argument that would be silently ignored. */
+function offsetPlane(plane: Plane, distance: number): Plane {
+  return distance === 0 ? plane : plane.translateTo(plane.origin.add(plane.zDir.multiply(distance)));
 }
 
 /**
@@ -831,6 +959,14 @@ export async function rebuildDocument(
 
   const errors: Record<string, string> = {};
   let current: Solid | null = null;
+  // Every sketch-based feature now embeds its own profile via its true world plane (see
+  // `replicadPlaneFor`'s own note), so `current` is always already correctly placed and
+  // oriented in world space — this stays [0, 0, 0] for the lifetime of the rebuild. It
+  // used to carry the last-built feature's own cosmetic display rotation, applied to the
+  // whole mesh at the very end, back when every feature was instead built in a shared
+  // local "XY" frame; left in place (never reassigned below) rather than torn out of
+  // `MeshData`/`RebuildCheckpoint`/`SolidModel.tsx`'s render group and edge/face-pick
+  // inverse-rotation, which this round didn't need to touch to fix the actual geometry.
   let rotation: [number, number, number] = [0, 0, 0];
 
   // Each modelling feature's own contribution, keyed by feature id, so a pattern or mirror
@@ -994,7 +1130,6 @@ export async function rebuildDocument(
           continue;
         }
 
-        rotation = planeBasis(planeId).rotation as [number, number, number];
         featureSolids.set(feature.id, { solid, operation: "join" });
         current = applyOperation(current, solid, "join");
       } catch (error) {
@@ -1017,10 +1152,6 @@ export async function rebuildDocument(
           continue;
         }
 
-        // Both sketches are already embedded in true world coordinates (see
-        // `buildSweepSolid`'s own note), so unlike every other sketch-based feature there is
-        // no cosmetic display rotation left to apply.
-        rotation = [0, 0, 0];
         const operation: BooleanOperation = feature.parameters.operation ?? (feature.kind === "cut-sweep" ? "cut" : "join");
         featureSolids.set(feature.id, { solid, operation });
         if (operation !== "join" && !current) {
@@ -1064,8 +1195,6 @@ export async function rebuildDocument(
               : "The sketch has no closed profile to extrude";
         continue;
       }
-
-      rotation = planeBasis(sketch.planeId).rotation as [number, number, number];
 
       // Falls back to the feature's own kind for a document/undo-history entry saved
       // before `operation` existed — the cut-* kinds always meant "cut" and the boss

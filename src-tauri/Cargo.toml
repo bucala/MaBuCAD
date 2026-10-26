@@ -2,7 +2,7 @@
 name = "mabucad"
 # Kept in step with `package.json` and `tauri.conf.json` — three version sources, one
 # number, so the status bar's readout and the installers never disagree with the frontend.
-version = "0.29.0"
+version = "0.32.0"
 description = "Parametric 3D/2D CAD system for Windows 11 x64"
 authors = ["Bucala"]
 edition = "2021"

@@ -7,6 +7,160 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-10-24 — Id-collision and multi-plane geometry corruption fixes (v0.32.0)
+
+A kernel-correctness round, not a UI feature round: both fixes change what the kernel
+actually builds/ids, not how anything looks or is operated.
+
+### Fixed — a new sketch/feature/template could silently overwrite an existing one by id collision
+- `documentStore.ts`, `sketch/sketchModel.ts` and `state/templateStore.ts` each keep their
+  own `let counter = 0` id generator, and none of the three was ever reseeded when a
+  document, its sketches, or the template library were loaded from disk, autosave, or
+  `localStorage` — so after Open, autosave restore, a tab switch, or a page reload, the
+  very next id this session minted could already exist in what was just loaded, and the
+  new feature/entity/template would silently clobber the old one under the same id.
+- Added `utils/idSuffix.ts`'s `highestIdSuffix()`, a generic recursive scanner for the
+  highest numeric `-<n>` suffix among every string field in a loaded document/sketch/
+  template-library tree, and a `seed*IdCounter()` in each of the three modules (only ever
+  raises its own counter, never lowers it — a different document opened earlier in the
+  same session may already have pushed it higher). Wired into `documentStore.ts`'s
+  `restoreSession`, `sketchStore.ts`'s `loadSketches`, and `templateStore.ts`'s own
+  `onRehydrateStorage` — the three places a document/sketches/templates actually become
+  the active state, covering every entry path (Open, autosave restore, New, tab switch,
+  page reload) without relying on each caller to remember to reseed.
+- New regression coverage: `utils/idSuffix.spec.ts`, `state/documentIdCollision.spec.ts`,
+  `sketch/sketchModel.spec.ts`, `state/templateStore.spec.ts` — each constructs a
+  loaded/rehydrated state with a deliberately high-numbered existing id, reseeds, and
+  asserts the next minted id never collides with it.
+
+### Fixed — a feature sketched on a plane other than Front produced wrong geometry, and mixing planes corrupted booleans
+- `kernel/rebuild.ts`'s `buildFeatureSolid`/`buildRevolveSolid`/`buildHoleSolid`/
+  `buildRibSolid`/`buildLoftSolid` all embedded their sketch's profile via the kernel's
+  own literal "XY" plane regardless of the sketch's actual declared plane, relying on a
+  single whole-mesh *cosmetic display* rotation (the last-built feature's own plane,
+  applied only to the final triangulated mesh for on-screen placement) to make the
+  *viewport* look right. That only ever produced a correct underlying kernel solid — what
+  every boolean, Fillet/Chamfer edge pick, Measure, and STEP/STL export actually operate
+  on — when every feature in the document happened to share one plane that was also the
+  kernel's own "XY" (the Front plane, not coincidentally the default). A lone Extrude,
+  Revolve, Hole Wizard or Rib feature sketched on the Top or Right plane was already wrong
+  in the real B-Rep even by itself (right-looking on screen, wrong everywhere else); two
+  features on *different* planes combined by `fuse`/`cut` combined geometry each built as
+  if *both* were on Front, corrupting the actual boolean result, not just its display.
+- Every sketch-based feature now embeds its profile via its own true world-space `Plane`
+  (`replicadPlaneFor`, built from the same `sketch/planeBasis.ts` quaternion the 3D
+  viewport's own reference planes use), and Revolve's axis origin/direction are mapped
+  through that same plane (`planePointToWorld`/`planeDirectionToWorld`) before being
+  handed to replicad's `revolve()`, which takes them as absolute world coordinates. A mid-
+  plane/offset end condition and the Hole Wizard's seat/drill-point tools now shift along
+  that plane's own normal (`translateAlongPlaneNormal`/`offsetPlane`) instead of literal
+  world Z. The whole-mesh cosmetic rotation this replaces is now always identity — removed
+  from every call site that used to set it, left as dead-but-harmless plumbing in
+  `MeshData`/`RebuildCheckpoint`/`SolidModel.tsx`'s render group and edge/face-pick
+  inverse-rotation rather than torn out in the same round as the correctness fix.
+- New regression coverage: `kernel/rebuildPlanes.spec.ts` builds real OCCT geometry on the
+  Top plane (extrude, revolve) and across a Front/Top boolean, and asserts the resulting
+  solid's own bounding box/volume against the plane's real orientation — a mixed-plane cut
+  removes 6000 mm³ of real material when correctly placed, and would remove none (the
+  tool missing the body entirely) under the old plane-blind behaviour. A Playwright pin
+  (`e2e/extrude.spec.ts`) extrudes a Top-plane sketch through the real command/store
+  pipeline, not just `rebuild.ts` directly.
+- `kernel/drawingProjection.spec.ts`'s existing tapped-hole fixture moved from `plane-top`
+  to `plane-front`: it needs a hole axis along world Z (what replicad's own "top"
+  orthographic camera, baked into `drawingProjection.ts`, looks down), and only the Front
+  plane's real normal (+Z) produces that — Top's real normal is +Y. The fixture was
+  unknowingly relying on the bug above (every plane ignored, everything built along Z) to
+  pass; Front is the plane that actually means what the fixture needs.
+- **Known follow-up, not fixed in this round**: fixing the above exposed a separate,
+  pre-existing mismatch between this app's own reference-plane convention
+  (`REFERENCE_PLANES`: Front's normal is world +Z, Top's is world +Y, Right's is world
+  +X — a Y-up 3D viewport) and `drawingProjection.ts`'s Front/Top/Right orthographic
+  views, which inherit replicad's own fixed camera directions (Front looks down world −Y,
+  Top down −Z, Right down −X — a Z-up convention). A part built from a Top-plane sketch
+  does not appear in the drawing's "Top" view; it appears in "Front". Previously invisible
+  because every feature ignored its own plane anyway, so this needs a deliberate decision
+  (remap `drawingProjection.ts`'s views to this app's own planes, or document the
+  mismatch) rather than a rushed fix riding on this round's kernel change.
+
+## 2026-10-24 — Inventor-style cosmetic thread texture (v0.31.0)
+
+### Changed — tapped-hole thread indicator is now a textured bore surface, not a wireframe helix
+- `HoleThreadOverlay.tsx` previously drew the cosmetic thread as a thin 3D polyline tracing
+  a helix through the hole. It now renders a cylindrical shell over the bore with a
+  repeating diagonal-line texture instead — the same "cosmetic thread" convention Inventor
+  uses, closer to how a thread actually reads on a shaded surface than a wire-frame curve.
+- The texture tile holds one diagonal line corner-to-corner; mapped with `repeat.x = ±1`
+  (one wrap around the circumference, sign giving the thread's handedness) and
+  `repeat.y = depth / pitch` (one wrap per pitch of height), it chains into a continuous,
+  correctly-pitched helix — exactly as many turns as the real thread has, at the real
+  diameter, for every tapped/taper-tapped hole already on the model.
+- All the existing depth/pitch/standard/winding computation (`buildThreadCylinders`,
+  unchanged from the previous `buildThreadRuns`) carries over unmodified; only how each
+  hole gets drawn changed. Each hole's texture is its own cloned `CanvasTexture` instance
+  (independent repeat/winding per hole) and is explicitly disposed on unmount/change, the
+  same manual-disposal convention `SolidModel.tsx` already uses for its own geometries.
+- Verified visually via the dev server: a real tapped hole (M12, real pitch) renders a
+  clean diagonal-line wrap around its bore at the correct turn count; no console errors;
+  typecheck/lint/269 unit tests/full Playwright suites all pass unchanged.
+
+## 2026-10-23 — Mass Properties/Measure crash fix, Fillet/Chamfer single-edge correctness (v0.30.0)
+
+Two bugs reported directly against v0.29.0.
+
+### Fixed — Inspect ▸ Mass Properties could freeze the whole app
+- `InspectPanel.tsx`'s Mass Properties, Measure, Section Properties and Check Geometry
+  sections each call straight into OCCT (`kernel/measure.ts`/`kernel/checkGeometry.ts`)
+  from an unguarded `useMemo`, and this app has no React error boundary anywhere. A
+  picked sub-shape momentarily backed by a disposed/degenerate kernel handle throwing
+  (e.g. a stale pick surviving a preview rebuild) unmounted the whole Inspect panel
+  mid-render — including its own Close button and Escape handler — which is exactly what
+  "activates and the app can no longer be used correctly" looks like: not a stuck flag,
+  a crash that took the one UI that could recover from it down with it.
+- `computeMassProperties`/`computeMeasureSummary`/`computeSectionProperties`/
+  `computeGeometryCheck` now catch any kernel-call failure and return `null` — the
+  "nothing to show" state each section already rendered for an absent body, reused for
+  "couldn't compute" too.
+- Added a narrow `ErrorBoundary` (`src/components/ErrorBoundary.tsx`) around the Manager
+  Panel's Properties tab as defense-in-depth, so any other still-unguarded throw in that
+  region degrades to a recoverable "this panel crashed, click to close" message instead
+  of silently freezing the app again.
+- Four new pins (`measure.spec.ts`, `checkGeometry.spec.ts`) force each of the four
+  compute functions to throw via a mocked OCCT call and assert `null`, not a throw.
+
+### Fixed — Chamfer/Fillet could affect edges the user never picked
+- `pickedEdgeFilter` (`kernel/rebuild.ts`) handed a plain `EdgeFinder.withinDistance`
+  radius filter straight to `fillet`/`chamfer`, which keeps *every* edge within that
+  radius of a picked point rather than just the nearest one. Near a corner or a tight
+  bevel — exactly the geometry in the report's own screenshots — several real edges
+  routinely sit within `EDGE_PICK_TOLERANCE` (0.75mm) of each other, so one click could
+  legitimately resolve to two or more real edges, all of which got rounded/chamfered
+  together.
+- `pickedEdgeFilter` now resolves each picked point to the single nearest real edge
+  first (`nearestEdgeTo`, sampling 32 points along each candidate's own parametric curve
+  — replicad exposes no direct "closest point to an external point" query), then filters
+  with `EdgeFinder.inList` on that already-resolved set, so exactly one real edge comes
+  out of exactly one click.
+- Audited every other edge/face-pick-based feature (Shell, Draft, Rib, Linear/Circular
+  Pattern, Mirror) for the same bug class: none share this code path. Shell/Draft
+  intentionally select every face sharing a chosen axis orientation (a separate, already
+  documented face-picking limitation, not a hidden multi-match bug); Rib and the
+  pattern/mirror features don't reference edges or faces at all.
+- Five new pins (`rebuild.spec.ts`, against the real OCCT kernel): a pick resolves to
+  exactly the one edge it landed on; a pick near a shared corner — where a neighbouring
+  edge's own endpoint also falls within tolerance — resolves to only the nearer edge; no
+  picks means "every edge" (replicad's own fillet/chamfer default, unchanged); a stale
+  pick that no longer resolves to anything is dropped rather than erroring.
+
+### Investigated, not changed
+- **3D thread visualization**: already shipped and pitch-accurate (`HoleThreadOverlay.tsx`
+  draws a real helix from each tapped hole's actual ISO pitch/diameter/depth/winding —
+  confirmed, not a gap), but shown for every built tapped hole at once rather than only
+  the selected one. Left as-is pending the user's preference on visibility gating.
+
+### Validation
+- 269 unit tests total (up from 261), typecheck/lint/build clean, full dev-server and
+  CSP-production Playwright suites (14 cases) pass.
+
 ## 2026-10-23 — Model View orientation picker, directional Projected View, edge/axis leader snapping (v0.29.0)
 
 A reconciliation round: picks up five outstanding Drawing feedback items that predate the
