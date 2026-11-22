@@ -603,8 +603,7 @@ function cutAndProjectSection(
     const cameraAxes = lookFromPlane(camera);
     const hatchFaces = new FaceFinder().inPlane(AXIS_PLANE[axis], offset).find(cutShape);
     hatchPaths = hatchFaces.map((face) => faceHatchPath(face, cameraAxes, minX, minY));
-  } catch (err) {
-    console.error("HATCH DEBUG err", err);
+  } catch {
     hatchPaths = [];
   }
 

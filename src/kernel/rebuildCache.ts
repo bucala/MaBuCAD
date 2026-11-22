@@ -53,8 +53,6 @@ export interface RebuildCheckpoint<TSolid = unknown> {
   current: TSolid | null;
   /** Per-feature solids as of the end of the prefix, keyed by feature id. */
   featureSolids: ReadonlyMap<string, { solid: TSolid; operation: BooleanOperation }>;
-  /** Display rotation the prefix's last sketch-based feature left in place. */
-  rotation: [number, number, number];
 }
 
 /** Checkpoints kept per history — one per evaluated feature, so this caps both the

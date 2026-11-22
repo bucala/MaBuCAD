@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
-import { Box3, Euler, Sphere, Vector3 } from "three";
+import { Box3, Sphere, Vector3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { useGeometryStore } from "@/state/geometryStore";
@@ -35,23 +35,16 @@ export function ZoomToFit() {
     let radius = DOCUMENT_SCALE * 0.6;
 
     if (mesh) {
-      // `mesh.positions` is in the sketch plane's local space; `mesh.rotation` is the same
-      // Euler `SolidModel.tsx` applies to its `<group>` to place it in world space, so the
-      // bounding box has to go through the same rotation to mean anything here.
-      const localBox = new Box3();
+      // `mesh.positions` is already in world space — every feature builds through its own
+      // sketch plane's real placement (`kernel/rebuild.ts`'s `replicadPlaneFor`).
+      const worldBox = new Box3();
       const point = new Vector3();
       for (let i = 0; i < mesh.positions.length; i += 3) {
         point.set(mesh.positions[i], mesh.positions[i + 1], mesh.positions[i + 2]);
-        localBox.expandByPoint(point);
+        worldBox.expandByPoint(point);
       }
 
-      if (!localBox.isEmpty()) {
-        const euler = new Euler(...mesh.rotation);
-        const worldBox = new Box3();
-        for (const corner of cornersOf(localBox)) {
-          worldBox.expandByPoint(corner.applyEuler(euler));
-        }
-
+      if (!worldBox.isEmpty()) {
         const sphere = new Sphere();
         worldBox.getBoundingSphere(sphere);
         center = sphere.center;
@@ -88,18 +81,4 @@ export function ZoomToFit() {
   }, [request]);
 
   return null;
-}
-
-function cornersOf(box: Box3): Vector3[] {
-  const { min, max } = box;
-  return [
-    new Vector3(min.x, min.y, min.z),
-    new Vector3(max.x, min.y, min.z),
-    new Vector3(min.x, max.y, min.z),
-    new Vector3(min.x, min.y, max.z),
-    new Vector3(max.x, max.y, min.z),
-    new Vector3(max.x, min.y, max.z),
-    new Vector3(min.x, max.y, max.z),
-    new Vector3(max.x, max.y, max.z),
-  ];
 }

@@ -45,15 +45,14 @@ export interface EdgeGroup {
   id: number;
 }
 
-/** Triangulated result handed to three.js. */
+/** Triangulated result handed to three.js, already in world space (every feature is built
+ * through its own sketch plane's real placement — see `replicadPlaneFor`). */
 export interface MeshData {
   positions: Float32Array;
   normals: Float32Array;
   indices: Uint32Array;
   /** Flattened line segment pairs for the edge overlay. */
   edges: Float32Array;
-  /** Rotation that maps the sketch plane's local space into world space. */
-  rotation: [number, number, number];
   /**
    * Per-face triangle ranges, straight from replicad's own `Shape.mesh()` — it already
    * triangulates face by face and reports exactly this (`faceGroups`, keyed by
@@ -987,15 +986,6 @@ export function rebuildDocumentSync(
 
   const errors: Record<string, string> = {};
   let current: Solid | null = null;
-  // Every sketch-based feature now embeds its own profile via its true world plane (see
-  // `replicadPlaneFor`'s own note), so `current` is always already correctly placed and
-  // oriented in world space — this stays [0, 0, 0] for the lifetime of the rebuild. It
-  // used to carry the last-built feature's own cosmetic display rotation, applied to the
-  // whole mesh at the very end, back when every feature was instead built in a shared
-  // local "XY" frame; left in place (never reassigned below) rather than torn out of
-  // `MeshData`/`RebuildCheckpoint`/`SolidModel.tsx`'s render group and edge/face-pick
-  // inverse-rotation, which this round didn't need to touch to fix the actual geometry.
-  let rotation: [number, number, number] = [0, 0, 0];
 
   // Each modelling feature's own contribution, keyed by feature id, so a pattern or mirror
   // referencing an earlier feature can transform and re-combine just that feature's shape
@@ -1013,7 +1003,6 @@ export function rebuildDocumentSync(
   if (start > 0) {
     const resume = checkpoints[start - 1]!;
     current = resume.current;
-    rotation = [...resume.rotation] as [number, number, number];
     for (const [id, entry] of resume.featureSolids) featureSolids.set(id, { ...entry });
   }
 
@@ -1031,7 +1020,6 @@ export function rebuildDocumentSync(
       key: keys[index]!,
       current,
       featureSolids: new Map(featureSolids),
-      rotation: [...rotation] as [number, number, number],
     };
   };
 
@@ -1053,7 +1041,6 @@ export function rebuildDocumentSync(
         if (!imported) throw new Error("Imported geometry is no longer loaded");
         current = applyOperation(current, imported, "join");
         featureSolids.set(feature.id, { solid: imported, operation: "join" });
-        rotation = [0, 0, 0];
       } catch (error) {
         errors[feature.id] = error instanceof Error ? error.message : "Imported geometry could not be read";
       }
@@ -1289,7 +1276,6 @@ export function rebuildDocumentSync(
       normals: Float32Array.from(triangulated.normals),
       indices: Uint32Array.from(triangulated.triangles),
       edges: Float32Array.from(wireframe.lines),
-      rotation,
       // Re-keyed 0, 1, 2, ... in `shape.faces` order rather than trusting the raw OpenCascade
       // hash straight through: a hash is a fine unique key but a confusing one to show a user
       // ("Face 3821490102"), and small sequential ids are cheap to assign here since

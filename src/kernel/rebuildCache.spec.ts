@@ -125,7 +125,6 @@ function expectIdenticalMesh(received: MeshData | null, expected: MeshData | nul
   expect(numericArrayEqual(received.normals, expected.normals), "normals differ").toBe(true);
   expect(numericArrayEqual(received.indices, expected.indices), "indices differ").toBe(true);
   expect(numericArrayEqual(received.edges, expected.edges), "edges differ").toBe(true);
-  expect(received.rotation, "rotation differs").toEqual(expected.rotation);
   expect(received.faceGroups.map((g) => [g.start, g.count]), "face groups differ").toEqual(
     expected.faceGroups.map((g) => [g.start, g.count]),
   );
@@ -202,7 +201,6 @@ describe("rebuildCache pure logic", () => {
       key,
       current: current as never,
       featureSolids: new Map(solids.map((solid) => ["f", { solid: solid as never, operation: "join" as const }])),
-      rotation: [0, 0, 0],
     });
 
     // Old chain: [prefix, oldTail(oldFinal)] → new chain: [prefix(same object), newTail].
@@ -240,7 +238,6 @@ describe("rebuildCache pure logic", () => {
       key,
       current: shared as never,
       featureSolids: new Map([["dressup", { solid: shared as never, operation: "join" as const }]]),
-      rotation: [0, 0, 0],
     });
 
     // New chain keeps the pass-through (same content) → the shared object survives even

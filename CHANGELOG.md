@@ -79,10 +79,27 @@ separation (WP01) and sketch-solver rollback (WP03) items from the original audi
   edit" would have removed the user's ability to add a genuinely conflicting constraint in
   the first place — contradicting Sketch Doctor's own tested flow. No change needed.
 
+### Fixed — a tapped hole's cosmetic thread floated beside the hole on the Top/Right plane
+- `HoleThreadOverlay.tsx` placed each thread cylinder in the Front plane's frame and relied
+  on `SolidModel.tsx`'s whole-mesh display rotation to land it — a regression from the
+  multi-plane fix (v0.32.0), which builds every hole in its own plane's true world space and
+  made that rotation always identity. A thread on a Top- or Right-plane hole therefore drew
+  in the wrong place. Each cylinder now carries its own world transform
+  (`threadMeshTransform`, from the hole sketch's `planeBasis` — the same basis the kernel
+  embeds the cut through), pinned per plane by `HoleThreadOverlay.spec.ts`.
+
 ### Cleanup
 - Removed `state/inuse.20520.lock`, a PID-named lock file from some local tool (not part of
   this app's own code) accidentally committed in `388a55c`, with a `.gitignore` rule
   against a repeat.
+- Removed the now-dead display-rotation plumbing the multi-plane fix left behind:
+  `MeshData.rotation`, `RebuildCheckpoint.rotation`, `SolidModel.tsx`'s rotated `<group>`
+  and the inverse rotations in its edge-pick/Measure/selection handlers, and Zoom to Fit's
+  box rotation. Mesh positions, kernel solids and click points all share world space now.
+  Hole placement carries a face normal into world space through the hit object's own
+  matrix instead of assuming a single Euler.
+- Dropped a leftover `HATCH DEBUG` console log from Section view hatching (a hatch failure
+  still degrades silently to an unhatched section, as documented there).
 
 ## 2026-11-22 — Safer document workflows and CAD interchange (v0.32.0)
 

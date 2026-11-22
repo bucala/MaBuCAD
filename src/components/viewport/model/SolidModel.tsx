@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
 import { useThree } from "@react-three/fiber";
-import { BufferAttribute, BufferGeometry, Color, Euler, LineSegments, Quaternion } from "three";
+import { BufferAttribute, BufferGeometry, Color, LineSegments } from "three";
 import { useShallow } from "zustand/react/shallow";
 
 import { placeHoleAtPick } from "@/commands/commandRegistry";
@@ -261,22 +261,16 @@ export function SolidModel() {
    * new point and the stored ones resolve through the same `nearestEdgeGroupId`, so the
    * second click finds the first click's edge at any zoom.
    *
-   * `event.point` comes out in world (display) space, resolved through every parent
-   * transform including this group's own `mesh.rotation` — but the replicad `Solid` the
-   * kernel actually runs `EdgeFinder.withinDistance` against is *not* rotated; `mesh.rotation`
-   * only exists to orient the triangulated mesh for display (see `kernel/rebuild.ts`'s own
-   * note on this). Stored points need to be in that same un-rotated space, so the click point
-   * is rotated back by the inverse of `mesh.rotation` before saving — and the marker below
-   * renders that same stored point straight as a local position inside this rotated group,
-   * which re-applies the identical rotation forward, landing back exactly on the edge.
+   * `event.point` comes out in world space, which is also the space the replicad `Solid`
+   * itself lives in (every feature is built through its own sketch plane's real placement —
+   * see `kernel/rebuild.ts`'s `replicadPlaneFor`), so the click point is stored as-is and
+   * `EdgeFinder.withinDistance` resolves it against the same coordinates on every rebuild.
    */
   const handleEdgeClick = (event: ThreeEvent<MouseEvent>) => {
     if (!pickingFeature || !mesh || !isPick(event)) return;
     event.stopPropagation();
 
-    const inverseRotation = new Quaternion().setFromEuler(new Euler(...mesh.rotation)).invert();
-    const local = event.point.clone().applyQuaternion(inverseRotation);
-    const point: [number, number, number] = [local.x, local.y, local.z];
+    const point: [number, number, number] = [event.point.x, event.point.y, event.point.z];
 
     const existing = pickingFeature.parameters.edgePoints ?? [];
     const clickedGroupId = nearestEdgeGroupId(mesh, point);
@@ -296,17 +290,14 @@ export function SolidModel() {
    * Hole Wizard's "click a face to place a hole" flow — see `placeHoleAtPick`'s own doc
    * comment in `commandRegistry.ts` for why a face's raycaster-reported normal is enough
    * without any real per-face identity from the kernel. `event.face.normal` comes out in
-   * the mesh's own local space; this group's only transform is `mesh.rotation`, so
-   * rotating the normal by that same Euler is what turns it into a world-space normal —
-   * the forward version of the inverse rotation `handleEdgeClick` above already applies
-   * to points for the same reason.
+   * the hit object's own local space, so it's carried into world space through that
+   * object's own world matrix.
    */
   const handleHolePlacementClick = (event: ThreeEvent<MouseEvent>) => {
     if (!holePlacementActive || !mesh || !event.face || !isPick(event)) return;
     event.stopPropagation();
 
-    const rotationEuler = new Euler(...mesh.rotation);
-    const worldNormal = event.face.normal.clone().applyEuler(rotationEuler).normalize();
+    const worldNormal = event.face.normal.clone().transformDirection(event.object.matrixWorld);
     placeHoleAtPick(event.point.clone(), worldNormal);
   };
 
@@ -341,9 +332,7 @@ export function SolidModel() {
     if (selectionFilterMode !== "edge" || !mesh || !isPick(event)) return;
     event.stopPropagation();
 
-    const inverseRotation = new Quaternion().setFromEuler(new Euler(...mesh.rotation)).invert();
-    const local = event.point.clone().applyQuaternion(inverseRotation);
-    setSelectedEdgeGroupId(nearestEdgeGroupId(mesh, [local.x, local.y, local.z]));
+    setSelectedEdgeGroupId(nearestEdgeGroupId(mesh, [event.point.x, event.point.y, event.point.z]));
   };
 
   /**
@@ -366,16 +355,13 @@ export function SolidModel() {
    * Inspect > Measure's edge pick. There is no kernel edge id in a `ThreeEvent` the way
    * `handleMeasureFaceClick` gets a triangle index — only the raycaster's hit point — so
    * this resolves it the same way `handleEdgeClick`'s Fillet/Chamfer picking already does:
-   * rotate the world-space hit back into the mesh's own un-rotated space, then find the
-   * nearest `EdgeGroup`.
+   * the nearest `EdgeGroup` to the world-space hit point.
    */
   const handleMeasureEdgeClick = (event: ThreeEvent<MouseEvent>) => {
     if (inspectTool !== "measure" || !mesh || !isPick(event)) return;
     event.stopPropagation();
 
-    const inverseRotation = new Quaternion().setFromEuler(new Euler(...mesh.rotation)).invert();
-    const local = event.point.clone().applyQuaternion(inverseRotation);
-    const groupId = nearestEdgeGroupId(mesh, [local.x, local.y, local.z]);
+    const groupId = nearestEdgeGroupId(mesh, [event.point.x, event.point.y, event.point.z]);
     if (groupId !== null) pickForMeasure({ kind: "edge", id: groupId });
   };
 
@@ -668,7 +654,7 @@ export function SolidModel() {
   const showEdges = displayMode !== "shaded";
 
   return (
-    <group rotation={mesh.rotation}>
+    <group>
       <mesh
         geometry={geometry}
         castShadow={false}
