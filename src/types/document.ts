@@ -179,6 +179,21 @@ export interface FeatureParameters {
    * one closed contour to choose from.
    */
   profileEntityIds?: string[];
+  /** `reference-plane` only: faces the opposite way from its base plane (normal reversed,
+   * sketch "up" kept). Set when a plane is made flush with a face whose outward normal
+   * points against the matching default plane's normal. */
+  flipped?: boolean;
+  /** `reference-plane` only: made flush with a picked model face (its normal points out of
+   * the material). A blind Cut-Extrude or Hole sketched on it defaults to cutting inward. */
+  fromFace?: boolean;
+  /** `reference-plane` only: a fixed base frame (world space) used instead of `parents[0]`
+   * — for a plane made on a face that is not parallel to any default plane. `distance`
+   * still offsets along its normal. See `sketch/planeBasis.ts`'s `planeFrame`. */
+  frame?: {
+    origin: [number, number, number];
+    xDir: [number, number, number];
+    normal: [number, number, number];
+  };
 }
 
 export interface Feature {

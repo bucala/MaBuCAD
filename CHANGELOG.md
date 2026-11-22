@@ -7,6 +7,51 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-11-22 — Sketching on reference planes and model faces (v0.35.0)
+
+Sketches are no longer limited to the three origin planes.
+
+### Added
+- **Sketch on a reference plane.** Select a reference plane (in the tree or viewport) and
+  click **Sketch**. Features built from that sketch start on the plane, and move with it
+  when you change its **Distance**.
+- **Sketch on a face.** Switch the selection filter to **Face**, click a flat face of the
+  body, then click **Sketch**. MaBuCAD adds a reference plane flush with the face, facing
+  out of the material, and opens the sketch on it:
+  - A face parallel to Front, Top or Right becomes a parametric offset of that plane.
+  - Any other flat face gets a fixed plane (there is no persistent face naming yet, so it
+    doesn't follow later edits to the body).
+  - Sketching on the same face again reuses the plane instead of adding another.
+  - A curved face shows a message instead.
+- **Reference plane options:**
+  - A reference plane can be offset from another reference plane, not only an origin plane.
+  - **Flip plane normal** in the property panel reverses which way the plane faces.
+  - **Plane** with a flat face selected creates a plane 10 mm out from that face.
+- **Loft between offset planes.** Profiles on distinct parallel planes are lofted where
+  they are. Profiles that share one plane are still spread by the loft's Depth, as before.
+
+### Changed
+- **Hole Wizard placement** puts the hole's sketch on a plane flush with the clicked face,
+  on any flat face. Before, it accepted only faces parallel to an origin plane, and a blind
+  hole measured its depth from the origin plane instead of from the face.
+- A blind **Extruded Cut** or **Hole** from a sketch on a face cuts into the material by
+  default.
+
+### Fixed
+- In sketch mode with the **Face** selection filter on, clicking the body selected a face
+  instead of drawing. The body now ignores clicks while a sketch is open.
+
+### Internal
+- `sketch/planeBasis.ts`'s `planeFrame` resolves any plane id (origin plane or reference
+  plane: offset, flipped, chained, or a stored frame) to an origin and orientation. The
+  kernel, the sketch canvas, inactive sketches, the plane display and the cosmetic thread
+  overlay all use it.
+- The rebuild cache key of a sketch-based feature includes its plane's resolved placement,
+  so editing a reference plane re-places the feature even when the plane is later in the
+  tree.
+- New tests: `rebuildReferencePlanes.spec.ts` and `facePlane.spec.ts` (real kernel), and
+  `e2e/reference-planes.spec.ts`.
+
 ## 2026-11-22 — Assemblies, phase 1: components and placement (v0.34.0)
 
 The Assembly document type is now real (it was a disabled "Coming soon" card). Phase 1

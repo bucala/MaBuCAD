@@ -4,7 +4,7 @@ import { CanvasTexture, DoubleSide, Euler, Quaternion, RepeatWrapping, Vector3, 
 import { resolveTapDrill } from "@/data/holeResolution";
 import type { TappedStandardId } from "@/data/holeStandards";
 import { extrusionRange } from "@/kernel/rebuild";
-import { planeBasis } from "@/sketch/planeBasis";
+import { planeFrame, type PlaneFeature } from "@/sketch/planeBasis";
 import { pointById } from "@/sketch/sketchModel";
 import type { PointEntity, Sketch } from "@/sketch/types";
 import type { Feature } from "@/types/document";
@@ -41,10 +41,12 @@ export function threadMeshTransform(
   zStart: number,
   depth: number,
   directionSign: number,
+  features: readonly PlaneFeature[] = [],
 ): { position: [number, number, number]; quaternion: Quaternion } {
-  const planeQuaternion = planeBasis(planeId).quaternion;
+  const frame = planeFrame(planeId, features);
+  const planeQuaternion = frame.quaternion;
   const local = new Vector3(centre.x, centre.y, zStart + (directionSign * depth) / 2);
-  const position = local.applyQuaternion(planeQuaternion);
+  const position = local.applyQuaternion(planeQuaternion).add(frame.origin);
   const alongNormal = new Quaternion().setFromEuler(new Euler(directionSign * (Math.PI / 2), 0, 0));
   const quaternion = planeQuaternion.clone().multiply(alongNormal);
   return { position: [position.x, position.y, position.z], quaternion };
@@ -207,6 +209,7 @@ function buildThreadInstances(
       cylinder.zStart,
       cylinder.depth,
       cylinder.directionSign,
+      features,
     );
     return { key: cylinder.key, position, quaternion, radius: cylinder.radius, depth: cylinder.depth, texture };
   });

@@ -4,7 +4,7 @@ import { Line } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
-import { planeBasis } from "@/sketch/planeBasis";
+import { planeFrame } from "@/sketch/planeBasis";
 import { entityPoints, pointById } from "@/sketch/sketchModel";
 import type { Sketch, SketchEntity } from "@/sketch/types";
 import { useDocumentStore } from "@/state/documentStore";
@@ -68,9 +68,9 @@ export function InactiveSketches() {
     <>
       {visible.map((feature) => {
         const sketch = sketches[feature.id];
-        const basis = planeBasis(sketch.planeId);
+        const frame = planeFrame(sketch.planeId, allFeatures);
         return (
-          <group key={feature.id} rotation={basis.rotation as unknown as [number, number, number]}>
+          <group key={feature.id} position={frame.origin} quaternion={frame.quaternion}>
             {sketch.entities.map((entity) => (
               <InactiveEntity key={entity.id} entity={entity} sketch={sketch} isDark={isDark} />
             ))}

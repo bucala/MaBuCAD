@@ -4,7 +4,7 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { useThree } from "@react-three/fiber";
 import { DoubleSide, Vector3 } from "three";
 
-import { planeBasis } from "@/sketch/planeBasis";
+import { planeFrame } from "@/sketch/planeBasis";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
@@ -51,9 +51,9 @@ function axisVector(axis: "x" | "y" | "z"): Vector3 {
  * means something: a plane offsets from a selected default plane along its normal, an axis
  * or point aligns to/offsets along a world axis, and a coordinate system always sits at the
  * origin. They are visual and selectable — hide/show, suppress, delete, right-click menu —
- * the same as the default Front/Top/Right planes, but a reference plane cannot be sketched
- * on yet: the sketch pipeline (`planeBasis.ts`, `SketchScene.tsx`) assumes its plane passes
- * through the origin, which a reference plane offset away from it does not.
+ * the same as the default Front/Top/Right planes. A reference plane is also a sketch plane:
+ * its placement (offset, flip, chained base, or a frame frozen from a picked face) is
+ * resolved by `sketch/planeBasis.ts`'s `planeFrame`, the same resolver the kernel uses.
  */
 export function UserReferenceGeometry() {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -118,17 +118,10 @@ export function UserReferenceGeometry() {
         };
 
         if (feature.kind === "reference-plane") {
-          const basePlaneId = feature.parents[0] ?? "plane-front";
-          const basis = planeBasis(basePlaneId);
-          const distance = feature.parameters.distance ?? 0;
-          const position = basis.normal.clone().multiplyScalar(distance);
+          const frame = planeFrame(feature.id, allFeatures);
 
           return (
-            <group
-              key={feature.id}
-              position={position}
-              rotation={basis.rotation as unknown as [number, number, number]}
-            >
+            <group key={feature.id} position={frame.origin} quaternion={frame.quaternion}>
               <mesh
                 name={feature.name}
                 onPointerOver={isInert ? undefined : handleOver}

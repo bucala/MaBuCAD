@@ -776,6 +776,8 @@ export const sk: Record<string, string> = {
   "propertyManager.endCondition.mid-plane": "Stredná rovina (symetricky)",
   "propertyManager.endCondition.up-to-surface": "Po plochu",
   "propertyManager.reverseDirection": "Obrátiť smer",
+  "propertyManager.planeFacing": "Rovina",
+  "propertyManager.flipPlane": "Otočiť normálu roviny",
   "propertyManager.body": "Teleso",
   "propertyManager.booleanAria": "Booleovská operácia",
   "propertyManager.operation.join": "Spojiť — pridať k existujúcemu telesu",

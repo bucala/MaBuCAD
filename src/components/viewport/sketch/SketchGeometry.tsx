@@ -4,7 +4,8 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { Vector3 } from "three";
 
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
-import { worldToSketch } from "@/sketch/planeBasis";
+import { usePlaneFrame } from "@/hooks/usePlaneFrame";
+import { worldToFrame } from "@/sketch/planeBasis";
 import { entityPoints } from "@/sketch/sketchModel";
 import type { Sketch, SketchEntity } from "@/sketch/types";
 import { useSketchStore } from "@/state/sketchStore";
@@ -133,9 +134,10 @@ export function SketchGeometry({ sketch, isDark }: SketchGeometryProps) {
   // Same stability reasoning as `pick`: the entity hands back its own id and the clicked
   // world point, and the (stable) trim action converts it into sketch space against the
   // sketch's plane, which does not change within a session.
+  const frame = usePlaneFrame(sketch.planeId);
   const trim = useCallback(
-    (entityId: string, point: Vector3) => trimAt(entityId, worldToSketch(sketch.planeId, point)),
-    [trimAt, sketch.planeId],
+    (entityId: string, point: Vector3) => trimAt(entityId, worldToFrame(frame, point)),
+    [trimAt, frame],
   );
 
   // One Map-backed point lookup shared by every entity for this render. `pointById` is a

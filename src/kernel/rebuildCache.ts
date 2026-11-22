@@ -91,11 +91,20 @@ export function contentHash(text: string): string {
  * Sketches a feature does not reference do not enter its segment — editing an unrelated
  * sketch must not invalidate this feature's prefix.
  */
-export function segmentHash(feature: Feature, sketches: Record<string, Sketch>): string {
+export function segmentHash(
+  feature: Feature,
+  sketches: Record<string, Sketch>,
+  planeKey?: (planeId: string) => string,
+): string {
   let segment = JSON.stringify(feature);
   for (const parent of feature.parents) {
     const sketch = sketches[parent];
-    if (sketch) segment += `|${JSON.stringify(sketch)}`;
+    if (!sketch) continue;
+    segment += `|${JSON.stringify(sketch)}`;
+    // A sketch on a reference plane moves when that plane's offset changes, even if the
+    // plane feature sits *after* this one in the list (reordered) — so the resolved plane
+    // placement is part of what this feature reads, not just the plane's id.
+    if (planeKey) segment += `@${planeKey(sketch.planeId)}`;
   }
   return contentHash(segment);
 }
@@ -105,11 +114,15 @@ export function segmentHash(feature: Feature, sketches: Record<string, Sketch>):
  * features `0..i`. Built incrementally (each key chains the previous one) so hashing a
  * whole history stays linear, not quadratic, in feature count.
  */
-export function prefixKeys(evaluated: readonly Feature[], sketches: Record<string, Sketch>): string[] {
+export function prefixKeys(
+  evaluated: readonly Feature[],
+  sketches: Record<string, Sketch>,
+  planeKey?: (planeId: string) => string,
+): string[] {
   const keys: string[] = [];
   let chained = "";
   for (const feature of evaluated) {
-    chained = contentHash(`${chained}|${segmentHash(feature, sketches)}`);
+    chained = contentHash(`${chained}|${segmentHash(feature, sketches, planeKey)}`);
     keys.push(chained);
   }
   return keys;

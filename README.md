@@ -526,10 +526,10 @@ eslint.config.js              ESLint flat config: hook discipline + unused code,
 | Core solids | Extrude/Cut-Extrude, Revolve/Cut-Revolve, both building one fused body per disjoint sketch contour with a per-contour profile picker, not just one region | ✅ |
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
 | Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Fillet, Offset, Mirror, Linear/Circular Pattern, Convert to Construction | ✅ |
-| Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence | ✅ |
+| Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence. Reference planes are sketchable: offset (and chainable) from any plane, flippable, or made flush with a picked flat face | ✅ |
 | Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point, Inventor-style cosmetic thread texture on tapped holes (a real diagonal-line wrap at the hole's actual pitch/diameter/winding, not a plain indicator) | ✅ |
 | Dress-up | Fillet, Chamfer, Shell, Draft, Rib — Fillet/Chamfer start pass-through and arm edge-pick mode immediately, applying to every edge only if none are ever picked | ✅ |
-| Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft | ✅ |
+| Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft (between profiles on parallel offset planes, at their real positions) | ✅ |
 | Pattern/Mirror (feature-level) | Linear Pattern, Circular Pattern, Mirror | ✅ |
 | Theming | Light/Gray/Dark skins, 5 live accent colours, Model/Edge colour overrides | ✅ |
 | 3D Navigation | Zoom-to-cursor, ViewCube toggle + navigation arrows (full-cycle rotation, correct left/right direction), origin indicator + axis labels | ✅ |

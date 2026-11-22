@@ -904,6 +904,22 @@ export function PropertyManager() {
           </div>
         )}
 
+        {feature.kind === "reference-plane" && (
+          <div className={styles.section}>
+            <span className={styles.sectionTitle}>{t("propertyManager.planeFacing", "Plane")}</span>
+            <button
+              type="button"
+              className={styles.actionButton}
+              title={t("propertyManager.flipPlane", "Flip plane normal")}
+              aria-pressed={feature.parameters.flipped ?? false}
+              onClick={() => updateParameters(feature.id, { flipped: !feature.parameters.flipped })}
+            >
+              <FlipVertical size={14} strokeWidth={1.75} />
+              {t("propertyManager.flipPlane", "Flip plane normal")}
+            </button>
+          </div>
+        )}
+
         {feature.parameters.operation !== undefined && (
           <div className={styles.section}>
             <span className={styles.sectionTitle}>{t("propertyManager.body", "Body")}</span>

@@ -2,7 +2,7 @@ import { deserializeShape, draw, drawCircle, drawPointsInterpolation, EdgeFinder
 import type { AnyShape, Edge } from "replicad";
 import { Vector3 } from "three";
 
-import { planeBasis, sketchToWorld } from "@/sketch/planeBasis";
+import { planeFrame, sketchToWorld, type PlaneFeature } from "@/sketch/planeBasis";
 import { pointById } from "@/sketch/sketchModel";
 import type { LineEntity, PointEntity, Sketch, SplineEntity } from "@/sketch/types";
 import type { EndCondition, Feature } from "@/types/document";
@@ -723,37 +723,46 @@ function buildHoleSolid(sketch: Sketch, feature: Feature): Solid | null {
 /**
  * Builds a loft blending two or more sketches' outer profiles.
  *
- * Real lofts blend profiles positioned on different, parallel, offset planes. This app's
- * sketches only live on one of the three default planes with no position offset yet (see
- * `reference-plane`'s own "cannot be sketched on" note for why), so every sketch handed to
- * a loft is required to share the *same* plane by the caller — instead, the profiles are
- * spread out purely in that plane's local space, evenly along its normal (local +Z) over the
- * feature's own `depth`, in the order the sketches were selected. This still produces a real,
- * correct loft — just one whose section spacing is a feature parameter rather than each
- * profile's own sketched position, an honest trade rather than the real thing.
+ * Profiles on distinct parallel planes (e.g. a default plane and offset reference planes)
+ * are lofted where they really are, in the order the sketches were selected. Profiles that
+ * all share one plane are instead spread evenly along its normal over the feature's own
+ * `depth` — the original behaviour, kept so older documents rebuild unchanged.
  *
  * Only the outer profile of each sketch is used; inner loops (holes) are not lofted — a hole
  * cut afterward composes better anyway, the same as every other feature that already leans on
  * boolean composition instead of doing everything in one operation.
  *
- * The caller guarantees every sketch shares one `planeId`, so one `Plane` serves them all —
- * each profile sits `offsetPlane`d along that shared plane's own normal rather than literal
- * world Z, the same reasoning as `buildDrillPointCone`/`buildSeatTool`'s own offsets.
+ * The caller guarantees the sketches either share one `planeId` or sit on pairwise distinct
+ * parallel planes (`loftPlanesUsable`).
  */
 function buildLoftSolid(sketches: Sketch[], feature: Feature): Solid | null {
   const regionsList = sketches.map((sketch) => profileRegions(sketch));
   if (regionsList.some((regions) => !regions)) return null;
 
+  const samePlane = sketches.every((sketch) => sketch.planeId === sketches[0]!.planeId);
   const totalDepth = feature.parameters.depth ?? 20;
   const spacing = sketches.length > 1 ? totalDepth / (sketches.length - 1) : 0;
   const plane = replicadPlaneFor(sketches[0]!.planeId);
 
+  // Profiles on distinct (parallel) planes loft between where they really are; profiles
+  // sharing one plane fall back to being spread along its normal by `depth`.
   const profileSketches = regionsList.map((regions, index) =>
-    drawRegion(regions!.outer).sketchOnPlane(offsetPlane(plane, spacing * index)),
+    drawRegion(regions!.outer).sketchOnPlane(
+      samePlane ? offsetPlane(plane, spacing * index) : replicadPlaneFor(sketches[index]!.planeId),
+    ),
   );
 
   const [base, ...rest] = profileSketches;
   return (base as unknown as { loftWith: (others: unknown[]) => Solid }).loftWith(rest);
+}
+
+/** Whether a multi-plane loft's sketches sit on parallel, pairwise distinct planes. */
+function loftPlanesUsable(sketches: Sketch[], features: readonly PlaneFeature[]): boolean {
+  const frames = sketches.map((sketch) => planeFrame(sketch.planeId, features));
+  const first = frames[0]!;
+  if (frames.some((frame) => Math.abs(Math.abs(frame.normal.dot(first.normal)) - 1) > 1e-6)) return false;
+  const offsets = frames.map((frame) => frame.origin.dot(first.normal));
+  return offsets.every((offset, index) => offsets.every((other, j) => j === index || Math.abs(other - offset) > 1e-6));
 }
 
 /** Any world vector not parallel to `direction`, for building a stable perpendicular basis. */
@@ -762,9 +771,9 @@ function perpendicularTo(direction: Vector3): Vector3 {
   return new Vector3().crossVectors(direction, helper).normalize();
 }
 
-/** The world-space basis a sketch's plane maps onto, as a replicad `Plane` object — origin
- * at the sketch's own origin (always [0, 0, 0]; sketches don't support a position offset
- * yet), oriented by the same quaternion `sketchToWorld` uses.
+/** The world-space frame a sketch's plane maps onto, as a replicad `Plane` object — origin
+ * and orientation from `planeFrame` (world origin for a default plane; offset, flipped or
+ * frozen for a user reference plane), the same frame the viewport draws the sketch in.
  *
  * Every sketch-based feature builder below (`buildFeatureSolid`, `buildRevolveSolid`,
  * `buildHoleSolid`, `buildRibSolid`, `buildLoftSolid`) embeds its sketch's own 2D profile
@@ -780,13 +789,31 @@ function perpendicularTo(direction: Vector3): Vector3 {
  * Top-plane feature and a Front-plane feature combined two solids that were each built as if
  * *they* were on Front, not their own actual plane. */
 function replicadPlaneFor(planeId: string): Plane {
-  const basis = planeBasis(planeId);
-  const xDir = new Vector3(1, 0, 0).applyQuaternion(basis.quaternion);
-  return new Plane([0, 0, 0], [xDir.x, xDir.y, xDir.z], [basis.normal.x, basis.normal.y, basis.normal.z]);
+  const frame = planeFrame(planeId, activePlaneFeatures);
+  const { origin, xDir, normal } = frame;
+  return new Plane([origin.x, origin.y, origin.z], [xDir.x, xDir.y, xDir.z], [normal.x, normal.y, normal.z]);
 }
 
-/** A local-plane 2D point (sketches have no position offset, so its implicit local Z is
- * always 0) mapped into the world coordinates `plane` itself places it at — origin AND
+/**
+ * The full feature list of the rebuild currently replaying, so `replicadPlaneFor` can
+ * resolve a sketch on a user reference plane (offset, flipped, chained) without threading
+ * the list through every builder. `rebuildDocumentSync` is synchronous, sets this on entry
+ * and restores it on exit, so no other rebuild can observe it mid-replay.
+ */
+let activePlaneFeatures: readonly PlaneFeature[] = [];
+
+/** Cache-key fragment for a plane's resolved placement (see `segmentHash`'s `planeKey`). */
+function planeKeyFor(features: readonly PlaneFeature[]) {
+  return (planeId: string): string => {
+    const { origin, quaternion } = planeFrame(planeId, features);
+    return [origin.x, origin.y, origin.z, quaternion.x, quaternion.y, quaternion.z, quaternion.w]
+      .map((value) => value.toFixed(9))
+      .join(",");
+  };
+}
+
+/** A local-plane 2D point (its implicit local Z is always 0 — a sketch lies in its plane)
+ * mapped into the world coordinates `plane` itself places it at — origin AND
  * orientation both apply, unlike `planeDirectionToWorld` below. Used wherever a sketch-local
  * 2D coordinate (a revolve axis's origin point) has to become a real 3D point for a kernel
  * call that doesn't take a plane-relative frame itself (`revolution`'s own `center`). */
@@ -883,7 +910,7 @@ function buildSweepSolid(profileSketch: Sketch, pathSketch: Sketch): Solid | nul
   const pathPoints = sweepPathPoints(pathSketch);
   if (!pathPoints) return null;
 
-  const worldPoints = pathPoints.map((point) => sketchToWorld(pathSketch.planeId, point.x, point.y));
+  const worldPoints = pathPoints.map((point) => sketchToWorld(pathSketch.planeId, point.x, point.y, activePlaneFeatures));
   const tangent = worldPoints[1].clone().sub(worldPoints[0]).normalize();
   if (tangent.lengthSq() < 1e-12) return null;
 
@@ -974,6 +1001,16 @@ export function rebuildDocumentSync(
   sketches: Record<string, Sketch>,
   persist = true,
 ): RebuildResult {
+  const previousPlaneFeatures = activePlaneFeatures;
+  activePlaneFeatures = features;
+  try {
+    return replay(features, sketches, persist);
+  } finally {
+    activePlaneFeatures = previousPlaneFeatures;
+  }
+}
+
+function replay(features: Feature[], sketches: Record<string, Sketch>, persist: boolean): RebuildResult {
   // Suppressed features never reach the kernel, so the cache addresses the *evaluated*
   // list — un-suppressing a feature inserts it into that list and shifts every key after
   // it, which is exactly the divergence the prefix match exists to catch.
@@ -982,7 +1019,7 @@ export function rebuildDocumentSync(
   // every import from its embedded B-Rep and only cache the features before it.
   const firstImport = evaluated.findIndex((candidate) => candidate.kind === "imported");
   const cacheableFeatures = firstImport === -1 ? evaluated : evaluated.slice(0, firstImport);
-  const keys = prefixKeys(cacheableFeatures, sketches);
+  const keys = prefixKeys(cacheableFeatures, sketches, planeKeyFor(features));
 
   const errors: Record<string, string> = {};
   let current: Solid | null = null;
@@ -1123,8 +1160,10 @@ export function rebuildDocumentSync(
 
       const loftSketches = sketchIds.map((id) => sketches[id]);
       const planeId = loftSketches[0].planeId;
-      if (loftSketches.some((sketch) => sketch.planeId !== planeId)) {
-        errors[feature.id] = "All sketches in a loft must be on the same plane (multi-plane lofts aren't supported yet)";
+      const samePlane = loftSketches.every((sketch) => sketch.planeId === planeId);
+      if (!samePlane && !loftPlanesUsable(loftSketches, features)) {
+        errors[feature.id] =
+          "Loft sketches must share one plane, or sit on distinct parallel planes (e.g. offset reference planes)";
         continue;
       }
 

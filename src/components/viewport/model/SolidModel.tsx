@@ -298,7 +298,11 @@ export function SolidModel() {
     event.stopPropagation();
 
     const worldNormal = event.face.normal.clone().transformDirection(event.object.matrixWorld);
-    placeHoleAtPick(event.point.clone(), worldNormal);
+    const triangleStart = event.faceIndex == null ? -1 : event.faceIndex * 3;
+    const group = mesh.faceGroups.find(
+      (candidate) => triangleStart >= candidate.start && triangleStart < candidate.start + candidate.count,
+    );
+    placeHoleAtPick(event.point.clone(), worldNormal, group?.id ?? null);
   };
 
   /**
@@ -660,8 +664,13 @@ export function SolidModel() {
         castShadow={false}
         receiveShadow={false}
         onContextMenu={isSketchMode ? undefined : handleContextMenu}
+        // In sketch mode the body is backdrop only: a face pick here would swallow the
+        // click meant for the sketch surface — which sits flush on (or just inside) the
+        // face when sketching on it.
         onClick={
-          holePlacementActive
+          isSketchMode
+            ? undefined
+            : holePlacementActive
             ? handleHolePlacementClick
             : inspectTool === "measure"
               ? handleMeasureFaceClick
