@@ -71,6 +71,8 @@ export function StatusBar() {
   const featureCount = useDocumentStore(
     (state) => state.document.features.filter((feature) => !feature.isDefault).length,
   );
+  const documentKind = useDocumentStore((state) => state.document.kind);
+  const componentCount = useDocumentStore((state) => state.document.assembly?.components.length ?? 0);
   const geometryStatus = useGeometryStore((state) => state.status);
   const geometryMessage = useGeometryStore((state) => state.message);
   const toast = useGeometryStore((state) => state.toast);
@@ -224,12 +226,20 @@ export function StatusBar() {
       <div className={styles.spacer} />
 
       <div className={styles.item}>
-        {featureCount} {t(featureCount === 1 ? "status.feature-one" : "status.feature-many", featureCount === 1 ? "feature" : "features")}
+        {documentKind === "assembly"
+          ? `${componentCount} ${t(componentCount === 1 ? "status.component-one" : "status.component-many", componentCount === 1 ? "component" : "components")}`
+          : `${featureCount} ${t(featureCount === 1 ? "status.feature-one" : "status.feature-many", featureCount === 1 ? "feature" : "features")}`}
       </div>
 
       <div className={styles.divider} aria-hidden="true" />
 
-      <div className={styles.item}>{t("status.editing-part", "Editing Part")}</div>
+      <div className={styles.item}>
+        {documentKind === "assembly"
+          ? t("status.editing-assembly", "Editing Assembly")
+          : documentKind === "drawing"
+            ? t("status.editing-drawing", "Editing Drawing")
+            : t("status.editing-part", "Editing Part")}
+      </div>
 
       {versionVisible && (
         <>

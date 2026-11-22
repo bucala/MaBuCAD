@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { selectComponentNow, selectedComponentIdNow } from "@/state/assemblyStore";
 import { useDocumentStore } from "@/state/documentStore";
 import { useDrawingToolStore } from "@/state/drawingToolStore";
 import { useSketchStore } from "@/state/sketchStore";
@@ -68,6 +69,11 @@ export function useEscapeToDeselect() {
         useViewportStore.getState().setEdgePickMode(null);
         useViewportStore.getState().setHolePlacementActive(false);
         documentState.endFeatureEdit("cancel");
+        return;
+      }
+
+      if (selectedComponentIdNow()) {
+        selectComponentNow(null);
         return;
       }
 

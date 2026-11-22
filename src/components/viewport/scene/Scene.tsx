@@ -5,11 +5,13 @@ import { useThree } from "@react-three/fiber";
 import { useIsDarkTheme } from "@/hooks/useIsDarkTheme";
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
 
+import { useDocumentStore } from "@/state/documentStore";
 import { useSettingsStore } from "@/state/settingsStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 import { useViewportStore } from "@/state/viewportStore";
 
 import { CadControls } from "../controls/CadControls";
+import { AssemblyModel } from "../model/AssemblyModel";
 import { SolidModel } from "../model/SolidModel";
 import { SketchScene } from "../sketch/SketchScene";
 import { CameraRig, type ProjectionMode } from "./CameraRig";
@@ -37,6 +39,7 @@ interface SceneProps {
 export function Scene({ projection }: SceneProps) {
   const isDark = useIsDarkTheme();
   const isSketchMode = useSketchStore(selectIsSketchMode);
+  const isAssembly = useDocumentStore((state) => state.document.kind === "assembly");
   const gridVisible = useViewportStore((state) => state.gridVisible);
   const viewCubeVisible = useSettingsStore((state) => state.viewCubeVisible);
   const accent = useSceneAccentColor();
@@ -72,7 +75,7 @@ export function Scene({ projection }: SceneProps) {
       <UserReferenceGeometry />
       <InactiveSketches />
       <Origin />
-      <SolidModel />
+      {isAssembly ? <AssemblyModel /> : <SolidModel />}
       {isSketchMode && <SketchScene />}
 
       {viewCubeVisible && (

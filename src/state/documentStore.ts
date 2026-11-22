@@ -2,7 +2,9 @@ import { create } from "zustand";
 
 import { DEFAULT_PROJECTION_METHOD, moveAlignedViews, repositionStandardViews } from "@/commands/drawingViewLayout";
 import type {
+  AssemblyComponent,
   CadDocument,
+  ComponentTransform,
   DocumentKind,
   DrawingDatumData,
   DrawingDimensionData,
@@ -36,6 +38,25 @@ let idCounter = 0;
 function nextId(prefix: string): string {
   idCounter += 1;
   return `${prefix}-${idCounter}`;
+}
+
+/** Applies `update` to one assembly component, returning the same document object when
+ * nothing changes so `commit` records no history entry for a no-op. */
+function mapComponent(
+  document: CadDocument,
+  id: string,
+  update: (component: AssemblyComponent) => AssemblyComponent,
+): CadDocument {
+  const components = document.assembly?.components;
+  if (!components) return document;
+  let changed = false;
+  const next = components.map((component) => {
+    if (component.id !== id) return component;
+    const updated = update(component);
+    if (updated !== component) changed = true;
+    return updated;
+  });
+  return changed ? { ...document, assembly: { components: next } } : document;
 }
 
 /** Raises the shared id counter to at least `atLeast`, never lowers it — called from
@@ -90,6 +111,8 @@ export function createDocument(kind: DocumentKind, name: string): CadDocument {
     };
   }
 
+  // An Assembly keeps the same origin planes as a Part (its own frame, shown in the tree
+  // and viewport) plus an empty component list.
   const features = createDefaultFeatures();
   return {
     id: nextId("doc"),
@@ -99,6 +122,7 @@ export function createDocument(kind: DocumentKind, name: string): CadDocument {
     rollbackIndex: features.length,
     variables: {},
     sensors: [],
+    ...(kind === "assembly" ? { assembly: { components: [] } } : {}),
   };
 }
 
@@ -253,6 +277,21 @@ interface DocumentStore {
   /** Replaces a Drawing document's whole sheet — `commands/drawingCommands.ts`'s Insert
    * Model View and Update Views, the only things that ever touch `CadDocument.drawing`. */
   setDrawingSheet: (drawing: DrawingSheetData) => void;
+
+  /** Adds a component referencing a saved Part file and returns its id. The first
+   * component of an assembly is grounded; every component starts at the origin. A no-op
+   * (returning null) unless the active document is an Assembly. */
+  addComponent: (source: AssemblyComponent["source"], baseName: string) => string | null;
+  /** Moves/rotates one component. Ignored for a grounded component. Inside a
+   * `beginDragEdit` gesture (the viewport gizmo) a whole drag is one undo step. */
+  setComponentTransform: (id: string, transform: ComponentTransform) => void;
+  /** Patches a component's name/grounded/suppressed flags or its source file (Relink). */
+  updateComponent: (
+    id: string,
+    patch: Partial<Pick<AssemblyComponent, "name" | "grounded" | "suppressed" | "source">>,
+  ) => void;
+  removeComponent: (id: string) => void;
+
   /** Patches one placed view (drag repositioning, or any other single-view edit) without
    * the caller needing the rest of `drawing` in hand — a no-op if the active document
    * isn't a Drawing or has no view with that id. */
@@ -747,6 +786,38 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     setUnitSystem: (unitSystem) => set({ unitSystem }),
 
     setDrawingSheet: (drawing) => commit((document) => ({ ...document, drawing })),
+
+    addComponent: (source, baseName) => {
+      const { document } = get();
+      if (document.kind !== "assembly" || !document.assembly) return null;
+      const components = document.assembly.components;
+      const id = nextId("comp");
+      const instance = components.filter((c) => c.name.startsWith(`${baseName}<`)).length + 1;
+      const component: AssemblyComponent = {
+        id,
+        name: `${baseName}<${instance}>`,
+        source,
+        transform: { position: [0, 0, 0], quaternion: [0, 0, 0, 1] },
+        grounded: components.length === 0,
+      };
+      commit((current) => ({
+        ...current,
+        assembly: { components: [...(current.assembly?.components ?? []), component] },
+      }));
+      return id;
+    },
+
+    setComponentTransform: (id, transform) =>
+      commit((document) => mapComponent(document, id, (c) => (c.grounded ? c : { ...c, transform }))),
+
+    updateComponent: (id, patch) => commit((document) => mapComponent(document, id, (c) => ({ ...c, ...patch }))),
+
+    removeComponent: (id) =>
+      commit((document) => {
+        const components = document.assembly?.components;
+        if (!components?.some((c) => c.id === id)) return document;
+        return { ...document, assembly: { components: components.filter((c) => c.id !== id) } };
+      }),
 
     updateDrawingView: (id, patch) =>
       commit((document) => {

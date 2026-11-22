@@ -7,8 +7,8 @@ import {
   VIEW_GAP,
   SHEET_MARGIN,
 } from "@/commands/drawingViewLayout";
-import { validateSavedDocument } from "@/io/documentValidation";
 import { openFile, readFileAtPath, statAtPath } from "@/io/files";
+import { PART_FILE_EXTENSION, parseSavedPart } from "@/io/partFiles";
 import {
   rebuildAndProjectAuxiliary,
   rebuildAndProjectPart,
@@ -41,14 +41,7 @@ import type {
  * than another open document directly) and project it into the active Drawing's sheet.
  */
 
-const EXTENSION = "mabucad";
-
-function parseSavedPart(text: string, label: string) {
-  const result = validateSavedDocument(JSON.parse(text));
-  if (!result.ok) throw new Error(`${label}: ${result.error}`);
-  if (result.saved.document.kind !== "part") throw new Error(`${label} is not a saved Part document`);
-  return result.saved;
-}
+const EXTENSION = PART_FILE_EXTENSION;
 
 /** A dialog or kernel job can finish after the user switches tabs or edits the sheet. */
 function captureDrawingCommand(): () => boolean {

@@ -33,9 +33,9 @@ const CARDS: DocumentTypeCard[] = [
     labelKey: "newdoc.assembly",
     label: "Assembly",
     descriptionKey: "newdoc.assembly.description",
-    description: "Combine multiple parts with mates. Coming soon.",
+    description: "Place saved parts as components and position them.",
     icon: Layers,
-    available: false,
+    available: true,
   },
   {
     id: "drawing",
@@ -52,10 +52,8 @@ const CARDS: DocumentTypeCard[] = [
  * "New Document" type picker, opened by the ribbon's New button and File ▸ New alike
  * (both dispatch the `doc.new` command, which just flips `documentStore.newDocumentDialogOpen`).
  *
- * Only Part is wired to anything: Assembly and Drawing are shown so the whole product
- * shape is visible from day one — matching how SolidWorks' own New dialog looks — but
- * stay disabled with a "Coming soon" description rather than silently doing nothing or
- * being hidden, since neither document type has a ribbon tab with real functionality yet.
+ * All three document types are wired. A card can still be marked unavailable (it then
+ * shows a "Coming soon" label rather than silently doing nothing or being hidden).
  */
 export function NewDocumentDialog() {
   const open = useDocumentStore((state) => state.newDocumentDialogOpen);

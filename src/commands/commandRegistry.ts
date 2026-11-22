@@ -3,6 +3,7 @@ import type { Vector3 } from "three";
 import type { Feature, FeatureKind } from "@/types/document";
 import type { GeometricConstraintKind } from "@/sketch/types";
 import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
+import { selectComponentNow, selectedComponentIdNow } from "@/state/assemblyStore";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { useInspectStore } from "@/state/inspectStore";
@@ -11,6 +12,7 @@ import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 import { useTemplateStore } from "@/state/templateStore";
 import { useViewportStore } from "@/state/viewportStore";
 
+import { runInsertComponent, runUpdateComponents } from "./assemblyCommands";
 import { runOpenDocument, runSaveDocument, runSaveDocumentAs } from "./documentIO";
 import {
   runInsertBomTable,
@@ -368,6 +370,9 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "doc.save": () => void runSaveDocument(),
   "doc.save-as": () => void runSaveDocumentAs(),
 
+  "assembly.insert": () => void runInsertComponent(),
+  "assembly.update": runUpdateComponents,
+
   "drawing.model-view": () => void runInsertModelView(),
   "drawing.update-views": () => void runUpdateViews(),
   "drawing.sheet-format": () => useTemplateStore.getState().openManager(),
@@ -419,6 +424,12 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
     const sketchState = useSketchStore.getState();
     if (sketchState.activeSketchId) {
       sketchState.deleteSelection();
+      return;
+    }
+    const selectedComponent = selectedComponentIdNow();
+    if (useDocumentStore.getState().document.kind === "assembly" && selectedComponent) {
+      useDocumentStore.getState().removeComponent(selectedComponent);
+      selectComponentNow(null);
       return;
     }
     const { selectedFeatureIds, deleteFeature } = useDocumentStore.getState();

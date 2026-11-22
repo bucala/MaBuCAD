@@ -196,7 +196,7 @@ describe("migrateSavedDocument", () => {
   });
 
   it("rejects versions outside what this build can read or migrate", () => {
-    for (const version of [-1, 0, 3, 1.5, "1", null]) {
+    for (const version of [-1, 0, DOCUMENT_FORMAT_VERSION + 1, 1.5, "1", null]) {
       const value = { ...(validDocument() as object), formatVersion: version } as Record<string, unknown>;
       const migrated = migrateSavedDocument(value);
       expect(migrated.ok, `version ${String(version)}`).toBe(false);
@@ -206,6 +206,66 @@ describe("migrateSavedDocument", () => {
 
   it("documents the supported version range in one place", () => {
     expect(MIN_SUPPORTED_FORMAT_VERSION).toBe(1);
-    expect(DOCUMENT_FORMAT_VERSION).toBe(MIN_SUPPORTED_FORMAT_VERSION + 1);
+    expect(DOCUMENT_FORMAT_VERSION).toBe(3);
+  });
+
+  it("carries a v2 file straight through the no-op v2 → v3 step", () => {
+    const value = { ...(validDocument() as object), formatVersion: 2 } as Record<string, unknown>;
+    const migration = migrateSavedDocument(value);
+    expect(migration.ok).toBe(true);
+    if (migration.ok) {
+      expect(migration.fromVersion).toBe(2);
+      expect(migration.saved.formatVersion).toBe(3);
+      expect(migration.saved.document.name).toBe("Part1");
+    }
+  });
+});
+
+describe("assembly documents", () => {
+  function assemblyDocument(components: unknown): Record<string, unknown> {
+    const value = validDocument();
+    const document = value.document as Record<string, unknown>;
+    document.kind = "assembly";
+    document.assembly = { components };
+    return value;
+  }
+
+  const component = (overrides: Record<string, unknown> = {}) => ({
+    id: "comp-1",
+    name: "Bracket<1>",
+    source: { fileName: "Bracket.mabucad", path: null },
+    transform: { position: [0, 0, 0], quaternion: [0, 0, 0, 1] },
+    grounded: true,
+    ...overrides,
+  });
+
+  it("accepts a well-formed assembly", () => {
+    expect(validateSavedDocument(assemblyDocument([component(), component({ id: "comp-2", grounded: false })])).ok).toBe(true);
+  });
+
+  it("rejects malformed components", () => {
+    const cases: [unknown, RegExp][] = [
+      [[component(), component()], /used twice/],
+      [[component({ transform: { position: [0, 0], quaternion: [0, 0, 0, 1] } })], /invalid transform/],
+      [[component({ transform: { position: [0, 0, Number.NaN], quaternion: [0, 0, 0, 1] } })], /invalid transform/],
+      [[component({ transform: { position: [0, 0, 0], quaternion: [0, 0, 0, 0] } })], /zero rotation/],
+      [[component({ source: { fileName: "x", path: 4 } })], /invalid source/],
+      [[component({ grounded: "yes" })], /grounded/],
+    ];
+    for (const [components, error] of cases) {
+      const result = validateSavedDocument(assemblyDocument(components));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(error);
+    }
+  });
+
+  it("rejects an assembly without a component list, and components on a non-assembly", () => {
+    const missing = validDocument();
+    (missing.document as Record<string, unknown>).kind = "assembly";
+    expect(validateSavedDocument(missing).ok).toBe(false);
+
+    const stray = validDocument();
+    (stray.document as Record<string, unknown>).assembly = { components: [] };
+    expect(validateSavedDocument(stray).ok).toBe(false);
   });
 });

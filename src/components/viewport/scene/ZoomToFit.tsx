@@ -1,10 +1,15 @@
 import { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
-import { Box3, Sphere, Vector3 } from "three";
+import { Box3, Matrix4, Sphere, Vector3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
+import { useAssemblyStore } from "@/state/assemblyStore";
+import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { useViewportStore } from "@/state/viewportStore";
+import { useWorkspaceStore } from "@/state/workspaceStore";
+
+import { transformToMatrix } from "../model/AssemblyModel";
 
 import { DEFAULT_CAMERA_POSITION, DOCUMENT_SCALE } from "../constants";
 
@@ -34,22 +39,37 @@ export function ZoomToFit() {
     let center = new Vector3(0, 0, 0);
     let radius = DOCUMENT_SCALE * 0.6;
 
-    if (mesh) {
-      // `mesh.positions` is already in world space — every feature builds through its own
-      // sketch plane's real placement (`kernel/rebuild.ts`'s `replicadPlaneFor`).
-      const worldBox = new Box3();
-      const point = new Vector3();
-      for (let i = 0; i < mesh.positions.length; i += 3) {
-        point.set(mesh.positions[i], mesh.positions[i + 1], mesh.positions[i + 2]);
+    // `mesh.positions` is already in world space — every feature builds through its own
+    // sketch plane's real placement (`kernel/rebuild.ts`'s `replicadPlaneFor`). An
+    // Assembly instead contributes each loaded component's mesh through its own transform.
+    const worldBox = new Box3();
+    const point = new Vector3();
+    const addPositions = (positions: Float32Array, matrix?: Matrix4) => {
+      for (let i = 0; i < positions.length; i += 3) {
+        point.set(positions[i]!, positions[i + 1]!, positions[i + 2]!);
+        if (matrix) point.applyMatrix4(matrix);
         worldBox.expandByPoint(point);
       }
+    };
 
-      if (!worldBox.isEmpty()) {
-        const sphere = new Sphere();
-        worldBox.getBoundingSphere(sphere);
-        center = sphere.center;
-        radius = Math.max(sphere.radius, 1e-3);
+    const { document } = useDocumentStore.getState();
+    if (document.assembly) {
+      const tabId = useWorkspaceStore.getState().activeId;
+      const loaded = useAssemblyStore.getState().tabs[tabId] ?? {};
+      for (const component of document.assembly.components) {
+        const componentMesh = loaded[component.id]?.mesh;
+        if (component.suppressed || !componentMesh) continue;
+        addPositions(componentMesh.positions, transformToMatrix(component.transform));
       }
+    } else if (mesh) {
+      addPositions(mesh.positions);
+    }
+
+    if (!worldBox.isEmpty()) {
+      const sphere = new Sphere();
+      worldBox.getBoundingSphere(sphere);
+      center = sphere.center;
+      radius = Math.max(sphere.radius, 1e-3);
     }
 
     const target = controls?.target ?? new Vector3(0, 0, 0);

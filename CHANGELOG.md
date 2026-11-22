@@ -7,6 +7,64 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-11-22 — Assemblies, phase 1: components and placement (v0.34.0)
+
+The Assembly document type is now real (it was a disabled "Coming soon" card). Phase 1
+covers placing parts. Mates are phase 2.
+
+### Added
+- **New ▸ Assembly** creates an assembly with its own origin planes and an empty
+  component list.
+- **Insert Component** (Assembly tab) picks a saved Part file and places it at the origin.
+  The first component is grounded. A part can be inserted any number of times
+  (`Bracket<1>`, `Bracket<2>`, …).
+- **Moving components:**
+  - Select a component in the viewport or the component list. It is drawn in the accent
+    colour with a move/rotate gizmo; one whole drag is one undo step.
+  - The placement panel under the list takes exact position (mm) and rotation (XYZ degrees)
+    values.
+  - A grounded component can't be moved. **Ground/Float** toggles that.
+- **Component list** in the Feature Manager, below the assembly's origin planes:
+  - Badges for Grounded, Loading, File missing and Error.
+  - Relink…, Ground/Float, Suppress and Delete. **Delete** and **Escape** also work on the
+    selection.
+- **Missing parts:** components reference part *files*, like a Drawing's source part. A
+  part that has moved, or can't be re-read (the browser fallback keeps no path), loads
+  with a **File missing** badge instead of a prompt per component. **Relink…** points it at
+  the file again.
+- **Update Components** re-reads every component's part file after you edit and save it.
+- **Status bar and Zoom to Fit:**
+  - The status bar shows the component count and "Editing Assembly". It shows "Editing
+    Drawing" for drawings, which previously said "Editing Part".
+  - Zoom to Fit frames placed components.
+
+### How it works
+- `CadDocument.assembly` holds components, each with a source file, a transform (position
+  plus unit quaternion), and grounded/suppressed flags.
+- The file format moves to **v3** through a no-op migration. Older files open unchanged.
+  An older build *refuses* an assembly instead of opening it as an empty part and
+  dropping its components on save.
+- Component meshes come from `kernel/componentLoader.ts`:
+  - It rebuilds each part with `rebuildDocumentSync(..., persist = false)`, so loading
+    components never touches the active document's checkpoint chain or `currentShape`.
+  - Meshes are cached by file content hash. N copies of one part rebuild once, and an
+    edited part rebuilds automatically.
+- `state/assemblyStore.ts` keys loaded geometry by workspace tab, not document id. A
+  document's id is saved in its file, so an assembly reopened in a second tab has the
+  same id and must resolve its components on its own.
+- The part-file parser is now shared with Drawings (`io/partFiles.ts`).
+
+### Tests
+- New unit tests:
+  - `assemblyComponents.spec.ts`: actions, grounding and drag batching.
+  - Assembly validation cases in `documentValidation.spec.ts`.
+  - `componentLoader.spec.ts`: real kernel, cache sharing, and that the confirmed shape is
+    untouched.
+  - `assemblyStore.spec.ts`: per-tab resolution.
+- New e2e test, `e2e/assembly.spec.ts`:
+  - Insert twice, move numerically, then save and check the v3 file.
+  - Reopen, see **File missing**, then Relink.
+
 ## 2026-11-22 — Drawing-view axis fix, preview/confirmed geometry isolation (v0.33.0)
 
 A follow-up architectural-audit round, closing the remaining items from the kernel-

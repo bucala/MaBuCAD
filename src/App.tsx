@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { CloseDocumentsDialog } from "@/components/document/CloseDocumentsDialog";
 import { AppShell } from "@/components/layout/AppShell";
 import { PrintOverlay } from "@/components/PrintOverlay";
+import { useAssemblySync } from "@/hooks/useAssemblySync";
 import { useAutosave } from "@/hooks/useAutosave";
 import { useDebugLogging } from "@/hooks/useDebugLogging";
 import { useDisableNativeContextMenu } from "@/hooks/useDisableNativeContextMenu";
@@ -17,6 +18,7 @@ import { useSettingsStore } from "@/state/settingsStore";
 
 export default function App() {
   useRebuild();
+  useAssemblySync();
   useEscapeToDeselect();
   useKeyboardShortcuts();
   useDisableNativeContextMenu();
