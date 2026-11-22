@@ -92,7 +92,11 @@ Extrude/Cut, Revolve/Cut, Sweep/Cut (straight or spline path), Loft, a Hole Wiza
 real Autodesk clearance/tap-drill tables — Simple, Clearance, Tapped or Taper Tapped (NPT),
 with a real Counterbore/Spotface/Countersink seat and an actual conical drill point on a
 blind hole — Fillet, Chamfer, Shell, Draft, Rib, Linear/Circular Pattern, Mirror and
-reference geometry.
+reference geometry. Sketches go on the origin planes, on offset reference planes, or flush
+on any flat face of the body, and features follow when a plane's offset changes.
+
+The **Assembly** document places saved parts as components: move and rotate them with a
+gizmo or exact values, ground or float them, and relink a part file that has moved.
 
   </td>
   <td width="33%" valign="top">

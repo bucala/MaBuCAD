@@ -52,6 +52,9 @@ Sketches are no longer limited to the three origin planes.
 - New tests: `rebuildReferencePlanes.spec.ts` and `facePlane.spec.ts` (real kernel), and
   `e2e/reference-planes.spec.ts`.
 
+### Docs
+- README: the feature overview mentions sketching on planes and faces, and assemblies.
+
 ## 2026-11-22 — Assemblies, phase 1: components and placement (v0.34.0)
 
 The Assembly document type is now real (it was a disabled "Coming soon" card). Phase 1
