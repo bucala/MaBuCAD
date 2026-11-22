@@ -1,7 +1,8 @@
 import { Box, PenTool, Plus, X, type LucideIcon } from "lucide-react";
 
+import { requestDocumentClose } from "@/commands/closeDocuments";
 import { useDocumentStore } from "@/state/documentStore";
-import { useWorkspaceStore } from "@/state/workspaceStore";
+import { isSessionModified, useActiveDocumentModified, useWorkspaceStore } from "@/state/workspaceStore";
 import type { DocumentKind } from "@/types/document";
 import { useTranslation } from "@/i18n/useTranslation";
 
@@ -25,10 +26,9 @@ export function DocumentTabs() {
   const sessions = useWorkspaceStore((state) => state.sessions);
   const activeId = useWorkspaceStore((state) => state.activeId);
   const switchTo = useWorkspaceStore((state) => state.switchTo);
-  const closeDocument = useWorkspaceStore((state) => state.closeDocument);
   const openNewDocumentDialog = useDocumentStore((state) => state.openNewDocumentDialog);
   const activeName = useDocumentStore((state) => state.document.name);
-  const activeIsDirty = useDocumentStore((state) => state.past.length > 0);
+  const activeIsDirty = useActiveDocumentModified();
   const { t } = useTranslation();
 
   return (
@@ -37,7 +37,7 @@ export function DocumentTabs() {
         {sessions.map((session) => {
           const isActive = session.id === activeId;
           const name = isActive ? activeName : session.document.name;
-          const dirty = isActive ? activeIsDirty : session.past.length > 0;
+          const dirty = isActive ? activeIsDirty : isSessionModified(session);
           const Icon = KIND_ICON[session.kind];
 
           return (
@@ -50,7 +50,7 @@ export function DocumentTabs() {
               onClick={() => switchTo(session.id)}
               onAuxClick={(event) => {
                 // Middle-click closes, matching every tabbed browser/editor.
-                if (event.button === 1) closeDocument(session.id);
+                if (event.button === 1) requestDocumentClose(session.id);
               }}
             >
               <Icon size={13} strokeWidth={1.75} className={styles.tabIcon} aria-hidden="true" />
@@ -62,7 +62,7 @@ export function DocumentTabs() {
                 aria-label={t("tabs.close", "Close {{name}}").replace("{{name}}", name)}
                 onClick={(event) => {
                   event.stopPropagation();
-                  closeDocument(session.id);
+                  requestDocumentClose(session.id);
                 }}
               >
                 <X size={12} strokeWidth={2} />

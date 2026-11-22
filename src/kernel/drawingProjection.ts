@@ -14,7 +14,8 @@ import type {
 } from "@/types/document";
 
 import { fitCircle } from "./drawingGeometry";
-import { getCurrentShape, rebuildDocument } from "./rebuild";
+import { initKernel } from "./occ";
+import { getCurrentShape, rebuildDocumentSync } from "./rebuild";
 
 /** One projected view's geometry, in the part's own millimetre space, shifted to land at
  * (0, 0) — see `projectOne`'s own doc comment for why — with `originX`/`originY`
@@ -123,20 +124,17 @@ export function auxiliaryCamera(
  * live/continuously-synced background document: a Drawing's views are a cache
  * (`DrawingViewData`'s own doc comment) refreshed on demand by "Update View"/a section's
  * own recompute, the same "can go out of date" relationship a SolidWorks drawing has with
- * its referenced part. There is no worker-isolated second kernel instance here either; a
- * concurrent rebuild of the same part in its own open tab would race this one, an accepted
- * limitation of layering Drawing views on a kernel that was never built to run more than
- * one job at a time (see `rebuild.ts`'s own module-level `currentShape`).
+ * its referenced part. The rebuild and projection run in one turn after kernel startup.
  *
  * Returns `null` when the referenced document has no built geometry (an empty part, or
  * one that fails to build at all).
  */
-async function rebuildPartShape(
+function rebuildPartShape(
   document: CadDocument,
   sketches: Record<string, Sketch>,
-): Promise<{ shape: AnyShape; errors: Record<string, string> } | null> {
+): { shape: AnyShape; errors: Record<string, string> } | null {
   const built = document.features.slice(0, document.rollbackIndex);
-  const result = await rebuildDocument(built, sketches);
+  const result = rebuildDocumentSync(built, sketches);
   const shape = getCurrentShape();
   if (!result.mesh || !shape) return null;
   return { shape: shape as unknown as AnyShape, errors: result.errors };
@@ -302,7 +300,8 @@ export async function rebuildAndProjectPart(
   document: CadDocument,
   sketches: Record<string, Sketch>,
 ): Promise<{ views: ProjectedViews; errors: Record<string, string> } | null> {
-  const built = await rebuildPartShape(document, sketches);
+  await initKernel();
+  const built = rebuildPartShape(document, sketches);
   if (!built) return null;
 
   const iso = isometricCamera();
@@ -345,7 +344,8 @@ export async function rebuildAndProjectAuxiliary(
   tiltAxis: AuxiliaryTiltAxis,
   angle: number,
 ): Promise<ProjectedGeometry | null> {
-  const built = await rebuildPartShape(document, sketches);
+  await initKernel();
+  const built = rebuildPartShape(document, sketches);
   if (!built) return null;
 
   const geometry = projectOne(built.shape, auxiliaryCamera(projection, tiltAxis, angle));
@@ -593,7 +593,8 @@ export async function rebuildAndProjectSection(
   offset: number,
   keepPositiveSide: boolean,
 ): Promise<SectionGeometry | null> {
-  const built = await rebuildPartShape(document, sketches);
+  await initKernel();
+  const built = rebuildPartShape(document, sketches);
   if (!built) return null;
   return cutAndProjectSection(built.shape, axis, offset, keepPositiveSide);
 }

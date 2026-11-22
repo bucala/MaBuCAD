@@ -5,10 +5,11 @@ import {
   importModel,
   type ExportFormat,
 } from "@/kernel/io";
-import { releaseImportedShape } from "@/kernel/importedShapes";
 import { openFile, readFileAtPath, saveBlob, type PickedFile } from "@/io/files";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
+import { useSketchStore } from "@/state/sketchStore";
+import { useWorkspaceStore } from "@/state/workspaceStore";
 
 /**
  * Interchange commands.
@@ -22,10 +23,12 @@ import { useGeometryStore } from "@/state/geometryStore";
 
 export async function runExport(format: ExportFormat): Promise<void> {
   const { showToast } = useGeometryStore.getState();
-  const { name } = useDocumentStore.getState().document;
+  const { document } = useDocumentStore.getState();
+  const { sketches } = useSketchStore.getState();
+  const { name } = document;
 
   try {
-    const blob = await exportModel(format, name);
+    const blob = await exportModel(format, document, sketches);
     const extension = EXPORT_EXTENSIONS[format];
 
     const saved = await saveBlob(blob, `${name}.${extension}`, [extension]);
@@ -43,38 +46,31 @@ export async function runExport(format: ExportFormat): Promise<void> {
 }
 
 /**
- * Shared body of the Import command and the drag-drop handler: creates the imported
- * feature, registers the geometry against it, and rolls both back if the kernel rejects
- * the file — a tree row pointing at geometry that failed to load would be worse than no
- * row at all.
+ * Commit the import only after conversion succeeds and the original tab is still active.
  */
-async function importPicked(picked: PickedFile): Promise<void> {
+async function importPicked(picked: PickedFile, sessionId: string): Promise<void> {
   const { showToast } = useGeometryStore.getState();
   const documentStore = useDocumentStore.getState();
 
   showToast(`Importing ${picked.name}…`);
 
-  // The feature is created first so the imported body has an owner to be keyed against.
-  const featureId = documentStore.addFeature("imported");
-
-  try {
-    await importModel(featureId, picked.name, picked.data);
-    documentStore.renameFeature(featureId, picked.name.replace(/\.[^.]+$/, ""));
-    showToast(`Imported ${picked.name}`);
-  } catch (error) {
-    releaseImportedShape(featureId);
-    documentStore.deleteFeature(featureId);
-    throw error;
+  const importedBrep = await importModel(picked.name, picked.data);
+  if (useWorkspaceStore.getState().activeId !== sessionId) {
+    showToast("Import cancelled because the active document changed");
+    return;
   }
+  documentStore.addFeature("imported", { importedBrep }, [], picked.name.replace(/\.[^.]+$/, ""));
+  showToast(`Imported ${picked.name}`);
 }
 
 export async function runImport(): Promise<void> {
   const { showToast } = useGeometryStore.getState();
 
   try {
+    const sessionId = useWorkspaceStore.getState().activeId;
     const picked = await openFile(["step", "stp", "stl"]);
     if (!picked) return;
-    await importPicked(picked);
+    await importPicked(picked, sessionId);
   } catch (error) {
     showToast(`Import failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
   }
@@ -89,8 +85,9 @@ export async function runImportPath(path: string, name: string): Promise<void> {
   const { showToast } = useGeometryStore.getState();
 
   try {
+    const sessionId = useWorkspaceStore.getState().activeId;
     const data = await readFileAtPath(path);
-    await importPicked({ name, data, path });
+    await importPicked({ name, data, path }, sessionId);
   } catch (error) {
     showToast(`Import failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
   }

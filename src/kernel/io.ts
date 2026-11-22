@@ -1,8 +1,9 @@
 import { importSTEP, importSTL } from "replicad";
 
-import { registerImportedShape } from "./importedShapes";
+import type { Sketch } from "@/sketch/types";
+import type { CadDocument } from "@/types/document";
 import { initKernel } from "./occ";
-import { getCurrentShape, type Solid } from "./rebuild";
+import { getCurrentShape, rebuildDocumentSync } from "./rebuild";
 
 /**
  * Interchange formats.
@@ -144,9 +145,17 @@ export function nameStepModel(step: string, modelName: string): string {
  * `importSTEP`/`importSTL`/`blobSTL` already use. That was verified stable under the same
  * repeated-export-then-forced-GC stress test that broke `exportSTEP()`.
  */
-export async function exportModel(format: ExportFormat, modelName?: string): Promise<Blob> {
+export async function exportModel(
+  format: ExportFormat,
+  document: CadDocument,
+  sketches: Record<string, Sketch>,
+): Promise<Blob> {
+  const features = document.features.slice(0, document.rollbackIndex);
   await initKernel();
 
+  const result = rebuildDocumentSync(features, sketches);
+  const failed = features.find((feature) => result.errors[feature.id]);
+  if (failed) throw new Error(`${failed.name}: ${result.errors[failed.id]}`);
   const shape = getCurrentShape();
   if (!shape) throw new NoGeometryError();
 
@@ -157,8 +166,7 @@ export async function exportModel(format: ExportFormat, modelName?: string): Pro
 
   if (format === "step") {
     const blob = exportable.blobSTEP();
-    if (!modelName) return blob;
-    return new Blob([nameStepModel(await blob.text(), modelName)], {
+    return new Blob([nameStepModel(await blob.text(), document.name)], {
       type: blob.type || "application/step",
     });
   }
@@ -180,17 +188,13 @@ export function importFormatFromName(fileName: string): ImportFormat | null {
 }
 
 /**
- * Loads a file into a kernel body and registers it against a feature id.
+ * Converts the import to a B-Rep that can be embedded in the document.
  *
  * A STEP import keeps its exact surfaces and can take part in later boolean features. An
  * STL import is converted from triangles, so it arrives faceted — that is a property of
  * the format, not of the conversion.
  */
-export async function importModel(
-  featureId: string,
-  fileName: string,
-  data: ArrayBuffer,
-): Promise<void> {
+export async function importModel(fileName: string, data: ArrayBuffer): Promise<string> {
   await initKernel();
 
   const format = importFormatFromName(fileName);
@@ -201,5 +205,9 @@ export async function importModel(
   const blob = new Blob([data]);
   const shape = format === "step" ? await importSTEP(blob) : await importSTL(blob);
 
-  registerImportedShape(featureId, shape as unknown as Solid);
+  try {
+    return shape.serialize();
+  } finally {
+    shape.delete();
+  }
 }

@@ -1,6 +1,11 @@
+import { makeBaseBox } from "replicad";
 import { describe, expect, it } from "vitest";
 
-import { nameStepModel } from "./io";
+import type { Feature } from "@/types/document";
+
+import { importModel, nameStepModel } from "./io";
+import { initKernel } from "./occ";
+import { rebuildDocument } from "./rebuild";
 
 const STEP_FIXTURE = `ISO-10303-21;
 HEADER;
@@ -62,4 +67,20 @@ describe("nameStepModel", () => {
       /PRODUCT/,
     );
   });
+});
+
+it("rebuilds an STL import from the embedded B-Rep", async () => {
+  await initKernel();
+  const source = makeBaseBox(5, 8, 12);
+  const bytes = await source.blobSTL({ binary: true }).arrayBuffer();
+  source.delete();
+  const importedBrep = await importModel("box.stl", bytes);
+  const feature: Feature = {
+    id: "stl-box", name: "box", kind: "imported", parameters: { importedBrep },
+    isDefault: false, suppressed: false, parents: [],
+  };
+  const reopened = JSON.parse(JSON.stringify(feature)) as Feature;
+  const result = await rebuildDocument([reopened], {});
+  expect(result.errors).toEqual({});
+  expect(result.mesh?.positions.length).toBeGreaterThan(0);
 });

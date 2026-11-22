@@ -7,6 +7,7 @@ import {
   VIEW_GAP,
   SHEET_MARGIN,
 } from "@/commands/drawingViewLayout";
+import { validateSavedDocument } from "@/io/documentValidation";
 import { openFile, readFileAtPath, statAtPath } from "@/io/files";
 import {
   rebuildAndProjectAuxiliary,
@@ -23,6 +24,7 @@ import type { PointEntity, Sketch } from "@/sketch/types";
 import { useDocumentStore } from "@/state/documentStore";
 import { useDrawingToolStore } from "@/state/drawingToolStore";
 import { useGeometryStore } from "@/state/geometryStore";
+import { useWorkspaceStore } from "@/state/workspaceStore";
 import type {
   CadDocument,
   DrawingSheetData,
@@ -41,20 +43,23 @@ import type {
 
 const EXTENSION = "mabucad";
 
-interface SavedDocument {
-  formatVersion: number;
-  document: CadDocument;
-  sketches: Record<string, Sketch>;
+function parseSavedPart(text: string, label: string) {
+  const result = validateSavedDocument(JSON.parse(text));
+  if (!result.ok) throw new Error(`${label}: ${result.error}`);
+  if (result.saved.document.kind !== "part") throw new Error(`${label} is not a saved Part document`);
+  return result.saved;
 }
 
-function isSavedPart(value: unknown): value is SavedDocument {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "document" in value &&
-    "sketches" in value &&
-    (value as SavedDocument).document?.kind === "part"
-  );
+/** A dialog or kernel job can finish after the user switches tabs or edits the sheet. */
+function captureDrawingCommand(): () => boolean {
+  const { activeId } = useWorkspaceStore.getState();
+  const { drawing } = useDocumentStore.getState().document;
+  return () => {
+    if (useWorkspaceStore.getState().activeId === activeId &&
+        useDocumentStore.getState().document.drawing === drawing) return true;
+    useGeometryStore.getState().showToast("Drawing command cancelled because the drawing changed");
+    return false;
+  };
 }
 
 /** Picks a saved Part file, projects every direction (cheap — `rebuildAndProjectPart`
@@ -63,14 +68,15 @@ function isSavedPart(value: unknown): value is SavedDocument {
  * drawing's own "front" and is the only view `runPlaceModelView` places. */
 export async function runInsertModelView(): Promise<void> {
   const { showToast } = useGeometryStore.getState();
+  const isCurrent = captureDrawingCommand();
 
   try {
     const picked = await openFile([EXTENSION, "json"]);
     if (!picked) return;
 
     const text = new TextDecoder().decode(picked.data);
-    const parsed: unknown = JSON.parse(text);
-    if (!isSavedPart(parsed)) throw new Error(`${picked.name} is not a saved Part document`);
+    const parsed = parseSavedPart(text, picked.name);
+    if (!isCurrent()) return;
 
     showToast("Generating views…", 15000);
     const projected = await rebuildAndProjectPart(parsed.document, parsed.sketches);
@@ -79,6 +85,8 @@ export async function runInsertModelView(): Promise<void> {
       return;
     }
 
+    const sourceStamp = picked.path ? (await statAtPath(picked.path)) ?? undefined : undefined;
+    if (!isCurrent()) return;
     useDrawingToolStore.getState().openModelViewPicker({
       fileName: picked.name,
       path: picked.path,
@@ -86,7 +94,7 @@ export async function runInsertModelView(): Promise<void> {
       // `runPlaceModelView` unchanged — same provenance `DrawingSheetData.sourceStamp` and
       // `sourceContentHash` always needed, just computed before the user's orientation pick
       // instead of after.
-      sourceStamp: picked.path ? (await statAtPath(picked.path)) ?? undefined : undefined,
+      sourceStamp,
       sourceContentHash: contentHash(text),
       views: projected.views,
     });
@@ -103,7 +111,7 @@ export async function runInsertModelView(): Promise<void> {
  * of the layout machinery treat it as the main view without any further change. */
 export function runPlaceModelView(direction: StandardProjectionKind): void {
   const picker = useDrawingToolStore.getState().modelViewPicker;
-  if (!picker) return;
+  if (!picker || useDocumentStore.getState().document.kind !== "drawing") return;
 
   const existingMethod = useDocumentStore.getState().document.drawing?.projectionMethod;
   const method = existingMethod ?? DEFAULT_PROJECTION_METHOD;
@@ -151,28 +159,28 @@ export async function readSourcePart(
   document: CadDocument;
   sketches: Record<string, Sketch>;
   label: string;
-  /** Hash of the exact bytes just read — what a caller stores as
-   * `DrawingSheetData.sourceContentHash`, or compares against it to decide whether a
-   * rebuild is needed at all. Computed here because this is where the bytes exist. */
+  path: string | null;
   contentHash: string;
 } | null> {
-  let data: ArrayBuffer;
   let label = sourcePart.fileName;
-
-  if (sourcePart.path) {
-    data = await readFileAtPath(sourcePart.path);
-  } else {
+  let path = sourcePart.path;
+  let data: ArrayBuffer | undefined;
+  if (path) {
+    try {
+      data = await readFileAtPath(path);
+    } catch {
+      // The file may have moved or its read approval expired when the app closed.
+    }
+  }
+  if (!data) {
     useGeometryStore.getState().showToast(promptMessage, 4000);
     const picked = await openFile([EXTENSION, "json"]);
     if (!picked) return null;
-    data = picked.data;
-    label = picked.name;
+    ({ name: label, path, data } = picked);
   }
-
   const text = new TextDecoder().decode(data);
-  const parsed: unknown = JSON.parse(text);
-  if (!isSavedPart(parsed)) throw new Error(`${label} is not a saved Part document`);
-  return { document: parsed.document, sketches: parsed.sketches, label, contentHash: contentHash(text) };
+  const { document, sketches } = parseSavedPart(text, label);
+  return { document, sketches, label, path, contentHash: contentHash(text) };
 }
 
 /**
@@ -182,6 +190,7 @@ export async function readSourcePart(
  */
 export async function runUpdateViews(): Promise<void> {
   const { showToast } = useGeometryStore.getState();
+  const isCurrent = captureDrawingCommand();
   const { document } = useDocumentStore.getState();
   const sourcePart = document.drawing?.sourcePart;
   if (!sourcePart) {
@@ -191,18 +200,20 @@ export async function runUpdateViews(): Promise<void> {
 
   try {
     const source = await readSourcePart(sourcePart, `Pick ${sourcePart.fileName} again to update its views`);
-    if (!source) return;
-    const { document: partDocument, sketches, label, contentHash: onDiskHash } = source;
+    if (!source || !isCurrent()) return;
+    const { document: partDocument, sketches, label, path, contentHash: onDiskHash } = source;
+    const linkedPart = { fileName: label, path };
 
-    const current = useDocumentStore.getState().document.drawing;
+    const current = document.drawing;
     const hasStandardViews = current?.views.some((view) => !view.kind || view.kind === "standard");
     // The part file is byte-for-byte what these views were projected from, so a rebuild and
     // re-projection would reproduce the cache it already has — seconds of kernel work for a
     // guaranteed identical result. Re-stamp instead, which also clears the out-of-date
     // indicator for the honest case of a part file merely re-saved without changing.
     if (current && hasStandardViews && viewsMatchSource(current.sourceContentHash, onDiskHash)) {
-      const sourceStamp = sourcePart.path ? (await statAtPath(sourcePart.path)) ?? undefined : undefined;
-      useDocumentStore.getState().setDrawingSheet({ ...current, sourceStamp });
+      const sourceStamp = path ? (await statAtPath(path)) ?? undefined : undefined;
+      if (!isCurrent()) return;
+      useDocumentStore.getState().setDrawingSheet({ ...current, sourcePart: linkedPart, sourceStamp });
       showToast(`${label} is unchanged — views are already up to date`);
       return;
     }
@@ -214,7 +225,7 @@ export async function runUpdateViews(): Promise<void> {
       return;
     }
 
-    const sheet = useDocumentStore.getState().document.drawing;
+    const sheet = document.drawing;
     if (!sheet) return;
 
     // No derived view (Section/Detail/Auxiliary/Crop/Broken) is a plain re-projection of
@@ -245,10 +256,11 @@ export async function runUpdateViews(): Promise<void> {
 
     // Re-stamp the part file we just re-projected from: the new cache matches what is on
     // disk *now*, so the out-of-date indicator clears the moment the views are refreshed.
-    const sourceStamp = sourcePart.path ? (await statAtPath(sourcePart.path)) ?? undefined : undefined;
-    useDocumentStore
-      .getState()
-      .setDrawingSheet({ ...sheet, views: refreshed, sourceStamp, sourceContentHash: onDiskHash });
+    const sourceStamp = path ? (await statAtPath(path)) ?? undefined : undefined;
+    if (!isCurrent()) return;
+    useDocumentStore.getState().setDrawingSheet({
+      ...sheet, views: refreshed, sourcePart: linkedPart, sourceStamp, sourceContentHash: onDiskHash,
+    });
     showToast("Views updated");
   } catch (error) {
     showToast(`Update Views failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
@@ -273,13 +285,14 @@ export async function runCreateSectionView(
   flipped: boolean,
 ): Promise<void> {
   const { showToast } = useGeometryStore.getState();
+  const isCurrent = captureDrawingCommand();
   const { document } = useDocumentStore.getState();
   const sourcePart = document.drawing?.sourcePart;
   if (!sourcePart) return;
 
   try {
     const source = await readSourcePart(sourcePart, `Pick ${sourcePart.fileName} again to create the section view`);
-    if (!source) return;
+    if (!source || !isCurrent()) return;
 
     const originX = sourceView.originX ?? 0;
     const originY = sourceView.originY ?? 0;
@@ -331,6 +344,7 @@ export async function runCreateSectionView(
       },
     };
 
+    if (!isCurrent()) return;
     useDocumentStore.getState().addDrawingView(newView);
     useDrawingToolStore.getState().resetPicking();
     showToast("Section view created");
@@ -480,13 +494,14 @@ export async function runCreateAuxiliaryView(
   angle: number,
 ): Promise<void> {
   const { showToast } = useGeometryStore.getState();
+  const isCurrent = captureDrawingCommand();
   const { document } = useDocumentStore.getState();
   const sourcePart = document.drawing?.sourcePart;
   if (!sourcePart || sourceView.kind !== "standard" || sourceView.projection === "iso") return;
 
   try {
     const source = await readSourcePart(sourcePart, `Pick ${sourcePart.fileName} again to create the auxiliary view`);
-    if (!source) return;
+    if (!source || !isCurrent()) return;
 
     showToast("Creating auxiliary view…", 15000);
     const projected = await rebuildAndProjectAuxiliary(
@@ -525,6 +540,7 @@ export async function runCreateAuxiliaryView(
       },
     };
 
+    if (!isCurrent()) return;
     useDocumentStore.getState().addDrawingView(newView);
     useDrawingToolStore.getState().resetPicking();
     showToast("Auxiliary view created");
@@ -549,13 +565,14 @@ export async function runCreateProjectedView(
   target: StandardProjectionKind,
 ): Promise<void> {
   const { showToast } = useGeometryStore.getState();
+  const isCurrent = captureDrawingCommand();
   const sheet = useDocumentStore.getState().document.drawing;
   const sourcePart = sheet?.sourcePart;
   if (!sheet || !sourcePart || sourceView.kind !== "standard") return;
 
   try {
     const source = await readSourcePart(sourcePart, `Pick ${sourcePart.fileName} again to create the projected view`);
-    if (!source) return;
+    if (!source || !isCurrent()) return;
 
     showToast("Creating projected view…", 15000);
     const projected = await rebuildAndProjectPart(source.document, source.sketches);
@@ -587,6 +604,7 @@ export async function runCreateProjectedView(
       holeTargets: targetGeometry.holeTargets,
     };
 
+    if (!isCurrent()) return;
     useDocumentStore.getState().addDrawingView(newView);
     useDrawingToolStore.getState().resetPicking();
     showToast(`${target.toUpperCase()} view projected`);
@@ -618,6 +636,7 @@ function tablePlacement(sheet: DrawingSheetData): { x: number; y: number } {
  */
 export async function runInsertHoleTable(): Promise<void> {
   const { showToast } = useGeometryStore.getState();
+  const isCurrent = captureDrawingCommand();
   const { document: activeDocument } = useDocumentStore.getState();
   const sheet = activeDocument.drawing;
   const sourcePart = sheet?.sourcePart;
@@ -628,7 +647,7 @@ export async function runInsertHoleTable(): Promise<void> {
 
   try {
     const source = await readSourcePart(sourcePart, `Pick ${sourcePart.fileName} again to build the hole table`);
-    if (!source) return;
+    if (!source || !isCurrent()) return;
 
     const { document: partDocument, sketches } = source;
     const holeFeatures = partDocument.features
@@ -681,6 +700,7 @@ export async function runInsertHoleTable(): Promise<void> {
  */
 export async function runInsertBomTable(): Promise<void> {
   const { showToast } = useGeometryStore.getState();
+  const isCurrent = captureDrawingCommand();
   const { document: activeDocument } = useDocumentStore.getState();
   const sheet = activeDocument.drawing;
   const sourcePart = sheet?.sourcePart;
@@ -691,7 +711,7 @@ export async function runInsertBomTable(): Promise<void> {
 
   try {
     const source = await readSourcePart(sourcePart, `Pick ${sourcePart.fileName} again to build the BOM`);
-    if (!source) return;
+    if (!source || !isCurrent()) return;
 
     const materialFeature = source.document.features.find((feature) => feature.kind === "material");
     const material =

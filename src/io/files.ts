@@ -30,15 +30,19 @@ export async function saveBlobAs(
   blob: Blob,
   suggestedName: string,
   extensions: string[],
+  options?: { initialPath?: string; verifyPath?: (path: string) => void },
 ): Promise<string | null> {
   if (!isTauri()) {
     downloadInBrowser(blob, suggestedName);
     return "";
   }
 
-  const path = await invoke<string | null>("pick_save_path", { suggestedName, extensions });
+  const path = await invoke<string | null>("pick_save_path", {
+    suggestedName, extensions, initialPath: options?.initialPath,
+  });
   if (!path) return null;
 
+  options?.verifyPath?.(path);
   await writeBinaryAtPath(path, blob);
   return path;
 }
@@ -46,8 +50,7 @@ export async function saveBlobAs(
 /** Writes a blob directly to an already-known path, no dialog — what plain Save uses once a
  * document has a real file behind it, so re-saving never re-prompts for a location the way
  * Save As deliberately does. The Rust side only honours paths one of its own dialogs (or a
- * drop) handed back this session, which is exactly where a document's `filePath` comes
- * from. Browser-only sessions have no such path to begin with (`saveBlobAs` always
+ * drop) handed back this session, but required write access is granted only by the save dialog. Browser-only sessions have no such path to begin with (`saveBlobAs` always
  * returns `""` there), so callers only reach this inside Tauri. */
 export async function writeBinaryAtPath(path: string, blob: Blob): Promise<void> {
   const contents = Array.from(new Uint8Array(await blob.arrayBuffer()));
@@ -116,7 +119,7 @@ function downloadInBrowser(blob: Blob, fileName: string): void {
 }
 
 function pickInBrowser(extensions: string[]): Promise<PickedFile | null> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = extensions.map((extension) => `.${extension}`).join(",");
@@ -126,11 +129,18 @@ function pickInBrowser(extensions: string[]): Promise<PickedFile | null> {
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       input.remove();
-      resolve(file ? { name: file.name, data: await file.arrayBuffer(), path: null } : null);
-    });
+      try {
+        resolve(file ? { name: file.name, data: await file.arrayBuffer(), path: null } : null);
+      } catch (error) {
+        reject(error);
+      }
+    }, { once: true });
 
-    // A cancelled picker fires no event in some browsers; the element is cleaned up when
-    // the next import runs rather than being leaked indefinitely.
+    input.addEventListener("cancel", () => {
+      input.remove();
+      resolve(null);
+    }, { once: true });
+
     document.body.appendChild(input);
     input.click();
   });

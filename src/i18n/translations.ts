@@ -230,6 +230,17 @@ export const sk: Record<string, string> = {
   "tabs.aria-label": "Otvorené dokumenty",
   "tabs.close": "Zavrieť {{name}}",
   "tabs.new": "Nový dokument",
+  "settings.confirm-close": "Potvrdiť zatvorenie pri neuložených zmenách",
+  "close.title": "Uložiť zmeny pred zatvorením?",
+  "close.unsaved-one": "Tento dokument obsahuje neuložené zmeny.",
+  "close.unsaved": "Tieto dokumenty obsahujú neuložené zmeny.",
+  "close.saving": "Ukladá sa…",
+  "close.saving-in-progress": "Dokument sa ukladá. Po dokončení skúste zatvoriť znova.",
+  "close.save-incomplete": "Niektoré zmeny ešte nie sú uložené. Môžete skúsiť uložiť znova alebo zatvorenie zrušiť.",
+  "close.failed": "Okno sa nepodarilo zatvoriť. Skúste to znova.",
+  "close.discard": "Zavrieť bez uloženia",
+  "close.save-all": "Uložiť všetko a zavrieť",
+  "close.save": "Uložiť a zavrieť",
 
   // -------------------------------------------------------------------- drawing sheet
   "drawing.insert-model-view": "Vložiť pohľad na model",

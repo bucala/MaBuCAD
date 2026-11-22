@@ -1,6 +1,8 @@
 use std::collections::HashSet;
-use std::fs;
-use std::path::PathBuf;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -88,9 +90,23 @@ pub fn pick_open_path(app: AppHandle, extensions: Vec<String>) -> Option<String>
 /// Opens a native save dialog pre-seeded with `suggested_name` and returns the picked
 /// path, blessed as a write target. `None` means the user cancelled.
 #[tauri::command(async)]
-pub fn pick_save_path(app: AppHandle, suggested_name: String, extensions: Vec<String>) -> Option<String> {
+pub fn pick_save_path(
+  app: AppHandle,
+  suggested_name: String,
+  extensions: Vec<String>,
+  initial_path: Option<String>,
+) -> Option<String> {
   let exts: Vec<&str> = extensions.iter().map(String::as_str).collect();
   let mut dialog = app.dialog().file().set_file_name(suggested_name);
+  if let Some(initial_path) = initial_path.filter(|path| app.state::<PickedPaths>().may_read(path)) {
+    let path = Path::new(&initial_path);
+    if let Some(directory) = path.parent() {
+      dialog = dialog.set_directory(directory);
+    }
+    if let Some(name) = path.file_name() {
+      dialog = dialog.set_file_name(name.to_string_lossy());
+    }
+  }
   if !exts.is_empty() {
     dialog = dialog.add_filter(exts.join("/").to_uppercase(), &exts);
   }
@@ -113,7 +129,32 @@ pub fn write_binary_file(app: AppHandle, path: String, contents: Vec<u8>) -> Res
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
   }
 
-  fs::write(&path, contents).map_err(|error| error.to_string())
+  replace_file(&path, &contents).map_err(|error| error.to_string())
+}
+
+/// Write and flush a sibling file before replacing the destination in one filesystem operation.
+fn replace_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+  static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
+  let (temporary, mut file) = loop {
+    let serial = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+    let temporary = path.with_file_name(format!(".mabucad-{}-{serial}.tmp", std::process::id()));
+    if temporary == path {
+      continue;
+    }
+    match OpenOptions::new().write(true).create_new(true).open(&temporary) {
+      Ok(file) => break (temporary, file),
+      Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+      Err(error) => return Err(error),
+    }
+  };
+
+  let written = file.write_all(contents).and_then(|()| file.sync_all());
+  drop(file);
+  let replaced = written.and_then(|()| fs::rename(&temporary, path));
+  if replaced.is_err() {
+    let _ = fs::remove_file(&temporary);
+  }
+  replaced
 }
 
 /// Reads a file the user picked in a native dialog (or dropped) this session, or chose
@@ -201,7 +242,8 @@ pub fn announce_dropped_file(window: &tauri::Window, path: &std::path::Path) {
 
 #[cfg(test)]
 mod tests {
-  use super::PickedPaths;
+  use super::{replace_file, PickedPaths};
+  use std::fs;
 
   /// The direction split is the security property: an open pick or a drop grants reads
   /// only, so a path that merely passed through the webview as "import this" can never be
@@ -221,6 +263,25 @@ mod tests {
     picked.bless_writable("C:/parts/bracket.mabucad");
     assert!(picked.may_write("C:/parts/bracket.mabucad"));
     assert!(picked.may_read("C:/parts/bracket.mabucad"));
+  }
+
+  #[test]
+  fn replacement_overwrites_existing_file_and_cleans_up_failed_writes() {
+    let dir = std::env::temp_dir().join(format!("mabucad-file-test-{}", std::process::id()));
+    fs::create_dir(&dir).unwrap();
+    let path = dir.join("document.mabucad");
+    fs::write(&path, b"old").unwrap();
+    replace_file(&path, b"updated").unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"updated");
+
+    let directory = dir.join("destination");
+    fs::create_dir(&directory).unwrap();
+    assert!(replace_file(&directory, b"cannot replace a directory").is_err());
+    assert!(directory.is_dir());
+    assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
+    fs::remove_dir(directory).unwrap();
+    fs::remove_file(path).unwrap();
+    fs::remove_dir(dir).unwrap();
   }
 
   #[test]

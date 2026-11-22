@@ -146,7 +146,7 @@ interface DocumentStore {
   past: CadDocument[];
   future: CadDocument[];
 
-  addFeature: (kind: FeatureKind, parameters?: FeatureParameters, parents?: string[]) => string;
+  addFeature: (kind: FeatureKind, parameters?: FeatureParameters, parents?: string[], name?: string) => string;
   setFeatureErrors: (errors: Record<string, string>) => void;
   renameFeature: (id: string, name: string) => void;
   deleteFeature: (id: string) => void;
@@ -424,7 +424,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
     past: [],
     future: [],
 
-    addFeature: (kind, parameters, parents = []) => {
+    addFeature: (kind, parameters, parents = [], name) => {
       const id = nextId(kind);
       const opensSession = !SESSIONLESS_KINDS.has(kind);
 
@@ -441,7 +441,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => {
         const feature: Feature = {
           id,
           kind,
-          name: nextFeatureName(document.features, kind),
+          name: name || nextFeatureName(document.features, kind),
           suppressed: false,
           isDefault: false,
           parents,

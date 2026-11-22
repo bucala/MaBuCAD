@@ -25,7 +25,8 @@ import {
 } from "lucide-react";
 
 import { isCommandAvailable, runCommand } from "@/commands/commandRegistry";
-import { hasAutosaveSnapshot, runRestoreAutosave } from "@/commands/documentIO";
+import { listAutosaveSnapshots, runRestoreAutosave } from "@/commands/documentIO";
+import { useActiveDocumentModified } from "@/state/workspaceStore";
 import { useAppInfo } from "@/hooks/useAppInfo";
 import { useTranslation } from "@/i18n/useTranslation";
 import { useDocumentStore } from "@/state/documentStore";
@@ -248,7 +249,7 @@ function CustomMenu({ label, children }: { label: string; children: (close: () =
  */
 export function MenuBar() {
   const documentName = useDocumentStore((state) => state.document.name);
-  const isModified = useDocumentStore((state) => state.past.length > 0);
+  const isModified = useActiveDocumentModified();
   const appInfo = useAppInfo();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { t } = useTranslation();
@@ -277,36 +278,43 @@ export function MenuBar() {
             items={menu.items}
             extraItems={
               menu.id === "file"
-                ? (close) => (
-                    <>
-                      <div className={styles.menuDivider} role="separator" />
-                      <button
-                        type="button"
-                        role="menuitemcheckbox"
-                        aria-checked={autosaveEnabled}
-                        className={styles.dropdownItem}
-                        onClick={toggleAutosave}
-                      >
-                        <span className={styles.checkSlot} aria-hidden="true">
-                          {autosaveEnabled && <Check size={14} strokeWidth={2} />}
-                        </span>
-                        {t("menu.autosave", "Autosave")}
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className={styles.dropdownItem}
-                        disabled={!hasAutosaveSnapshot()}
-                        onClick={() => {
-                          runRestoreAutosave();
-                          close();
-                        }}
-                      >
-                        <History size={14} strokeWidth={1.75} />
-                        {t("menu.restore-autosave", "Restore Autosave")}…
-                      </button>
-                    </>
-                  )
+                ? (close) => {
+                    const snapshots = listAutosaveSnapshots();
+                    const restoreLabel = t("menu.restore-autosave", "Restore Autosave");
+                    return (
+                      <>
+                        <div className={styles.menuDivider} role="separator" />
+                        <button
+                          type="button"
+                          role="menuitemcheckbox"
+                          aria-checked={autosaveEnabled}
+                          className={styles.dropdownItem}
+                          onClick={toggleAutosave}
+                        >
+                          <span className={styles.checkSlot} aria-hidden="true">
+                            {autosaveEnabled && <Check size={14} strokeWidth={2} />}
+                          </span>
+                          {t("menu.autosave", "Autosave")}
+                        </button>
+                        {snapshots.map(({ key, content, savedAt }) => (
+                          <button
+                            key={key}
+                            type="button"
+                            role="menuitem"
+                            className={styles.dropdownItem}
+                            title={new Date(savedAt).toLocaleString()}
+                            onClick={() => {
+                              runRestoreAutosave(key);
+                              close();
+                            }}
+                          >
+                            <History size={14} strokeWidth={1.75} />
+                            {restoreLabel} · {content.document.name}
+                          </button>
+                        ))}
+                      </>
+                    );
+                  }
                 : undefined
             }
           />

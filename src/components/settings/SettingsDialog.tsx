@@ -100,7 +100,7 @@ function GeneralTab() {
             checked={confirmBeforeDiscard}
             onChange={(event) => setConfirmBeforeDiscard(event.target.checked)}
           />
-          Confirm before discarding unsaved changes (New / Open)
+          {t("settings.confirm-close", "Confirm before closing with unsaved changes")}
         </label>
       </div>
 

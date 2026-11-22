@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { CloseDocumentsDialog } from "@/components/document/CloseDocumentsDialog";
 import { AppShell } from "@/components/layout/AppShell";
 import { PrintOverlay } from "@/components/PrintOverlay";
 import { useAutosave } from "@/hooks/useAutosave";
@@ -9,6 +10,7 @@ import { useDragDropImport } from "@/hooks/useDragDropImport";
 import { useEscapeToDeselect } from "@/hooks/useEscapeToDeselect";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useRebuild } from "@/hooks/useRebuild";
+import { useWindowCloseProtection } from "@/hooks/useWindowCloseProtection";
 import { useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { useSettingsStore } from "@/state/settingsStore";
@@ -21,6 +23,7 @@ export default function App() {
   useAutosave();
   useDebugLogging();
   useDragDropImport();
+  useWindowCloseProtection();
 
   // Rebuild failures belong on the feature that caused them, so the tree can badge it.
   const errors = useGeometryStore((state) => state.errors);
@@ -50,6 +53,7 @@ export default function App() {
   return (
     <>
       <AppShell />
+      <CloseDocumentsDialog />
       <PrintOverlay />
     </>
   );

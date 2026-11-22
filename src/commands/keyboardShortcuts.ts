@@ -1,9 +1,7 @@
-/** Actions bindable to a key from Settings ▸ Shortcuts. Deliberately a small, fixed list
- * of ribbon commands rather than every command in the registry — these four are the ones
- * every other CAD tool exposes as bare-key shortcuts (no modifier needed for three of
- * them), so they're the ones worth a global listener; anything else stays mouse/ribbon
- * driven. */
-export type ShortcutActionId = "delete" | "hideShow" | "undo" | "redo";
+/** Actions bindable in Settings ▸ Shortcuts. */
+export type ShortcutActionId =
+  | "delete" | "hideShow" | "undo" | "redo"
+  | "newDocument" | "openDocument" | "saveDocument" | "saveDocumentAs" | "importGeometry";
 
 export interface ShortcutAction {
   id: ShortcutActionId;
@@ -16,6 +14,11 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   { id: "hideShow", label: "Hide/Show selection", commandId: "view.hide-show" },
   { id: "undo", label: "Undo", commandId: "edit.undo" },
   { id: "redo", label: "Redo", commandId: "edit.redo" },
+  { id: "newDocument", label: "New document", commandId: "doc.new" },
+  { id: "openDocument", label: "Open document", commandId: "doc.open" },
+  { id: "saveDocument", label: "Save document", commandId: "doc.save" },
+  { id: "saveDocumentAs", label: "Save document as", commandId: "doc.save-as" },
+  { id: "importGeometry", label: "Import geometry", commandId: "file.import" },
 ];
 
 export const DEFAULT_SHORTCUT_KEYS: Record<ShortcutActionId, string> = {
@@ -23,6 +26,11 @@ export const DEFAULT_SHORTCUT_KEYS: Record<ShortcutActionId, string> = {
   hideShow: "Space",
   undo: "ctrl+Z",
   redo: "ctrl+Y",
+  newDocument: "ctrl+N",
+  openDocument: "ctrl+O",
+  saveDocument: "ctrl+S",
+  saveDocumentAs: "ctrl+shift+S",
+  importGeometry: "ctrl+shift+O",
 };
 
 /**

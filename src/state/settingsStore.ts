@@ -207,6 +207,15 @@ export const DEFAULT_SETTINGS: SettingsValues = {
  * export/import round-trip for the common case — Export/Import Settings (`settingsIO.ts`)
  * is for moving preferences to a different machine or keeping a backup, not for every day.
  */
+function mergeShortcutKeys(saved: Partial<Record<ShortcutActionId, string>> = {}) {
+  const shortcuts = { ...DEFAULT_SHORTCUT_KEYS };
+  const assigned = new Set(Object.values(saved));
+  for (const id of Object.keys(shortcuts) as ShortcutActionId[]) {
+    shortcuts[id] = saved[id] ?? (assigned.has(shortcuts[id]) ? "" : shortcuts[id]);
+  }
+  return shortcuts;
+}
+
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set) => ({
@@ -240,9 +249,19 @@ export const useSettingsStore = create<SettingsStore>()(
       toggleLogoTitleVisible: () => set((state) => ({ logoTitleVisible: !state.logoTitleVisible })),
       toggleVersionVisible: () => set((state) => ({ versionVisible: !state.versionVisible })),
       toggleSmartConstraint: () => set((state) => ({ smartConstraintEnabled: !state.smartConstraintEnabled })),
-      replaceAll: (values) => set(values),
+      replaceAll: (values) => set({ ...values, keyboardShortcuts: mergeShortcutKeys(values.keyboardShortcuts) }),
       resetToDefaults: () => set(DEFAULT_SETTINGS),
     }),
-    { name: "mabucad-settings" },
+    {
+      name: "mabucad-settings",
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<SettingsStore> | undefined;
+        return {
+          ...current,
+          ...saved,
+          keyboardShortcuts: mergeShortcutKeys(saved?.keyboardShortcuts),
+        };
+      },
+    },
   ),
 );

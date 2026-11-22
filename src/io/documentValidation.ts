@@ -159,6 +159,10 @@ function validateDocument(value: unknown): string | null {
     ) {
       return `feature "${feature.id}" has non-object parameters`;
     }
+    const brep = (feature.parameters as Record<string, unknown> | undefined)?.importedBrep;
+    if (brep !== undefined && (feature.kind !== "imported" || typeof brep !== "string" || !brep.trim())) {
+      return `feature "${feature.id}" has invalid imported geometry`;
+    }
   }
 
   const rollbackIndex = document.rollbackIndex;

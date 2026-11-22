@@ -4,6 +4,7 @@
   "description": "Capability for the main application window",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-destroy"
   ]
 }

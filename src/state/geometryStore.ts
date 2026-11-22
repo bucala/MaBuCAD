@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { rebuildDocument, type MeshData } from "@/kernel/rebuild";
+import { rebuildDocument, replaceCurrentShape, type MeshData } from "@/kernel/rebuild";
 import type { Sketch } from "@/sketch/types";
 import type { Feature } from "@/types/document";
 
@@ -89,6 +89,7 @@ export const useGeometryStore = create<GeometryStore>((set) => ({
 
     if (modelling.length === 0) {
       latestRequest += 1;
+      replaceCurrentShape(null);
       set({ status: "empty", mesh: null, errors: {}, message: null });
       return;
     }

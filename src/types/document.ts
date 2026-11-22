@@ -46,6 +46,8 @@ export type FeatureKind =
 export type EndCondition = "blind" | "through-all" | "mid-plane" | "up-to-surface";
 
 export interface FeatureParameters {
+  /** Native OpenCASCADE B-Rep of an imported STEP or STL body. */
+  importedBrep?: string;
   depth?: number;
   angle?: number;
   radius?: number;

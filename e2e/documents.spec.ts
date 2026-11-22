@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { expect, test } from "@playwright/test";
 
-import { createRectangleSketch, saveDocumentAs } from "./partWorkflows";
+import { createRectangleSketch, extrudeCurrentSketch, saveDocumentAs } from "./partWorkflows";
 
 /**
  * Whole-document persistence end to end: draw a profile, exit the sketch, save the file
@@ -59,4 +59,76 @@ test("a drawn sketch survives a save/open round trip as a current-format documen
   await expect(sketchRow).toBeVisible();
   await sketchRow.dblclick();
   await expect(page.getByTestId("sketch-entity-count")).toHaveText("4");
+});
+
+test("STEP export uses the active document and imported geometry survives reopen", async ({ page }) => {
+  await page.goto("/");
+  await createRectangleSketch(page);
+  await extrudeCurrentSketch(page);
+
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Export STEP…" }).click();
+  const stepPath = await (await download).path();
+
+  await page.keyboard.press("Control+n");
+  await page.getByRole("button", { name: "Create Part" }).click();
+  await expect(page.getByRole("contentinfo")).toContainText("0 features");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Export STEP…" }).click();
+  await expect(page.getByText("Nothing to export yet — build a feature first")).toBeVisible();
+
+  const importPicker = page.waitForEvent("filechooser");
+  await page.keyboard.press("Control+Shift+o");
+  await (await importPicker).setFiles({
+    name: "imported-block.step",
+    mimeType: "application/step",
+    buffer: readFileSync(stepPath),
+  });
+  await expect(page.getByTestId("geometry-status")).toHaveText(/Model up to date/i);
+  const save = page.waitForEvent("download");
+  await page.keyboard.press("Control+s");
+  const savedPath = await (await save).path();
+
+  await page.reload();
+  await expect(page.getByRole("tab", { name: "Part1" })).toBeVisible();
+  const openPicker = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Open…" }).click();
+  await (await openPicker).setFiles(savedPath);
+
+  await expect(page.getByRole("treeitem", { name: /imported-block/ })).toBeVisible();
+  await expect(page.getByTestId("geometry-status")).toHaveText(/Model up to date/i);
+  const reExport = page.waitForEvent("download");
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Export STEP…" }).click();
+  expect(readFileSync(await (await reExport).path(), "utf8")).toContain("MANIFOLD_SOLID_BREP");
+});
+
+test("closing a dirty background tab can be cancelled or saved without switching documents", async ({ page }) => {
+  await page.goto("/");
+  await createRectangleSketch(page);
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New", exact: true }).click();
+  await page.getByRole("button", { name: "Create Part" }).click();
+
+  const closeFirst = page.getByRole("button", { name: "Close Part1", exact: true });
+  const second = page.getByRole("tab", { name: /^Part2/ });
+  const confirmation = page.getByRole("dialog", { name: "Save changes before closing?" });
+  await closeFirst.click();
+  await expect(confirmation.getByRole("listitem")).toHaveText("Part1");
+  await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toBeHidden();
+  await expect(closeFirst).toBeVisible();
+  await expect(second).toHaveAttribute("aria-selected", "true");
+
+  await closeFirst.click();
+  const download = page.waitForEvent("download");
+  await confirmation.getByRole("button", { name: "Save and close", exact: true }).click();
+  const saved = JSON.parse(readFileSync(await (await download).path(), "utf8"));
+  expect(saved.document.name).toBe("Part1");
+  expect(Object.values(saved.sketches)).toHaveLength(1);
+  await expect(closeFirst).toBeHidden();
+  await expect(second).toHaveAttribute("aria-selected", "true");
 });

@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 
+import { useCloseConfirmation } from "@/commands/closeDocuments";
 import { runCommand } from "@/commands/commandRegistry";
 import { normalizeKeyEvent, SHORTCUT_ACTIONS } from "@/commands/keyboardShortcuts";
 import { useSettingsStore } from "@/state/settingsStore";
 
 /**
  * Global listener for the fixed, user-rebindable shortcut list in Settings ▸ Shortcuts
- * (Delete, Space for Hide/Show, Undo, Redo by default) — each dispatches through the same
+ * — each dispatches through the same
  * `runCommand` the ribbon and menu bar already use, so a shortcut can never do anything a
  * button press couldn't.
  *
@@ -20,6 +21,7 @@ import { useSettingsStore } from "@/state/settingsStore";
 export function useKeyboardShortcuts() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (useCloseConfirmation.getState().target) return;
       const target = event.target as HTMLElement | null;
       if (target && /^(input|textarea|select)$/i.test(target.tagName)) return;
 

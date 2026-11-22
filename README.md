@@ -109,7 +109,8 @@ a kernel with none.
 ### 🔄 STEP / STL interchange
 
 STEP exports the kernel's own B-Rep (round-trips exactly); STL is a binary triangulation for
-manufacturing hand-off. Both import back into the document as real features.
+manufacturing hand-off. Both import back into the document as real features, with their
+geometry embedded in subsequently saved MaBuCAD files.
 
   </td>
   </tr>
@@ -169,8 +170,10 @@ wired to the viewport, not decorative checkboxes.
 
 ### 💾 Autosave & recovery
 
-An opt-in `localStorage` recovery snapshot every 60s while there are unsaved changes, with
-File ▸ Restore Autosave to bring it back — no native save dialog interrupting you.
+Opt-in recovery snapshots every 60s for documents with unsaved changes. File ▸ Restore
+Autosave opens each snapshot in a separate tab without taking over an existing file.
+Closing a modified tab or the Windows app offers to save the pending work, close without
+saving, or cancel. The window can save changes across all open tabs before exiting.
 
   </td>
   </tr>

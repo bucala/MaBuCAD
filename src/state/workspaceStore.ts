@@ -4,14 +4,13 @@ import { create } from "zustand";
 import { DOCUMENT_FORMAT_VERSION, SavedDocument, validateSavedDocument } from "@/io/documentValidation";
 import { releaseImportedShapesForFeatures } from "@/kernel/importedShapes";
 import { openFile, saveBlobAs, writeBinaryAtPath } from "@/io/files";
-import type { Sketch } from "@/sketch/types";
+import { replaceCurrentShape } from "@/kernel/rebuild";
 import type { CadDocument, DocumentKind } from "@/types/document";
-import type { UnitSystemId } from "@/types/ui";
 
 import { createDocument, useDocumentStore } from "./documentStore";
+import { useDrawingToolStore } from "./drawingToolStore";
 import { useGeometryStore } from "./geometryStore";
 import { useInspectStore } from "./inspectStore";
-import { useSettingsStore } from "./settingsStore";
 import { useSketchStore } from "./sketchStore";
 import { useViewportStore } from "./viewportStore";
 
@@ -32,39 +31,54 @@ import { useViewportStore } from "./viewportStore";
 
 const EXTENSION = "mabucad";
 
-export interface DocumentSession {
+type DocumentContent = Pick<SavedDocument, "document" | "sketches" | "unitSystem">;
+
+export interface DocumentSession extends DocumentContent {
   /** Tab identity — deliberately not `document.id`: a document's own id is assigned by a
    * counter that restarts every app launch, so two files saved in different sessions can
    * carry the same `document.id` and would collide as session/React keys if reused here. */
   id: string;
   kind: DocumentKind;
   /** Real filesystem path if this tab was opened from disk under Tauri, or has been saved to
-   * one since — see `PickedFile.path`'s own doc comment in `io/files.ts`. Once set, a plain
-   * Save writes straight back to it instead of prompting; Save As always prompts and updates
-   * this to whatever new path the user picks. */
+   * one since. A plain Save can write directly after a native save dialog has approved it. */
   filePath: string | null;
-  document: CadDocument;
-  sketches: Record<string, Sketch>;
-  unitSystem: UnitSystemId;
+  writable: boolean;
+  savedContent: DocumentContent | null;
   past: CadDocument[];
   future: CadDocument[];
   hiddenFeatureIds: string[];
 }
 
-let sessionIdCounter = 0;
-function nextSessionId(): string {
-  sessionIdCounter += 1;
-  return `session-${sessionIdCounter}`;
+function sameProperties<T extends object>(left: T, right: T, ignored: keyof T): boolean {
+  const leftKeys = (Object.keys(left) as (keyof T)[]).filter((key) => key !== ignored);
+  const rightCount = Object.keys(right).filter((key) => key !== ignored).length;
+  return leftKeys.length === rightCount && leftKeys.every((key) =>
+    Object.prototype.hasOwnProperty.call(right, key) && left[key] === right[key],
+  );
 }
 
-/** Whether proceeding would discard edits the user hasn't saved, and if so, whether
- * they're fine with that — shared by closing a dirty tab and restoring an autosave over
- * the active one, the only two actions left that can actually lose work now that New/Open
- * each get their own tab instead of replacing anything. */
-export function confirmDiscard(message: string, hasUnsavedChanges: boolean): boolean {
-  if (!hasUnsavedChanges) return true;
-  if (!useSettingsStore.getState().confirmBeforeDiscard) return true;
-  return window.confirm(message);
+function documentChanged(document: CadDocument, saved: CadDocument): boolean {
+  if (saved === document) return false;
+
+  // Rebuild diagnostics are attached to feature rows and can change without a user edit.
+  const features = document.features;
+  return !sameProperties(document, saved, "features") ||
+    features.length !== saved.features.length ||
+    features.some((feature, index) => {
+      const previous = saved.features[index]!;
+      return feature !== previous && !sameProperties(feature, previous, "error");
+    });
+}
+
+export function isSessionModified(session: DocumentSession): boolean {
+  const saved = session.savedContent;
+  return !saved || saved.sketches !== session.sketches || saved.unitSystem !== session.unitSystem ||
+    documentChanged(session.document, saved.document);
+}
+
+function sameFilePath(left: string, right: string): boolean {
+  const normalize = (path: string) => path.replace(/\\/g, "/").toLowerCase();
+  return normalize(left) === normalize(right);
 }
 
 function nextDocumentName(sessions: DocumentSession[], kind: DocumentKind): string {
@@ -92,12 +106,16 @@ function snapshotActive(session: DocumentSession): DocumentSession {
 
 /** Writes `session`'s state into the live stores — called on the incoming tab of a switch. */
 function applySession(session: DocumentSession): void {
+  const drawingTools = useDrawingToolStore.getState();
+  drawingTools.closeModelViewPicker();
+  drawingTools.resetPicking();
   useInspectStore.getState().closeInspect();
   useInspectStore.getState().resetMeshDerivedState();
   useViewportStore.getState().setEdgePickMode(null);
   useViewportStore.getState().setHolePlacementActive(false);
   // Cleared synchronously rather than left to show the outgoing tab's mesh until
   // `useRebuild`'s own debounce catches up — a document switch should read as instant.
+  replaceCurrentShape(null);
   useGeometryStore.setState({ status: "empty", mesh: null, errors: {}, previewMesh: null, toast: null });
 
   useDocumentStore.getState().restoreSession(session.document, session.past, session.future, session.unitSystem);
@@ -107,13 +125,24 @@ function applySession(session: DocumentSession): void {
 
 function freshSession(kind: DocumentKind, sessions: DocumentSession[]): DocumentSession {
   const document = createDocument(kind, nextDocumentName(sessions, kind));
+  return createSession({ document, sketches: {}, unitSystem: "MMGS" });
+}
+
+function createSession(
+  content: DocumentContent,
+  filePath: string | null = null,
+  id: string = crypto.randomUUID(),
+  savedContent: DocumentContent | null = content,
+): DocumentSession {
   return {
-    id: nextSessionId(),
-    kind,
-    filePath: null,
-    document,
-    sketches: {},
-    unitSystem: "MMGS",
+    document: content.document,
+    sketches: content.sketches,
+    unitSystem: content.unitSystem,
+    id,
+    kind: content.document.kind,
+    filePath,
+    writable: false,
+    savedContent,
     past: [],
     future: [],
     hiddenFeatureIds: [],
@@ -124,6 +153,7 @@ interface WorkspaceStore {
   /** Open tabs, in the order they should display. */
   sessions: DocumentSession[];
   activeId: string;
+  savingSessionId: string | null;
 
   /** File ▸ New — opens a fresh document of the given kind in a new tab and activates it. */
   newDocument: (kind: DocumentKind) => void;
@@ -131,38 +161,24 @@ interface WorkspaceStore {
    * matching tab if that same file (matched by path) is already open. */
   openFromDisk: () => Promise<void>;
   switchTo: (id: string) => void;
-  /** Closes a tab, prompting first if it has unsaved changes. Closing the last remaining
-   * tab replaces it with a fresh blank Part rather than leaving nothing open. */
+  /** Removes a tab after its close has been resolved. Closing the last tab starts a blank Part. */
   closeDocument: (id: string) => void;
-  /** File ▸ Save — writes the active tab's document to disk. Silently overwrites the tab's
-   * known `filePath` if it has one; otherwise falls back to the same picker as Save As (a
-   * brand-new, never-saved document has nowhere else to write to). Returns whether it
-   * actually saved (false if the user cancelled the dialog or it failed), so
-   * `documentIO.ts` knows whether the autosave recovery snapshot is now redundant. */
-  saveActive: () => Promise<boolean>;
-  /** File ▸ Save As — always prompts for a location, even if the tab already has one, and
-   * makes the picked path the tab's new `filePath` for subsequent plain Saves. */
-  saveActiveAs: () => Promise<boolean>;
-  /** Restore Autosave: overwrites the active tab's content in place (fresh undo history,
-   * same as Open), used only by `commands/documentIO.ts`'s `runRestoreAutosave`. */
-  restoreIntoActive: (document: CadDocument, sketches: Record<string, Sketch>, unitSystem: UnitSystemId) => void;
+  /** Save the captured revision and report whether the tab is still clean afterward. */
+  saveDocument: (id: string, saveAs?: boolean) => Promise<{ id: string; clean: boolean } | null>;
+  /** Open recovery data independently so it never inherits the active file's path. */
+  restoreAsDocument: (content: DocumentContent, recoveryId: string) => void;
 }
 
-const initialSession: DocumentSession = {
-  id: nextSessionId(),
-  kind: useDocumentStore.getState().document.kind,
-  filePath: null,
+const initialSession = createSession({
   document: useDocumentStore.getState().document,
   sketches: useSketchStore.getState().sketches,
   unitSystem: useDocumentStore.getState().unitSystem,
-  past: [],
-  future: [],
-  hiddenFeatureIds: [],
-};
+});
 
 export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   sessions: [initialSession],
   activeId: initialSession.id,
+  savingSessionId: null,
 
   newDocument: (kind) => {
     const { sessions, activeId } = get();
@@ -180,8 +196,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       const picked = await openFile([EXTENSION, "json"]);
       if (!picked) return;
 
-      const alreadyOpen = picked.path
-        ? get().sessions.find((session) => session.filePath === picked.path)
+      const pickedPath = picked.path;
+      const alreadyOpen = pickedPath
+        ? get().sessions.find((session) => session.filePath && sameFilePath(session.filePath, pickedPath))
         : undefined;
       if (alreadyOpen) {
         get().switchTo(alreadyOpen.id);
@@ -199,17 +216,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       const { sessions, activeId } = get();
       const withSnapshot = sessions.map((session) => (session.id === activeId ? snapshotActive(session) : session));
 
-      const session: DocumentSession = {
-        id: nextSessionId(),
-        kind: saved.document.kind,
-        filePath: picked.path,
-        document: saved.document,
-        sketches: saved.sketches,
-        unitSystem: saved.unitSystem ?? "MMGS",
-        past: [],
-        future: [],
-        hiddenFeatureIds: [],
-      };
+      const session = createSession(saved, pickedPath);
 
       set({ sessions: [...withSnapshot, session], activeId: session.id });
       applySession(session);
@@ -234,11 +241,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   closeDocument: (id) => {
     const { sessions, activeId } = get();
     const index = sessions.findIndex((session) => session.id === id);
-    if (index === -1) return;
+    if (index === -1 || get().savingSessionId === id) return;
 
     const target = id === activeId ? snapshotActive(sessions[index]) : sessions[index];
-    if (!confirmDiscard("Discard unsaved changes and close this document?", target.past.length > 0)) return;
-
     releaseImportedShapesOf(target.document);
     const remaining = sessions.filter((session) => session.id !== id);
 
@@ -259,87 +264,81 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     applySession(next);
   },
 
-  saveActive: async () => {
+  saveDocument: async (id, saveAs = false) => {
+    const { sessions, activeId, savingSessionId } = get();
+    const tab = sessions.find((session) => session.id === id);
+    if (!tab || savingSessionId) return null;
+
     const { showToast } = useGeometryStore.getState();
-    const { document, unitSystem } = useDocumentStore.getState();
-    const { sketches } = useSketchStore.getState();
-    const knownPath = get().sessions.find((session) => session.id === get().activeId)?.filePath ?? null;
+    const { filePath, writable, document, sketches, unitSystem } = id === activeId ? snapshotActive(tab) : tab;
+    const content = { document, sketches, unitSystem };
+    const payload: SavedDocument = { formatVersion: DOCUMENT_FORMAT_VERSION, ...content };
 
-    const payload: SavedDocument = { formatVersion: DOCUMENT_FORMAT_VERSION, document, sketches, unitSystem };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-
+    set({ savingSessionId: id });
     try {
-      if (knownPath && isTauri()) {
-        await writeBinaryAtPath(knownPath, blob);
-        showToast(`Saved ${document.name}.${EXTENSION}`);
-        return true;
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const directPath = filePath && writable && !saveAs && isTauri() ? filePath : null;
+
+      let destination = directPath;
+      if (directPath) {
+        await writeBinaryAtPath(directPath, blob);
+      } else {
+        destination = await saveBlobAs(blob, `${document.name}.${EXTENSION}`, [EXTENSION], {
+          initialPath: filePath ?? undefined,
+          verifyPath: (path) => {
+            const other = get().sessions.find((session) =>
+              session.id !== id && session.filePath && sameFilePath(session.filePath, path),
+            );
+            if (other) throw new Error("The destination is already open in another tab");
+          },
+        });
+        if (destination === null) return null;
       }
 
-      const path = await saveBlobAs(blob, `${document.name}.${EXTENSION}`, [EXTENSION]);
-      if (path === null) return false;
-      if (path) {
-        const { activeId } = get();
-        set((state) => ({
-          sessions: state.sessions.map((session) => (session.id === activeId ? { ...session, filePath: path } : session)),
-        }));
-      }
-      showToast(`Saved ${document.name}.${EXTENSION}`);
-      return true;
+      set((state) => ({
+        sessions: state.sessions.map((session) => session.id === id
+          ? { ...session, filePath: destination || null, writable: Boolean(destination), savedContent: content }
+          : session),
+      }));
+      const saved = snapshotSessions(get()).find((session) => session.id === id);
+      showToast(`Saved ${destination?.split(/[\\/]/).pop() || `${document.name}.${EXTENSION}`}`);
+      return { id, clean: !!saved && !isSessionModified(saved) };
     } catch (error) {
-      showToast(`Save failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
-      return false;
+      const message = error instanceof Error ? error.message : String(error);
+      showToast(`Save failed: ${message}`, 6000);
+      return null;
+    } finally {
+      set({ savingSessionId: null });
     }
   },
 
-  saveActiveAs: async () => {
-    const { showToast } = useGeometryStore.getState();
-    const { document, unitSystem } = useDocumentStore.getState();
-    const { sketches } = useSketchStore.getState();
-
-    const payload: SavedDocument = { formatVersion: DOCUMENT_FORMAT_VERSION, document, sketches, unitSystem };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-
-    try {
-      const path = await saveBlobAs(blob, `${document.name}.${EXTENSION}`, [EXTENSION]);
-      if (path === null) return false;
-      if (path) {
-        const { activeId } = get();
-        set((state) => ({
-          sessions: state.sessions.map((session) => (session.id === activeId ? { ...session, filePath: path } : session)),
-        }));
-      }
-      showToast(`Saved ${document.name}.${EXTENSION}`);
-      return true;
-    } catch (error) {
-      showToast(`Save failed: ${error instanceof Error ? error.message : "unknown error"}`, 6000);
-      return false;
+  restoreAsDocument: (content, recoveryId) => {
+    const state = get();
+    const sessions = snapshotSessions(state);
+    const existing = sessions.find((session) => session.id === recoveryId);
+    if (existing && !existing.savedContent) {
+      state.switchTo(existing.id);
+      return;
     }
-  },
-
-  restoreIntoActive: (document, sketches, unitSystem) => {
-    const { activeId } = get();
-    releaseImportedShapesOf(useDocumentStore.getState().document);
-
-    const session: DocumentSession = {
-      id: activeId,
-      kind: document.kind,
-      filePath: get().sessions.find((s) => s.id === activeId)?.filePath ?? null,
-      document,
-      sketches,
-      unitSystem,
-      past: [],
-      future: [],
-      hiddenFeatureIds: [],
-    };
-
-    set((state) => ({
-      sessions: state.sessions.map((existing) => (existing.id === activeId ? session : existing)),
-    }));
+    const session = createSession(content, null, existing ? undefined : recoveryId, null);
+    set({ sessions: [...sessions, session], activeId: session.id });
     applySession(session);
   },
 }));
 
-/* ------------------------------------------------------------------ selectors */
+export function snapshotSessions(state: WorkspaceStore = useWorkspaceStore.getState()): DocumentSession[] {
+  return state.sessions.map((session) => (session.id === state.activeId ? snapshotActive(session) : session));
+}
+
+export function useActiveDocumentModified(): boolean {
+  const saved = useWorkspaceStore((state) => selectActiveSession(state)?.savedContent);
+  const changed = useDocumentStore(({ document, unitSystem }) =>
+    !saved || unitSystem !== saved.unitSystem || documentChanged(document, saved.document),
+  );
+  const sketchesChanged = useSketchStore((state) => state.sketches !== saved?.sketches);
+  return changed || sketchesChanged;
+}
+
 
 export function selectActiveSession(state: WorkspaceStore): DocumentSession | undefined {
   return state.sessions.find((session) => session.id === state.activeId);

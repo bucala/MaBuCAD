@@ -1,4 +1,4 @@
-import { draw, drawCircle, drawPointsInterpolation, EdgeFinder, FaceFinder, genericSweep, Plane, Vector } from "replicad";
+import { deserializeShape, draw, drawCircle, drawPointsInterpolation, EdgeFinder, FaceFinder, genericSweep, Plane, Vector } from "replicad";
 import type { AnyShape, Edge } from "replicad";
 import { Vector3 } from "three";
 
@@ -98,7 +98,7 @@ export function getCurrentShape(): Solid | null {
   return currentShape;
 }
 
-function replaceCurrentShape(next: Solid | null): void {
+export function replaceCurrentShape(next: Solid | null): void {
   currentShape = next;
 }
 
@@ -950,12 +950,20 @@ export async function rebuildDocument(
   sketches: Record<string, Sketch>,
 ): Promise<RebuildResult> {
   await initKernel();
+  return rebuildDocumentSync(features, sketches);
+}
 
+/** Replay and consume the current shape in one turn once OpenCASCADE is ready. */
+export function rebuildDocumentSync(features: Feature[], sketches: Record<string, Sketch>): RebuildResult {
   // Suppressed features never reach the kernel, so the cache addresses the *evaluated*
   // list — un-suppressing a feature inserts it into that list and shifts every key after
   // it, which is exactly the divergence the prefix match exists to catch.
   const evaluated = features.filter((candidate) => !candidate.suppressed);
-  const keys = prefixKeys(evaluated, sketches);
+  // OCCT booleans can change tolerances on an imported body's shared topology. Rebuild
+  // every import from its embedded B-Rep and only cache the features before it.
+  const firstImport = evaluated.findIndex((candidate) => candidate.kind === "imported");
+  const cacheableFeatures = firstImport === -1 ? evaluated : evaluated.slice(0, firstImport);
+  const keys = prefixKeys(cacheableFeatures, sketches);
 
   const errors: Record<string, string> = {};
   let current: Solid | null = null;
@@ -993,17 +1001,8 @@ export async function rebuildDocument(
   // every replayed feature whose prefix stayed clean.
   const newChain: RebuildCheckpoint<Solid>[] = checkpoints.slice(0, start);
 
-  // Checkpoints are only kept for prefixes that replayed without error and without an
-  // imported body. An errored feature can be transiently fixed by something outside the
-  // document (an imported shape being re-registered, kernel state), so the state after it
-  // must be re-derived rather than trusted — `recordCheckpoint` below refuses to record
-  // once any error exists. An imported solid is the other exclusion, tracked by this flag
-  // instead: it is owned by `importedShapes.ts`'s registry, which may release it while the
-  // cache still holds a reference, so the cache stops at the import.
-  let cacheable = true;
-
   const recordCheckpoint = (index: number) => {
-    if (!cacheable || index < start || index >= MAX_CHECKPOINTS) return;
+    if (index < start || index >= keys.length || index >= MAX_CHECKPOINTS) return;
     // An errored prefix must never be checkpointed: an error can be fixed by something
     // outside the document (an imported shape re-registered, kernel state), so the state
     // after it has to be re-derived, not trusted.
@@ -1027,18 +1026,17 @@ export async function rebuildDocument(
 
     const feature = evaluated[index]!;
 
-    // An imported body has no history to replay; it simply enters the model as a base.
     if (feature.kind === "imported") {
-      // Registry-owned solid from here on — see the `cacheable` note above.
-      cacheable = false;
-      const imported = getImportedShape(feature.id);
-      if (!imported) {
-        errors[feature.id] = "Imported geometry is no longer loaded";
-        continue;
+      try {
+        const brep = feature.parameters?.importedBrep;
+        const imported = brep ? (deserializeShape(brep) as Solid) : getImportedShape(feature.id);
+        if (!imported) throw new Error("Imported geometry is no longer loaded");
+        current = applyOperation(current, imported, "join");
+        featureSolids.set(feature.id, { solid: imported, operation: "join" });
+        rotation = [0, 0, 0];
+      } catch (error) {
+        errors[feature.id] = error instanceof Error ? error.message : "Imported geometry could not be read";
       }
-      current = applyOperation(current, imported as Solid, "join");
-      featureSolids.set(feature.id, { solid: imported as Solid, operation: "join" });
-      rotation = [0, 0, 0];
       continue;
     }
 
