@@ -179,6 +179,21 @@ export interface FeatureParameters {
    * one closed contour to choose from.
    */
   profileEntityIds?: string[];
+  /** `reference-plane` only: faces the opposite way from its base plane (normal reversed,
+   * sketch "up" kept). Set when a plane is made flush with a face whose outward normal
+   * points against the matching default plane's normal. */
+  flipped?: boolean;
+  /** `reference-plane` only: made flush with a picked model face (its normal points out of
+   * the material). A blind Cut-Extrude or Hole sketched on it defaults to cutting inward. */
+  fromFace?: boolean;
+  /** `reference-plane` only: a fixed base frame (world space) used instead of `parents[0]`
+   * — for a plane made on a face that is not parallel to any default plane. `distance`
+   * still offsets along its normal. See `sketch/planeBasis.ts`'s `planeFrame`. */
+  frame?: {
+    origin: [number, number, number];
+    xDir: [number, number, number];
+    normal: [number, number, number];
+  };
 }
 
 export interface Feature {
@@ -825,6 +840,38 @@ export interface Sensor {
   lastStatus: "ok" | "alert" | null;
 }
 
+/** A component's placement in its assembly: translation in mm, rotation as a unit
+ * quaternion `[x, y, z, w]` (three.js's own component order). */
+export interface ComponentTransform {
+  position: [number, number, number];
+  quaternion: [number, number, number, number];
+}
+
+/**
+ * One placed instance of a saved Part file. Like a Drawing's `sourcePart`, an assembly
+ * references the part *file* rather than embedding it, so editing the part (in its own
+ * tab) and saving it is what updates every assembly that uses it. Several components may
+ * share one source file — each is its own placement of the same geometry.
+ */
+export interface AssemblyComponent {
+  id: string;
+  /** Shown in the assembly tree, e.g. "Bracket<1>". */
+  name: string;
+  source: { fileName: string; path: string | null };
+  transform: ComponentTransform;
+  /** A grounded component can't be moved — the fixed frame everything else is placed
+   * against. The first component inserted into an assembly is grounded. */
+  grounded: boolean;
+  /** Suppressed components are kept in the tree but neither loaded nor drawn. */
+  suppressed?: boolean;
+}
+
+/** Present only when `CadDocument.kind === "assembly"`. Phase 1 is placement only — mates
+ * come later and will be added as an optional sibling of `components`. */
+export interface AssemblyData {
+  components: AssemblyComponent[];
+}
+
 export interface CadDocument {
   id: string;
   name: string;
@@ -843,4 +890,6 @@ export interface CadDocument {
   sensors?: Sensor[];
   /** Present only when `kind === "drawing"` — see `DrawingSheetData`'s own doc comment. */
   drawing?: DrawingSheetData;
+  /** Present only when `kind === "assembly"` — see `AssemblyData`'s own doc comment. */
+  assembly?: AssemblyData;
 }

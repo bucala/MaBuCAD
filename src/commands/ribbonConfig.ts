@@ -42,6 +42,7 @@ import {
   Percent,
   Printer,
   Puzzle,
+  RefreshCw,
   Repeat,
   Rotate3d,
   RotateCw,
@@ -259,6 +260,7 @@ export const RIBBON_TABS: RibbonTab[] = [
           { id: "assembly.insert", label: "Insert Component", icon: Puzzle, size: "large", description: "Place an existing part or sub-assembly" },
           { id: "assembly.new-part", label: "New Part", icon: Component, size: "small", description: "Create a part in the context of the assembly" },
           { id: "assembly.replace", label: "Replace", icon: Repeat, size: "small", description: "Swap a component while keeping its mates" },
+          { id: "assembly.update", label: "Update Components", icon: RefreshCw, size: "small", description: "Re-read every component's part file after editing it" },
         ],
       },
       {

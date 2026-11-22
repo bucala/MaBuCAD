@@ -49,6 +49,42 @@ export type OrthoProjection = "front" | "top" | "right";
  * `ScreenAxis` (`types/document.ts`) persists for section/broken metadata. */
 export type AuxiliaryTiltAxis = ScreenAxis;
 
+/**
+ * Maps this app's own Front/Top/Right/Back/Bottom/Left view labels onto the replicad
+ * camera that actually looks straight at that labelled face.
+ *
+ * replicad's own six named `ProjectionPlane`s (`"front"|"top"|"bottom"|"left"|"right"|
+ * "back"`) are a *fixed, Z-up* camera rig (its own doc-commented basis: Front looks down
+ * world −Y, Top down world −Z, Right down world −X) that has nothing to do with which
+ * plane this app calls "Front"/"Top"/"Right" in `REFERENCE_PLANES` (`constants.ts`) — a
+ * *Y-up* rig, where Front's own normal is world +Z, Top's is world +Y, Right's is world
+ * +X (the same basis `sketch/planeBasis.ts` and `kernel/rebuild.ts`'s `replicadPlaneFor`
+ * use for every sketch-based feature). Before this map existed, every view here used
+ * replicad's literal same-named string — so a feature built on *this app's* Top plane
+ * (normal +Y) projected edge-on under replicad's own `"top"` camera (which looks along Z)
+ * and only showed up undistorted under its `"front"`/`"back"` cameras (which look along
+ * Y) — i.e. a part sketched on this app's Top plane appeared in the drawing's Front view,
+ * not its Top view.
+ *
+ * Verified against the real kernel, not derived by hand: an asymmetric L-profile was
+ * built on each reference plane and projected through all six of replicad's own named
+ * cameras, picking for each app-facing label whichever of the two candidates that look
+ * straight along that plane's own normal axis renders the profile with its own local
+ * in-plane axis landing on-screen *unmirrored* (`lookFromPlane("bottom").xAxis` etc. read
+ * back directly, not assumed) — the same reasoning `sectionAxisAndOffset`/
+ * `sectionArrowSign` below build on, which is why their own per-view formulas come out
+ * uniformly simple (every local coordinate maps straight onto its world axis, no sign
+ * flips) once routed through this same table.
+ */
+const APP_TO_REPLICAD_PLANE: Record<Exclude<StandardProjectionKind, "iso">, ProjectionPlane> = {
+  front: "bottom",
+  back: "top",
+  top: "front",
+  bottom: "back",
+  right: "left",
+  left: "right",
+};
+
 /** Guards against a degenerate view (an empty/near-planar projection) collapsing to a
  * zero-size bounding box, which would make an SVG `viewBox` invalid. */
 const MIN_VIEW_SIZE = 1;
@@ -111,7 +147,7 @@ export function auxiliaryCamera(
   tiltAxis: AuxiliaryTiltAxis,
   angle: number,
 ): ProjectionCamera {
-  const base = lookFromPlane(projection);
+  const base = lookFromPlane(APP_TO_REPLICAD_PLANE[projection]);
   const axis = tiltAxis === "horizontal" ? base.xAxis : base.yAxis;
   const rotatedDirection = base.direction.rotate(angle, [0, 0, 0], axis.toTuple());
   const rotatedXAxis = base.xAxis.rotate(angle, [0, 0, 0], axis.toTuple());
@@ -311,12 +347,12 @@ export async function rebuildAndProjectPart(
   // and re-running the WASM-backed `drawProjection` call seven times instead of four is
   // cheap next to the boolean-cut work a Section view already redoes on every recompute.
   const views: ProjectedViews = {
-    front: projectOne(built.shape, "front"),
-    top: projectOne(built.shape, "top"),
-    bottom: projectOne(built.shape, "bottom"),
-    left: projectOne(built.shape, "left"),
-    right: projectOne(built.shape, "right"),
-    back: projectOne(built.shape, "back"),
+    front: projectOne(built.shape, APP_TO_REPLICAD_PLANE.front),
+    top: projectOne(built.shape, APP_TO_REPLICAD_PLANE.top),
+    bottom: projectOne(built.shape, APP_TO_REPLICAD_PLANE.bottom),
+    left: projectOne(built.shape, APP_TO_REPLICAD_PLANE.left),
+    right: projectOne(built.shape, APP_TO_REPLICAD_PLANE.right),
+    back: projectOne(built.shape, APP_TO_REPLICAD_PLANE.back),
     iso: projectOne(built.shape, iso),
   };
 
@@ -366,11 +402,14 @@ export async function rebuildAndProjectAuxiliary(
  * projected space (`projectOne`'s un-normalised (u, v) — i.e. the view's `originX/Y` plus
  * a local coordinate, *not* the sheet-rendered, Y-flipped-for-SVG one).
  *
- * Derived from replicad's own camera basis for each plane (`PROJECTION_PLANES` in its
- * source, `{dir, xAxis}` with `yAxis = dir × xAxis`): Front's (xAxis, yAxis) are
- * (world X, world Z); Top's are (world X, world −Y); Right's are (world −Y, world Z).
- * A *vertical* cut line holds the view's local `u` constant, so its plane's normal is the
- * axis `u` maps to; a *horizontal* line holds `v` constant the same way.
+ * Derived from the real camera each of this app's own Front/Top/Right views now actually
+ * uses (`APP_TO_REPLICAD_PLANE`, read via `lookFromPlane`, not assumed): App-Front's own
+ * (xAxis, yAxis) are (world X, world Y); App-Top's are (world X, world Z); App-Right's are
+ * (world Y, world Z) — every one of them a bare axis with no sign flip, by construction
+ * (`APP_TO_REPLICAD_PLANE`'s own doc comment explains why: each was picked specifically
+ * because it lands unmirrored). A *vertical* cut line holds the view's local `u` constant,
+ * so its plane's normal is the axis `u` maps to; a *horizontal* line holds `v` constant the
+ * same way.
  */
 export function sectionAxisAndOffset(
   projection: OrthoProjection,
@@ -379,13 +418,13 @@ export function sectionAxisAndOffset(
   v: number,
 ): { axis: "x" | "y" | "z"; offset: number } {
   if (projection === "front") {
-    return orientation === "vertical" ? { axis: "x", offset: u } : { axis: "z", offset: v };
+    return orientation === "vertical" ? { axis: "x", offset: u } : { axis: "y", offset: v };
   }
   if (projection === "top") {
-    return orientation === "vertical" ? { axis: "x", offset: u } : { axis: "y", offset: -v };
+    return orientation === "vertical" ? { axis: "x", offset: u } : { axis: "z", offset: v };
   }
   // "right"
-  return orientation === "vertical" ? { axis: "y", offset: -u } : { axis: "z", offset: v };
+  return orientation === "vertical" ? { axis: "y", offset: u } : { axis: "z", offset: v };
 }
 
 /**
@@ -398,23 +437,17 @@ export function sectionAxisAndOffset(
  * ISO 128-3's own convention: the arrows point in the direction of sight for the resulting
  * section — i.e. toward the kept material. Derived from the same per-projection axis
  * mapping `sectionAxisAndOffset` uses above: each (projection, orientation) pair maps its
- * local coordinate to a world axis value via a pure ±1 scale factor `S` (no offset — e.g.
- * Front-vertical's `u` *is* world X, Top-horizontal's `v` maps to world Y via `-v`), so
- * "which local direction moves toward the kept side" is exactly `keepPositiveSide ? S : -S`,
- * flipped once more for the horizontal case's own screen-Y inversion.
+ * local coordinate to its world axis with a scale factor `S` of exactly `+1` now for
+ * every one of them (no projection-dependent sign flip left — `sectionAxisAndOffset`'s own
+ * note explains why), so "which local direction moves toward the kept side" is exactly
+ * `keepPositiveSide ? 1 : -1`, flipped once more for the horizontal case's own screen-Y
+ * inversion. `orientation`/`keepPositiveSide` are the only inputs that still matter.
  */
-export function sectionArrowSign(
-  projection: OrthoProjection,
-  orientation: "horizontal" | "vertical",
-  keepPositiveSide: boolean,
-): 1 | -1 {
+export function sectionArrowSign(orientation: "horizontal" | "vertical", keepPositiveSide: boolean): 1 | -1 {
   if (orientation === "vertical") {
-    const s: 1 | -1 = projection === "right" ? -1 : 1;
-    return keepPositiveSide ? s : (-s as 1 | -1);
+    return keepPositiveSide ? 1 : -1;
   }
-  const s: 1 | -1 = projection === "top" ? -1 : 1;
-  const towardKeptInV = keepPositiveSide ? s : (-s as 1 | -1);
-  return -towardKeptInV as 1 | -1;
+  return keepPositiveSide ? -1 : 1;
 }
 
 function asCuttable(shape: unknown) {
@@ -570,8 +603,7 @@ function cutAndProjectSection(
     const cameraAxes = lookFromPlane(camera);
     const hatchFaces = new FaceFinder().inPlane(AXIS_PLANE[axis], offset).find(cutShape);
     hatchPaths = hatchFaces.map((face) => faceHatchPath(face, cameraAxes, minX, minY));
-  } catch (err) {
-    console.error("HATCH DEBUG err", err);
+  } catch {
     hatchPaths = [];
   }
 

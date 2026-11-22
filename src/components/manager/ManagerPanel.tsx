@@ -10,6 +10,7 @@ import { useInspectStore } from "@/state/inspectStore";
 import { selectIsSketchMode, useSketchStore } from "@/state/sketchStore";
 
 import { ConfigurationManager } from "@/components/manager/ConfigurationManager";
+import { AssemblyManager } from "@/components/tree/AssemblyTree";
 import { FeatureTree } from "@/components/tree/FeatureTree";
 import { PropertyManager } from "@/components/property/PropertyManager";
 import type { ManagerTabId } from "@/types/ui";
@@ -34,6 +35,7 @@ export function ManagerPanel() {
   const inspectTool = useInspectStore((state) => state.activeTool);
   const closeInspect = useInspectStore((state) => state.closeInspect);
   const featureEditId = useDocumentStore((state) => state.featureEdit?.featureId ?? null);
+  const isAssembly = useDocumentStore((state) => state.document.kind === "assembly");
   const { t } = useTranslation();
   // Commands take over the properties slot; ordinary selection never switches tabs.
   useEffect(() => {
@@ -74,7 +76,7 @@ export function ManagerPanel() {
         id="manager-content"
         aria-labelledby={`manager-tab-${activeTab}`}
       >
-        {activeTab === "features" && <FeatureTree />}
+        {activeTab === "features" && (isAssembly ? <AssemblyManager /> : <FeatureTree />)}
         {activeTab === "properties" && (
           <ErrorBoundary
             message={t(

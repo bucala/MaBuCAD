@@ -194,7 +194,7 @@ export function FeatureTree() {
           </div>
         )}
 
-        {document.features.every((feature) => feature.isDefault) && (
+        {document.kind !== "assembly" && document.features.every((feature) => feature.isDefault) && (
           <p className={styles.empty}>
             {t(
               "tree.empty",

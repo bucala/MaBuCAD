@@ -7,6 +7,206 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-11-22 — Sketching on reference planes and model faces (v0.35.0)
+
+Sketches are no longer limited to the three origin planes.
+
+### Added
+- **Sketch on a reference plane.** Select a reference plane (in the tree or viewport) and
+  click **Sketch**. Features built from that sketch start on the plane, and move with it
+  when you change its **Distance**.
+- **Sketch on a face.** Switch the selection filter to **Face**, click a flat face of the
+  body, then click **Sketch**. MaBuCAD adds a reference plane flush with the face, facing
+  out of the material, and opens the sketch on it:
+  - A face parallel to Front, Top or Right becomes a parametric offset of that plane.
+  - Any other flat face gets a fixed plane (there is no persistent face naming yet, so it
+    doesn't follow later edits to the body).
+  - Sketching on the same face again reuses the plane instead of adding another.
+  - A curved face shows a message instead.
+- **Reference plane options:**
+  - A reference plane can be offset from another reference plane, not only an origin plane.
+  - **Flip plane normal** in the property panel reverses which way the plane faces.
+  - **Plane** with a flat face selected creates a plane 10 mm out from that face.
+- **Loft between offset planes.** Profiles on distinct parallel planes are lofted where
+  they are. Profiles that share one plane are still spread by the loft's Depth, as before.
+
+### Changed
+- **Hole Wizard placement** puts the hole's sketch on a plane flush with the clicked face,
+  on any flat face. Before, it accepted only faces parallel to an origin plane, and a blind
+  hole measured its depth from the origin plane instead of from the face.
+- A blind **Extruded Cut** or **Hole** from a sketch on a face cuts into the material by
+  default.
+
+### Fixed
+- In sketch mode with the **Face** selection filter on, clicking the body selected a face
+  instead of drawing. The body now ignores clicks while a sketch is open.
+
+### Internal
+- `sketch/planeBasis.ts`'s `planeFrame` resolves any plane id (origin plane or reference
+  plane: offset, flipped, chained, or a stored frame) to an origin and orientation. The
+  kernel, the sketch canvas, inactive sketches, the plane display and the cosmetic thread
+  overlay all use it.
+- The rebuild cache key of a sketch-based feature includes its plane's resolved placement,
+  so editing a reference plane re-places the feature even when the plane is later in the
+  tree.
+- New tests: `rebuildReferencePlanes.spec.ts` and `facePlane.spec.ts` (real kernel), and
+  `e2e/reference-planes.spec.ts`.
+
+### Docs
+- README: the feature overview mentions sketching on planes and faces, and assemblies.
+
+## 2026-11-22 — Assemblies, phase 1: components and placement (v0.34.0)
+
+The Assembly document type is now real (it was a disabled "Coming soon" card). Phase 1
+covers placing parts. Mates are phase 2.
+
+### Added
+- **New ▸ Assembly** creates an assembly with its own origin planes and an empty
+  component list.
+- **Insert Component** (Assembly tab) picks a saved Part file and places it at the origin.
+  The first component is grounded. A part can be inserted any number of times
+  (`Bracket<1>`, `Bracket<2>`, …).
+- **Moving components:**
+  - Select a component in the viewport or the component list. It is drawn in the accent
+    colour with a move/rotate gizmo; one whole drag is one undo step.
+  - The placement panel under the list takes exact position (mm) and rotation (XYZ degrees)
+    values.
+  - A grounded component can't be moved. **Ground/Float** toggles that.
+- **Component list** in the Feature Manager, below the assembly's origin planes:
+  - Badges for Grounded, Loading, File missing and Error.
+  - Relink…, Ground/Float, Suppress and Delete. **Delete** and **Escape** also work on the
+    selection.
+- **Missing parts:** components reference part *files*, like a Drawing's source part. A
+  part that has moved, or can't be re-read (the browser fallback keeps no path), loads
+  with a **File missing** badge instead of a prompt per component. **Relink…** points it at
+  the file again.
+- **Update Components** re-reads every component's part file after you edit and save it.
+- **Status bar and Zoom to Fit:**
+  - The status bar shows the component count and "Editing Assembly". It shows "Editing
+    Drawing" for drawings, which previously said "Editing Part".
+  - Zoom to Fit frames placed components.
+
+### How it works
+- `CadDocument.assembly` holds components, each with a source file, a transform (position
+  plus unit quaternion), and grounded/suppressed flags.
+- The file format moves to **v3** through a no-op migration. Older files open unchanged.
+  An older build *refuses* an assembly instead of opening it as an empty part and
+  dropping its components on save.
+- Component meshes come from `kernel/componentLoader.ts`:
+  - It rebuilds each part with `rebuildDocumentSync(..., persist = false)`, so loading
+    components never touches the active document's checkpoint chain or `currentShape`.
+  - Meshes are cached by file content hash. N copies of one part rebuild once, and an
+    edited part rebuilds automatically.
+- `state/assemblyStore.ts` keys loaded geometry by workspace tab, not document id. A
+  document's id is saved in its file, so an assembly reopened in a second tab has the
+  same id and must resolve its components on its own.
+- The part-file parser is now shared with Drawings (`io/partFiles.ts`).
+
+### Tests
+- New unit tests:
+  - `assemblyComponents.spec.ts`: actions, grounding and drag batching.
+  - Assembly validation cases in `documentValidation.spec.ts`.
+  - `componentLoader.spec.ts`: real kernel, cache sharing, and that the confirmed shape is
+    untouched.
+  - `assemblyStore.spec.ts`: per-tab resolution.
+- New e2e test, `e2e/assembly.spec.ts`:
+  - Insert twice, move numerically, then save and check the v3 file.
+  - Reopen, see **File missing**, then Relink.
+
+## 2026-11-22 — Drawing-view axis fix, preview/confirmed geometry isolation (v0.33.0)
+
+A follow-up architectural-audit round, closing the remaining items from the kernel-
+correctness pass two rounds ago (id collisions, multi-plane geometry): the drawing-view
+axis mismatch flagged as a known follow-up there, and the confirmed/preview geometry
+separation (WP01) and sketch-solver rollback (WP03) items from the original audit.
+
+### Fixed — a feature's drawing view no longer matches the wrong named camera
+- `kernel/drawingProjection.ts`'s Front/Top/Right/Back/Bottom/Left views passed replicad's
+  own same-named camera straight through (`projectOne(shape, "front")`, etc.) — but
+  replicad's six named cameras are a fixed, Z-up rig (Front looks down world −Y, Top down
+  world −Z, Right down world −X), unrelated to this app's own Y-up `REFERENCE_PLANES`
+  (Front's normal is world +Z, Top's is world +Y, Right's is world +X — the same basis
+  `rebuild.ts`'s `replicadPlaneFor` uses for every sketch-based feature, fixed two rounds
+  ago). A feature sketched on this app's own Top plane projected edge-on under replicad's
+  `"top"` camera and only showed up, undistorted, under its `"front"`/`"back"` — i.e. it
+  appeared in the drawing's *Front* view, not its *Top* view.
+- Added `APP_TO_REPLICAD_PLANE`, a verified lookup from this app's own view labels to the
+  replicad camera that actually looks straight at that labelled plane's face — derived by
+  building a real, asymmetric L-profile on each reference plane and projecting it through
+  all six of replicad's own named cameras with the real kernel, not worked out by hand
+  (hand-derived sign/handedness algebra for this kind of mapping is exactly the class of
+  mistake that's easy to get backwards without checking). `rebuildAndProjectPart`'s six
+  standard views and `auxiliaryCamera` now route through it.
+- `sectionAxisAndOffset`/`sectionArrowSign` (used by Section view creation and its cutting-
+  plane sighting arrows) re-derived against the same verified camera data — every
+  (view, orientation) pair now maps its local click coordinate straight onto its world
+  axis with no sign flip at all, a direct consequence of `APP_TO_REPLICAD_PLANE` having
+  picked, for each view, whichever of its two camera candidates lands unmirrored.
+  `sectionArrowSign` dropped its now-unused `projection` parameter as a result.
+  `sectionViewCamera`/`AXIS_PLANE` (which pick a camera by world axis, not by this app's
+  view labels, and feed `drawProjection` a real replicad string directly) were already
+  correct and untouched.
+- New regression coverage: `kernel/drawingProjectionPlanes.spec.ts` builds a hole on each
+  of the three reference planes and asserts it lands as a circle in the drawing view of
+  the *same name* and nowhere else, plus pins `sectionAxisAndOffset`/`sectionArrowSign`'s
+  own simplified contract directly. `drawingProjection.spec.ts`'s existing tapped-hole
+  fixture's assertion moved from `views.top` to `views.front` to match (it was unknowingly
+  relying on the bug above — Front's own normal is the axis replicad's `"top"` camera
+  looked along, which is exactly what this fix no longer does).
+
+### Fixed — a live Fillet/Chamfer edge-pick preview could leak into Export/Measure
+- `geometryStore.ts`'s `rebuildPreview` — fired continuously for as long as a Fillet/
+  Chamfer's edge-pick mode stays open, rebuilding with that one feature forced suppressed
+  to preview the body as it was before — called the same `rebuildDocument` a real,
+  confirmed rebuild uses, writing through the same shared `currentShape`/checkpoint chain
+  `rebuild.ts` keeps. For that whole window, Export, Measure/Mass Properties/Check
+  Geometry, and `drawingProjection.ts` could read the throwaway preview body instead of
+  the last confirmed one.
+- `rebuildDocument`/`rebuildDocumentSync` take a new optional `persist` (default `true`);
+  `rebuildPreview` now passes `false`, which skips the three lines that write
+  `checkpoints`/`currentShape` back out. The replay itself still freely resumes from the
+  confirmed checkpoint chain for performance — replicad's boolean/transform operations
+  always build a new shape from their operands rather than mutating them, so a preview
+  resuming from a confirmed checkpoint's own state can't corrupt it.
+- New regression coverage: `kernel/rebuildPreviewIsolation.spec.ts` builds a confirmed two-
+  feature body, runs a suppressed-feature preview rebuild, and asserts `getCurrentShape()`
+  is still exactly the confirmed body (by reference) throughout, and that a later confirmed
+  rebuild still works correctly afterward.
+
+### Investigated and closed without a code change — sketch solver rollback
+- The original audit flagged the sketch solver as committing an over-defined/non-converged
+  result with no clean reject-and-restore. Re-investigated: the solver (`sketch/solver.ts`)
+  already gained a backtracking line search with best-so-far tracking in an earlier round,
+  so it never returns a worse-than-the-input, wildly-diverged result — only a monotonically-
+  improving best attempt, confirmed never to regress past the geometry it was handed
+  (`solver.spec.ts`). Sketch Doctor (`sketch/sketchDoctor.ts`) already gives the user a
+  tested, deliberate recovery flow for exactly this state (over-defined or non-converged):
+  it names the offending constraint(s) and deletes them in one step. A blanket "revert the
+  edit" would have removed the user's ability to add a genuinely conflicting constraint in
+  the first place — contradicting Sketch Doctor's own tested flow. No change needed.
+
+### Fixed — a tapped hole's cosmetic thread floated beside the hole on the Top/Right plane
+- `HoleThreadOverlay.tsx` placed each thread cylinder in the Front plane's frame and relied
+  on `SolidModel.tsx`'s whole-mesh display rotation to land it — a regression from the
+  multi-plane fix (v0.32.0), which builds every hole in its own plane's true world space and
+  made that rotation always identity. A thread on a Top- or Right-plane hole therefore drew
+  in the wrong place. Each cylinder now carries its own world transform
+  (`threadMeshTransform`, from the hole sketch's `planeBasis` — the same basis the kernel
+  embeds the cut through), pinned per plane by `HoleThreadOverlay.spec.ts`.
+
+### Cleanup
+- Removed `state/inuse.20520.lock`, a PID-named lock file from some local tool (not part of
+  this app's own code) accidentally committed in `388a55c`, with a `.gitignore` rule
+  against a repeat.
+- Removed the now-dead display-rotation plumbing the multi-plane fix left behind:
+  `MeshData.rotation`, `RebuildCheckpoint.rotation`, `SolidModel.tsx`'s rotated `<group>`
+  and the inverse rotations in its edge-pick/Measure/selection handlers, and Zoom to Fit's
+  box rotation. Mesh positions, kernel solids and click points all share world space now.
+  Hole placement carries a face normal into world space through the hit object's own
+  matrix instead of assuming a single Euler.
+- Dropped a leftover `HATCH DEBUG` console log from Section view hatching (a hatch failure
+  still degrades silently to an unhatched section, as documented there).
+
 ## 2026-11-22 — Safer document workflows and CAD interchange (v0.32.0)
 
 The document and geometry changes were introduced in [`edf10eb`](https://github.com/bucala/MaBuCAD/commit/edf10eb9d06824a84d7abb3aa6792661311dcd10).

@@ -8,15 +8,11 @@ import { auxiliaryCamera, rebuildAndProjectAuxiliary, rebuildAndProjectPart } fr
 import { initKernel } from "./occ";
 import { __clearRebuildCacheForTesting } from "./rebuild";
 
-/** A 20 mm block on the Front plane with one tapped Hole Wizard point at its centre —
- * Front, not Top: `rebuildPartShape`'s raw kernel shape feeds straight into replicad's own
- * Front/Top/Right projection cameras with no adjustment for which of *this app's* reference
- * planes (`REFERENCE_PLANES`) the sketch was actually drawn on, and only the Front plane's
- * own normal (world +Z) lines up with the axis replicad's "top" camera (looking down world
- * −Z) expects a hole target to run along; this fixture needs a circle in the "top" drawing
- * view, so it has to be built on the plane that actually produces one, not the
- * similarly-named reference plane that doesn't. `seat` splices extra parameters (a
- * counterbore seat, …) into the hole feature. */
+/** A 20 mm block on the Front plane with one tapped Hole Wizard point at its centre — a
+ * hole drilled along this app's own Front plane normal (world +Z) projects as a circle in
+ * the drawing's own Front view (`APP_TO_REPLICAD_PLANE` in `drawingProjection.ts` maps that
+ * to replicad's own `"bottom"` camera, which looks along Z). `seat` splices extra
+ * parameters (a counterbore seat, …) into the hole feature. */
 function tappedHoleDocument(
   seat?: Feature["parameters"],
 ): { document: CadDocument; sketches: Record<string, Sketch> } {
@@ -105,10 +101,10 @@ describe("drawing projection hole targets", () => {
       const projected = await rebuildAndProjectPart(document, sketches);
       expect(projected?.errors).toEqual({});
 
-      const top = projected?.views.top;
-      expect(top?.holeTargets).toHaveLength(1);
-      expect(top?.threadPaths).toHaveLength(1);
-      expect(top?.holeTargets?.[0]).toMatchObject({
+      const front = projected?.views.front;
+      expect(front?.holeTargets).toHaveLength(1);
+      expect(front?.threadPaths).toHaveLength(1);
+      expect(front?.holeTargets?.[0]).toMatchObject({
         radius: 2.5,
         metadata: {
           sourceFeatureId: "hole-1",
@@ -142,9 +138,9 @@ describe("drawing projection hole targets", () => {
 
       // The seat's own wider circle (⌀11) is real projected geometry but not a *hole*
       // circle, so it must not become a pickable target — only the drilled cylinder is.
-      const top = projected?.views.top;
-      expect(top?.holeTargets).toHaveLength(1);
-      expect(top?.holeTargets?.[0]).toMatchObject({
+      const front = projected?.views.front;
+      expect(front?.holeTargets).toHaveLength(1);
+      expect(front?.holeTargets?.[0]).toMatchObject({
         radius: 2.5,
         metadata: {
           seatType: "counterbore",

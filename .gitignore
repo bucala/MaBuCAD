@@ -19,6 +19,10 @@ src-tauri/target
 test-results
 playwright-report
 
+# A PID-named lock file some local tool (not this app) has dropped at the repo root in the
+# past (e.g. accidentally committed in 388a55c) — this repo's own code never creates one.
+/state/*.lock
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

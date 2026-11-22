@@ -2,7 +2,9 @@ import type { Vector3 } from "three";
 
 import type { Feature, FeatureKind } from "@/types/document";
 import type { GeometricConstraintKind } from "@/sketch/types";
-import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
+import { facePlaneFromMesh, facePlaneSpec, findMatchingPlane, type FacePlane } from "@/sketch/facePlane";
+import { isSketchablePlane, worldToSketch } from "@/sketch/planeBasis";
+import { selectComponentNow, selectedComponentIdNow } from "@/state/assemblyStore";
 import { DEFAULT_PLANE_IDS, useDocumentStore } from "@/state/documentStore";
 import { useGeometryStore } from "@/state/geometryStore";
 import { useInspectStore } from "@/state/inspectStore";
@@ -11,6 +13,7 @@ import { useSketchStore, type SketchTool } from "@/state/sketchStore";
 import { useTemplateStore } from "@/state/templateStore";
 import { useViewportStore } from "@/state/viewportStore";
 
+import { runInsertComponent, runUpdateComponents } from "./assemblyCommands";
 import { runOpenDocument, runSaveDocument, runSaveDocumentAs } from "./documentIO";
 import {
   runInsertBomTable,
@@ -20,10 +23,37 @@ import {
 } from "./drawingCommands";
 import { runExport, runImport } from "./interchange";
 
-/** How close to parallel (dot product of unit normals) a clicked face's normal needs to
- * be to one of the three default planes' own normal to count as "on that plane" — allows
- * for float error, not for a genuinely angled face. */
-const FACE_PLANE_ALIGNMENT_TOLERANCE = 0.98;
+/**
+ * The reference plane lying flush on a model face, reusing one that is already there or
+ * creating it (`sketch/facePlane.ts` decides whether it is a parametric offset of a default
+ * plane or a frozen frame). Returns its feature id.
+ */
+function planeOnFace(face: FacePlane): string {
+  const documentState = useDocumentStore.getState();
+  const spec = facePlaneSpec(face);
+  const existing = findMatchingPlane(documentState.document.features, spec);
+  if (existing) return existing;
+  return documentState.addFeature("reference-plane", spec.parameters, spec.parents);
+}
+
+/** The selected planar face of the current part body ("Face" selection filter), if any. */
+function selectedFacePlane(): FacePlane | null {
+  const faceId = useViewportStore.getState().selectedFaceId;
+  const mesh = useGeometryStore.getState().mesh;
+  if (faceId === null || !mesh) return null;
+  return facePlaneFromMesh(mesh, faceId);
+}
+
+/** Whether a sketch lies on a plane made flush with a model face, so a new blind cut on it
+ * should default to cutting into the material rather than out into air. */
+function sketchIsOnFace(sketchId: string | null | undefined): boolean {
+  if (!sketchId) return false;
+  const sketch = useSketchStore.getState().sketches[sketchId];
+  if (!sketch) return false;
+  return useDocumentStore
+    .getState()
+    .document.features.some((feature) => feature.id === sketch.planeId && feature.parameters.fromFace === true);
+}
 
 /**
  * Ribbon command ids that create a feature, mapped to the kind they create.
@@ -69,9 +99,9 @@ const SKETCH_RELATION_COMMANDS: Record<string, GeometricConstraintKind> = {
  * sketch on the selected plane.
  *
  * Matches SolidWorks: clicking Sketch with an existing sketch selected re-enters it rather
- * than creating a second, unrelated empty sketch. A new sketch needs a plane, so that path
- * uses the current selection and falls back to the Front plane — the same default a new
- * SolidWorks part offers.
+ * than creating a second, unrelated empty sketch. A new sketch needs a plane: a selected
+ * default or reference plane, else a selected flat model face (a flush reference plane is
+ * made for it), else the Front plane — the same default a new SolidWorks part offers.
  */
 function beginSketch() {
   const documentState = useDocumentStore.getState();
@@ -89,12 +119,23 @@ function beginSketch() {
     return;
   }
 
-  const selectedPlane = documentState.selectedFeatureIds.find((id) =>
-    (DEFAULT_PLANE_IDS as readonly string[]).includes(id),
-  );
+  const { features } = documentState.document;
+  const selectedPlane = documentState.selectedFeatureIds.find((id) => isSketchablePlane(id, features));
 
-  const planeId = selectedPlane ?? DEFAULT_PLANE_IDS[0];
-  const featureId = documentState.addFeature("sketch", undefined, [planeId]);
+  // A planar face picked with the "Face" selection filter sketches flush on that face.
+  let planeId = selectedPlane;
+  if (!planeId && useViewportStore.getState().selectedFaceId !== null) {
+    const face = selectedFacePlane();
+    if (!face) {
+      useGeometryStore.getState().showToast("That face isn't planar — pick a flat face or a plane", 4000);
+      return;
+    }
+    planeId = planeOnFace(face);
+    useViewportStore.getState().setSelectedFaceId(null);
+  }
+
+  planeId ??= DEFAULT_PLANE_IDS[0];
+  const featureId = useDocumentStore.getState().addFeature("sketch", undefined, [planeId]);
   sketchStore.beginSketch(featureId, planeId);
 }
 
@@ -123,7 +164,8 @@ function resolveTargetSketchId(): string | undefined {
 
 function addSketchFeature(kind: "extrude" | "cut-extrude" | "revolve" | "cut-revolve") {
   const sketchId = resolveTargetSketchId();
-  useDocumentStore.getState().addFeature(kind, undefined, sketchId ? [sketchId] : []);
+  const parameters = kind === "cut-extrude" && sketchIsOnFace(sketchId) ? { reversed: true } : undefined;
+  useDocumentStore.getState().addFeature(kind, parameters, sketchId ? [sketchId] : []);
 }
 
 /**
@@ -147,59 +189,48 @@ function addHoleFeature() {
   const hasPoint = sketch?.entities.some((entity) => entity.kind === "point") ?? false;
 
   if (sketchId && hasPoint) {
-    useDocumentStore.getState().addFeature("hole", undefined, [sketchId]);
+    const parameters = sketchIsOnFace(sketchId) ? { reversed: true } : undefined;
+    useDocumentStore.getState().addFeature("hole", parameters, [sketchId]);
     return;
   }
 
   useViewportStore.getState().setHolePlacementActive(true);
   useGeometryStore
     .getState()
-    .showToast("Hole Wizard: click a face parallel to Front, Top or Right to place a hole", 5000);
+    .showToast("Hole Wizard: click a flat face to place a hole", 5000);
 }
 
 /**
  * Turns a raycaster hit on the solid (a world point plus the clicked triangle's face
- * normal, both from `SolidModel.tsx`'s own click handler) into a Hole Wizard feature —
- * the part of item 1 ("Select" placement) that does not need real per-face identity from
- * the kernel: a point and a normal are all `buildHoleSolid` needs, the same as the
- * Fillet/Chamfer edge-pick flow only ever needed raw 3D points, never a real edge id.
+ * normal, both from `SolidModel.tsx`'s own click handler) into a Hole Wizard feature.
  *
- * The face has to be (anti-)parallel to one of the three default planes, because
- * `kernel/rebuild.ts` only knows how to orient a hole feature's cylinders by
- * `sketch.planeId`, and `planeBasis()` only has a rotation for those three ids — there is
- * no notion yet of a plane offset along its own normal (see `planeBasis.ts`). That is not
- * the limitation it sounds like for the common case: `buildHoleSolid`'s default end
- * condition is "through-all", which is already a deliberately oversized cut centred on
- * the sketch plane in *both* directions (`extrusionRange`), so it reaches a face offset
- * from the origin along that same normal regardless. An angled/non-axis-aligned face
- * (e.g. a chamfer or a revolved surface) is correctly rejected rather than silently
- * producing a hole in the wrong place.
+ * The hole's sketch goes on a reference plane flush with the clicked face (reused when one
+ * is already there — see `planeOnFace`), so a blind hole really starts at the face and
+ * drills `depth` into the material (`reversed`, since the plane faces outward), on any flat
+ * face, not only ones through the origin or parallel to a default plane.
  *
  * Returns whether a hole was placed, so the caller knows whether to stay in placement
- * mode (misaligned face — let the user try a different one) or leave it (success).
+ * mode (non-planar face — let the user try another one) or leave it (success).
  */
-export function placeHoleAtPick(worldPoint: Vector3, worldNormal: Vector3): boolean {
-  const planeId = DEFAULT_PLANE_IDS.find(
-    (id) => Math.abs(planeBasis(id).normal.dot(worldNormal)) > FACE_PLANE_ALIGNMENT_TOLERANCE,
-  );
-
-  if (!planeId) {
-    useGeometryStore
-      .getState()
-      .showToast("That face isn't parallel to Front, Top or Right — pick another one", 4000);
+export function placeHoleAtPick(worldPoint: Vector3, worldNormal: Vector3, faceId?: number | null): boolean {
+  const mesh = useGeometryStore.getState().mesh;
+  const facePlane = mesh && faceId != null ? facePlaneFromMesh(mesh, faceId) : null;
+  if (faceId != null && !facePlane) {
+    useGeometryStore.getState().showToast("That face isn't flat — pick a planar face for the hole", 4000);
     return false;
   }
 
-  const { x, y } = worldToSketch(planeId, worldPoint);
+  const face: FacePlane = facePlane ?? { point: worldPoint.clone(), normal: worldNormal.clone().normalize() };
+  const planeId = planeOnFace(face);
+  const { x, y } = worldToSketch(planeId, worldPoint, useDocumentStore.getState().document.features);
 
-  const documentState = useDocumentStore.getState();
   const sketchStore = useSketchStore.getState();
-  const sketchFeatureId = documentState.addFeature("sketch", undefined, [planeId]);
+  const sketchFeatureId = useDocumentStore.getState().addFeature("sketch", undefined, [planeId]);
   sketchStore.beginSketch(sketchFeatureId, planeId);
   sketchStore.drawPoint({ x, y });
   sketchStore.exitSketch();
 
-  documentState.addFeature("hole", undefined, [sketchFeatureId]);
+  useDocumentStore.getState().addFeature("hole", { reversed: true }, [sketchFeatureId]);
   useViewportStore.getState().setHolePlacementActive(false);
   return true;
 }
@@ -308,17 +339,27 @@ function addPatternFeature(kind: "linear-pattern" | "circular-pattern" | "mirror
  * renders an editable "Distance" input for any feature whose parameters include one —
  * no feature-specific UI needed here at all. The base plane is stored in `Feature.parents`
  * rather than a new parameter, reusing the field that already means "features this one
- * consumes". Offsetting from another *user-created* reference plane is not supported yet
- * — that needs a base-plane picking UI, a separate gap from the one this used to stand in
- * for with `window.prompt()`.
+ * consumes". The base can be a default plane or another reference plane (offsets chain),
+ * or — with a flat face picked through the "Face" selection filter — that face.
  */
 function addReferencePlane() {
   const documentState = useDocumentStore.getState();
+  const { features } = documentState.document;
   const basePlaneId =
-    documentState.selectedFeatureIds.find((id) => (DEFAULT_PLANE_IDS as readonly string[]).includes(id)) ??
-    DEFAULT_PLANE_IDS[0];
+    documentState.selectedFeatureIds.find((id) => isSketchablePlane(id, features)) ?? null;
 
-  documentState.addFeature("reference-plane", undefined, [basePlaneId]);
+  if (!basePlaneId && useViewportStore.getState().selectedFaceId !== null) {
+    // Offset from a picked flat face: a plane flush with it, then the usual 10 mm out.
+    const face = selectedFacePlane();
+    if (face) {
+      const spec = facePlaneSpec(face);
+      const distance = (spec.parameters.distance ?? 0) + (spec.parameters.flipped ? -10 : 10);
+      documentState.addFeature("reference-plane", { ...spec.parameters, distance, fromFace: false }, spec.parents);
+      return;
+    }
+  }
+
+  documentState.addFeature("reference-plane", undefined, [basePlaneId ?? DEFAULT_PLANE_IDS[0]]);
 }
 
 /** Creates a reference axis aligned to a world axis (`FEATURE_CATALOG`'s default, "z") —
@@ -367,6 +408,9 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
   "doc.open": () => void runOpenDocument(),
   "doc.save": () => void runSaveDocument(),
   "doc.save-as": () => void runSaveDocumentAs(),
+
+  "assembly.insert": () => void runInsertComponent(),
+  "assembly.update": runUpdateComponents,
 
   "drawing.model-view": () => void runInsertModelView(),
   "drawing.update-views": () => void runUpdateViews(),
@@ -419,6 +463,12 @@ const DIRECT_COMMANDS: Record<string, () => void> = {
     const sketchState = useSketchStore.getState();
     if (sketchState.activeSketchId) {
       sketchState.deleteSelection();
+      return;
+    }
+    const selectedComponent = selectedComponentIdNow();
+    if (useDocumentStore.getState().document.kind === "assembly" && selectedComponent) {
+      useDocumentStore.getState().removeComponent(selectedComponent);
+      selectComponentNow(null);
       return;
     }
     const { selectedFeatureIds, deleteFeature } = useDocumentStore.getState();

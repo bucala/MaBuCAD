@@ -1,9 +1,10 @@
 import { useEffect, useMemo } from "react";
-import { CanvasTexture, DoubleSide, RepeatWrapping, type Texture } from "three";
+import { CanvasTexture, DoubleSide, Euler, Quaternion, RepeatWrapping, Vector3, type Texture } from "three";
 
 import { resolveTapDrill } from "@/data/holeResolution";
 import type { TappedStandardId } from "@/data/holeStandards";
 import { extrusionRange } from "@/kernel/rebuild";
+import { planeFrame, type PlaneFeature } from "@/sketch/planeBasis";
 import { pointById } from "@/sketch/sketchModel";
 import type { PointEntity, Sketch } from "@/sketch/types";
 import type { Feature } from "@/types/document";
@@ -21,12 +22,35 @@ import type { Feature } from "@/types/document";
  * bore's cylindrical surface rather than an actually-modelled thread profile, close enough to
  * read as "this is threaded" without the cost and fragility of machining one into the B-Rep.
  *
- * Lives inside `SolidModel.tsx`'s own `<group rotation={mesh.rotation}>` rather than
- * computing a world transform of its own: a hole's cut cylinder is built in the sketch
- * plane's local, un-rotated XY space exactly like the rest of the fused body (see
- * `kernel/rebuild.ts`'s `buildHoleSolid`/`extrusionRange`), so the same rotation that orients
- * the mesh for display orients this cylinder identically, with no separate plane-basis lookup.
+ * Each cylinder carries its own world transform (`threadMeshTransform`), built from its
+ * hole sketch's plane basis — the same `planeBasis` quaternion `kernel/rebuild.ts`'s
+ * `replicadPlaneFor` embeds the real hole cut through, so the cosmetic thread lands exactly
+ * inside the bore on any reference plane, not just Front.
  */
+
+/**
+ * World-space placement of one cosmetic thread cylinder: `centre`/`zStart` are the hole's
+ * own sketch-plane coordinates, the cylinder runs `depth` along the plane's normal (flipped
+ * by `directionSign` for a reversed hole), and three.js's `CylinderGeometry` — built along
+ * its own local Y — is first turned onto the plane's local Z, then the whole thing is
+ * carried into world space by the plane's own basis.
+ */
+export function threadMeshTransform(
+  planeId: string,
+  centre: { x: number; y: number },
+  zStart: number,
+  depth: number,
+  directionSign: number,
+  features: readonly PlaneFeature[] = [],
+): { position: [number, number, number]; quaternion: Quaternion } {
+  const frame = planeFrame(planeId, features);
+  const planeQuaternion = frame.quaternion;
+  const local = new Vector3(centre.x, centre.y, zStart + (directionSign * depth) / 2);
+  const position = local.applyQuaternion(planeQuaternion).add(frame.origin);
+  const alongNormal = new Quaternion().setFromEuler(new Euler(directionSign * (Math.PI / 2), 0, 0));
+  const quaternion = planeQuaternion.clone().multiply(alongNormal);
+  return { position: [position.x, position.y, position.z], quaternion };
+}
 
 const RADIAL_SEGMENTS = 48;
 /** How far into the hole the cosmetic thread is drawn, in multiples of its own major
@@ -70,6 +94,7 @@ function threadTexture(color: string): Texture {
 
 interface ThreadCylinder {
   key: string;
+  planeId: string;
   centre: { x: number; y: number };
   radius: number;
   zStart: number;
@@ -136,6 +161,7 @@ function buildThreadCylinders(
     for (const point of points) {
       cylinders.push({
         key: `${feature.id}-${point.id}`,
+        planeId: sketch.planeId,
         centre: point,
         radius: majorRadius,
         zStart: 0,
@@ -152,11 +178,10 @@ function buildThreadCylinders(
 
 interface ThreadInstance {
   key: string;
-  centre: { x: number; y: number };
+  position: [number, number, number];
+  quaternion: Quaternion;
   radius: number;
-  zStart: number;
   depth: number;
-  directionSign: number;
   texture: Texture;
 }
 
@@ -178,15 +203,15 @@ function buildThreadInstances(
     const texture = base.clone();
     texture.needsUpdate = true;
     texture.repeat.set(cylinder.winding, Math.max(cylinder.depth / Math.max(cylinder.pitch, 0.05), 1));
-    return {
-      key: cylinder.key,
-      centre: cylinder.centre,
-      radius: cylinder.radius,
-      zStart: cylinder.zStart,
-      depth: cylinder.depth,
-      directionSign: cylinder.directionSign,
-      texture,
-    };
+    const { position, quaternion } = threadMeshTransform(
+      cylinder.planeId,
+      cylinder.centre,
+      cylinder.zStart,
+      cylinder.depth,
+      cylinder.directionSign,
+      features,
+    );
+    return { key: cylinder.key, position, quaternion, radius: cylinder.radius, depth: cylinder.depth, texture };
   });
   base.dispose();
   return instances;
@@ -221,13 +246,8 @@ export function HoleThreadOverlay({
 
   return (
     <>
-      {instances.map(({ key, centre, radius, zStart, depth, directionSign, texture }) => (
-        <mesh
-          key={key}
-          position={[centre.x, centre.y, zStart + (directionSign * depth) / 2]}
-          rotation={[directionSign * (Math.PI / 2), 0, 0]}
-          raycast={() => null}
-        >
+      {instances.map(({ key, position, quaternion, radius, depth, texture }) => (
+        <mesh key={key} position={position} quaternion={quaternion} raycast={() => null}>
           <cylinderGeometry args={[radius, radius, depth, RADIAL_SEGMENTS, 1, true]} />
           <meshBasicMaterial map={texture} transparent opacity={0.6} side={DoubleSide} depthWrite={false} />
         </mesh>

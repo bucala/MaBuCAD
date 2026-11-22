@@ -23,7 +23,7 @@ export interface SavedDocument {
  * envelope grows a field. A version *ahead* of this one is still refused — that file was
  * written by an app with changes this build cannot know about.
  */
-export const DOCUMENT_FORMAT_VERSION = 2;
+export const DOCUMENT_FORMAT_VERSION = 3;
 /** Oldest version this build can still read and migrate forward from. */
 export const MIN_SUPPORTED_FORMAT_VERSION = 1;
 
@@ -42,6 +42,10 @@ const MIGRATIONS: Record<number, (draft: Record<string, unknown>) => Record<stri
   // the migration just makes that default explicit. This is the change that gave the
   // format something real to migrate; the framework is what future fields will ride on.
   1: (draft) => ({ ...draft, unitSystem: draft.unitSystem ?? "MMGS" }),
+  // v2 → v3: Assembly documents gain `document.assembly`. Nothing older carries one, so
+  // there is nothing to fill — the bump exists so a v2-only build *refuses* an assembly
+  // file rather than opening it as an empty part and dropping its components on save.
+  2: (draft) => draft,
 };
 
 export type SavedDocumentMigration =
@@ -173,6 +177,58 @@ function validateDocument(value: unknown): string | null {
     rollbackIndex > (document.features as unknown[]).length
   ) {
     return "the rollback position is out of range";
+  }
+
+  if (document.kind === "assembly") return validateAssembly(document.assembly);
+  if (document.assembly !== undefined) return "only an assembly document can have components";
+
+  return null;
+}
+
+function isFiniteTuple(value: unknown, length: number): boolean {
+  return Array.isArray(value) && value.length === length && value.every((n) => Number.isFinite(n));
+}
+
+function validateAssembly(value: unknown): string | null {
+  if (typeof value !== "object" || value === null) return "the assembly has no component list";
+  const components = (value as Record<string, unknown>).components;
+  if (!Array.isArray(components)) return "the assembly has no component list";
+
+  const ids = new Set<string>();
+  for (const raw of components) {
+    if (typeof raw !== "object" || raw === null) return "a component is not an object";
+    const component = raw as Record<string, unknown>;
+    if (typeof component.id !== "string" || component.id.length === 0) return "a component has no id";
+    if (ids.has(component.id)) return `component id "${component.id}" is used twice`;
+    ids.add(component.id);
+    if (typeof component.name !== "string") return `component "${component.id}" has no name`;
+
+    const source = component.source as Record<string, unknown> | null | undefined;
+    if (
+      typeof source !== "object" ||
+      source === null ||
+      typeof source.fileName !== "string" ||
+      (source.path !== null && typeof source.path !== "string")
+    ) {
+      return `component "${component.id}" has an invalid source file`;
+    }
+
+    const transform = component.transform as Record<string, unknown> | null | undefined;
+    if (
+      typeof transform !== "object" ||
+      transform === null ||
+      !isFiniteTuple(transform.position, 3) ||
+      !isFiniteTuple(transform.quaternion, 4)
+    ) {
+      return `component "${component.id}" has an invalid transform`;
+    }
+    const q = transform.quaternion as number[];
+    if (Math.hypot(...q) < 1e-9) return `component "${component.id}" has a zero rotation`;
+
+    if (typeof component.grounded !== "boolean") return `component "${component.id}" has a non-boolean grounded flag`;
+    if (component.suppressed !== undefined && typeof component.suppressed !== "boolean") {
+      return `component "${component.id}" has a non-boolean suppressed flag`;
+    }
   }
 
   return null;

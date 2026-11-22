@@ -5,7 +5,8 @@ import { useThree } from "@react-three/fiber";
 import { DoubleSide, Plane, Raycaster, Vector2, Vector3 } from "three";
 
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
-import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
+import { usePlaneFrame } from "@/hooks/usePlaneFrame";
+import { worldToFrame } from "@/sketch/planeBasis";
 import { findPointNear } from "@/sketch/sketchModel";
 import type { Sketch } from "@/sketch/types";
 import { useSettingsStore } from "@/state/settingsStore";
@@ -119,10 +120,11 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
   // sketch units from the actual click. Recomputing here, fresh, from the camera's current
   // properties (already proven correct at that point — the app's own repaint has settled
   // well before the click) sidesteps whatever in R3F's internal event pipeline is stale.
-  const drawPlane = useMemo(() => {
-    const basis = planeBasis(sketch.planeId);
-    return new Plane().setFromNormalAndCoplanarPoint(basis.normal, new Vector3(0, 0, 0));
-  }, [sketch.planeId]);
+  const frame = usePlaneFrame(sketch.planeId);
+  const drawPlane = useMemo(
+    () => new Plane().setFromNormalAndCoplanarPoint(frame.normal, frame.origin),
+    [frame],
+  );
 
   const screenToSketch = (clientX: number, clientY: number): Point2 | null => {
     const rect = gl.domElement.getBoundingClientRect();
@@ -132,7 +134,7 @@ export function SketchCanvas({ sketch }: { sketch: Sketch }) {
     );
     raycaster.setFromCamera(ndc, camera);
     const hit = new Vector3();
-    return raycaster.ray.intersectPlane(drawPlane, hit) ? worldToSketch(sketch.planeId, hit) : null;
+    return raycaster.ray.intersectPlane(drawPlane, hit) ? worldToFrame(frame, hit) : null;
   };
 
   // Line and construction-line deliberately leave `anchor` set after finishing an entity

@@ -5,7 +5,8 @@ import { Plane, Raycaster, Vector2, Vector3 } from "three";
 
 import { DimensionValueField } from "@/components/shared/DimensionValueField";
 import { useSceneAccentColor } from "@/hooks/useSceneAccentColor";
-import { planeBasis, worldToSketch } from "@/sketch/planeBasis";
+import { usePlaneFrame } from "@/hooks/usePlaneFrame";
+import { worldToFrame } from "@/sketch/planeBasis";
 import { angleDimensionGeometry, angleDimensionLayout, angleDimensionWitness, clampAngleToArcSweep, defaultDimensionAnchor, linearDimensionLeader, pointById } from "@/sketch/sketchModel";
 import type { Dimension, Sketch } from "@/sketch/types";
 import { useSketchStore } from "@/state/sketchStore";
@@ -158,10 +159,11 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
   // intersection (rather than a fixed pixels-per-unit conversion) is what makes dragging
   // work correctly under both the orthographic and perspective projections, and at any
   // zoom level, without needing to know which one is active.
-  const dragPlane = useMemo(() => {
-    const basis = planeBasis(sketch.planeId);
-    return new Plane().setFromNormalAndCoplanarPoint(basis.normal, new Vector3(0, 0, 0));
-  }, [sketch.planeId]);
+  const frame = usePlaneFrame(sketch.planeId);
+  const dragPlane = useMemo(
+    () => new Plane().setFromNormalAndCoplanarPoint(frame.normal, frame.origin),
+    [frame],
+  );
   const dragStart = useRef<{ offset: { x: number; y: number }; sketchPos: { x: number; y: number } } | null>(null);
 
   const screenToSketch = (clientX: number, clientY: number) => {
@@ -172,7 +174,7 @@ function DimensionView({ dimension, sketch }: { dimension: Dimension; sketch: Sk
     );
     raycaster.setFromCamera(ndc, camera);
     const hit = new Vector3();
-    return raycaster.ray.intersectPlane(dragPlane, hit) ? worldToSketch(sketch.planeId, hit) : null;
+    return raycaster.ray.intersectPlane(dragPlane, hit) ? worldToFrame(frame, hit) : null;
   };
 
   // A plain <button> still fires a native `click` after pointerup even when the pointer

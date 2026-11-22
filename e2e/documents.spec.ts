@@ -27,7 +27,7 @@ test("a drawn sketch survives a save/open round trip as a current-format documen
   // four entities.
   const savedPath = await download.path();
   const saved = JSON.parse(readFileSync(savedPath, "utf8")) as Record<string, unknown>;
-  expect(saved.formatVersion).toBe(2);
+  expect(saved.formatVersion).toBe(3);
   expect(saved.unitSystem).toBe("MMGS");
   const savedSketches = saved.sketches as Record<string, { entities?: unknown[] }>;
   const sketchEntries = Object.values(savedSketches);

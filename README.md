@@ -92,7 +92,11 @@ Extrude/Cut, Revolve/Cut, Sweep/Cut (straight or spline path), Loft, a Hole Wiza
 real Autodesk clearance/tap-drill tables — Simple, Clearance, Tapped or Taper Tapped (NPT),
 with a real Counterbore/Spotface/Countersink seat and an actual conical drill point on a
 blind hole — Fillet, Chamfer, Shell, Draft, Rib, Linear/Circular Pattern, Mirror and
-reference geometry.
+reference geometry. Sketches go on the origin planes, on offset reference planes, or flush
+on any flat face of the body, and features follow when a plane's offset changes.
+
+The **Assembly** document places saved parts as components: move and rotate them with a
+gizmo or exact values, ground or float them, and relink a part file that has moved.
 
   </td>
   <td width="33%" valign="top">
@@ -295,6 +299,23 @@ Hole Wizard bolt pattern and a fillet — shown in the Feature Manager tree.</su
   occasionally latch onto the wrong edge if the body changes drastically between picks.
   Picking against an already-rounded result would mean clicking edges that already moved, so
   entering pick mode previews the body as it was *before* the Fillet/Chamfer being edited.
+  That live preview rebuild (`geometryStore.ts`'s `rebuildPreview`) shares `rebuild.ts`'s
+  own replay/checkpoint machinery with every real rebuild for performance, but runs with
+  `persist=false` — the one difference is it never writes its own result back into the
+  shared `currentShape`/checkpoint chain, so Export, Measure and a drawing's own projection
+  keep reading the last *confirmed* tree for as long as edge-pick mode stays open, never a
+  throwaway suppressed-feature preview.
+- **A drawing's Front/Top/Right views are this app's own planes, not replicad's** — the
+  vendored kernel's six named projection cameras are a fixed, Z-up rig (its own Front looks
+  down world −Y, Top down world −Z, Right down world −X) with no relation to this app's own
+  Y-up `REFERENCE_PLANES` (Front's normal is world +Z, Top's is world +Y, Right's is world
+  +X — the same basis every sketch-based feature embeds through, see the plane bullet
+  above). `drawingProjection.ts`'s `APP_TO_REPLICAD_PLANE` maps each of this app's six view
+  labels onto whichever replicad camera actually looks straight at that plane's own face —
+  verified by projecting a real, intentionally asymmetric profile through all six candidate
+  cameras with the real kernel and checking which one lands each app label's profile
+  unmirrored, rather than derived by hand (this exact class of sign/handedness mapping is
+  easy to get backwards without checking against real output).
 - **A memory-corruption bug found and fixed in the vendored kernel**: STEP export goes
   through replicad's `shape.blobSTEP()` rather than its module-level `exportSTEP()`, and
   that choice is load-bearing. `exportSTEP()` builds a throwaway XCAF document and cleans up
@@ -509,20 +530,20 @@ eslint.config.js              ESLint flat config: hook discipline + unused code,
 | Core solids | Extrude/Cut-Extrude, Revolve/Cut-Revolve, both building one fused body per disjoint sketch contour with a per-contour profile picker, not just one region | ✅ |
 | Import/Export | STEP (exact B-Rep) and STL, native + browser-fallback dialogs | ✅ |
 | Sketch tools | Trim (lines, circles, splines, drag-to-window multi-select), Fillet, Offset, Mirror, Linear/Circular Pattern, Convert to Construction | ✅ |
-| Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence | ✅ |
+| Reference geometry | Plane, Axis, Point, Coordinate System, with a 3D presence. Reference planes are sketchable: offset (and chainable) from any plane, flippable, or made flush with a picked flat face | ✅ |
 | Hole Wizard | Simple/Clearance/Tapped/Taper Tapped, real ISO clearance and tap-drill data, Counterbore/Spotface/Countersink seats, conical drill point, Inventor-style cosmetic thread texture on tapped holes (a real diagonal-line wrap at the hole's actual pitch/diameter/winding, not a plain indicator) | ✅ |
 | Dress-up | Fillet, Chamfer, Shell, Draft, Rib — Fillet/Chamfer start pass-through and arm edge-pick mode immediately, applying to every edge only if none are ever picked | ✅ |
-| Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft | ✅ |
+| Advanced solids | Sweep/Cut-Sweep (straight and spline paths), Loft (between profiles on parallel offset planes, at their real positions) | ✅ |
 | Pattern/Mirror (feature-level) | Linear Pattern, Circular Pattern, Mirror | ✅ |
 | Theming | Light/Gray/Dark skins, 5 live accent colours, Model/Edge colour overrides | ✅ |
 | 3D Navigation | Zoom-to-cursor, ViewCube toggle + navigation arrows (full-cycle rotation, correct left/right direction), origin indicator + axis labels | ✅ |
 | Selection filter | Body/Face/Edge priority — left-click cycles, right-click opens a direct-pick dropdown | ✅ |
 | Document recovery | Per-document autosave, recovery copies, and save prompts when closing modified tabs or the Windows app | ✅ |
-| New Document picker | Visual Part/Assembly/Drawing chooser (Part and Drawing wired, Assembly "coming soon") | ✅ |
+| New Document picker | Visual Part/Assembly/Drawing chooser, all three wired | ✅ |
 | Localisation | 9-language switcher; English and Slovak fully translated | 🟡 |
 | Boundary surface | Guide-curve boundary blending | ⬜ |
 | Multi-document workspace | Tabbed Part/Drawing documents, each with its own history, undo and sketches | ✅ |
-| Assembly | Components, mates, exploded views | ⬜ |
+| Assembly | Phase 1 done: insert saved parts as components (first one grounded), move/rotate by gizmo or exact values, component list with Ground/Float, Suppress, Delete and Relink for missing files, Update Components after editing a part. Mates, exploded views and interference are next | 🟡 |
 | Drawing | ISO E/ISO A projection method (per-document, symbol in the title block, click to toggle); Insert Model View opens an orientation picker (Front/Top/Bottom/Left/Right/Back/Isometric — pick one, it becomes the sheet's main view) rather than placing a fixed default set; Projected View overlays real directional arrows (plus an Isometric corner button) around a clicked standard view, each arrow computed from the actual ISO-E/ISO-A step relationships so only genuinely reachable further views are offered; placed views re-lay out on demand, with an amber out-of-date marker on the Update Views button whenever the source part file changed on disk since the last projection — cleared by the update itself, which also recognises a byte-identical part file and skips the multi-second rebuild instead of reproducing the cache it already has. Also: Section (real kernel cut, ISO 128-3 hatched, cutting-plane line + arrows + A-A callout left on the source view), Detail (2D crop, ISO 128 torn boundary, leadered letter left on the source view), Auxiliary (bounded 30° tilted kernel projection), Broken (masked band with break marks) and Crop (rectangular same-scale crop) views, ISO 6410 thread circles on tapped holes, draggable views/notes, active-view annotation binding (double-click a view to activate it — new/re-anchored annotations bind to it and move with it, inside a highlight frame offset clear of the view's own geometry), sheet zoom-to-cursor + middle-mouse pan, Edit Background shortcut, ISO 5457 zone-label sizing, Sheet Formats/Borders/Title Blocks (A4–A0, import/export as templates); Smart Dimension (5 tolerance modes: symmetric/deviation/limits/basic/fit), Ordinate, Datum Feature, Geometric Tolerance (14 characteristics, ⌀ prefix, MMC/LMC modifiers, per-datum modifiers, draggable leader anchor), Surface Finish (ISO 21920-1: machining required/prohibited, all-around, lay direction, allowance, draggable leader anchor), Weld (ISO 2553: 13 joint types, arrow/other side, all-around, field weld, draggable leader anchor), Hole Callout (picked straight from a projected Hole Wizard circle — designation/class with LH-only direction, drilled depth vs. THRU (adopted ASME wording — ISO 15786 itself signals a through hole by omitting the depth), ISO 15786 ⌴/⌵ counterbore/spotface/countersink seat lines, Slovak-localised wording) annotations — every leader/GD&T anchor snaps to a view's own corner vertices, any point along a straight edge, or a circular edge's own fitted centre (a hole's axis); Hole Table and BOM tables. A fast/precise (coarse) hidden-line toggle was investigated and dropped: the shipped WASM kernel binds only OCCT's exact `HLRBRep_Algo`, never the tessellated `HLRBRep_PolyAlgo` that FreeCAD TechDraw's Coarse View uses, and the one knob replicad does expose measures 60 ms against 59 ms per view — a toggle trading fidelity for nothing, in a command where the part rebuild (~70%, 2.4 s on a 64-hole plate) is the real cost | ✅ |
 | Inspect | Measure, Mass Properties, Section Properties, Check Geometry, Draft Analysis, Parent/Child, Equations, Sensors, Appearance; Curvature dropped (no kernel support) | ✅ |
 
