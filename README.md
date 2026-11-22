@@ -31,7 +31,8 @@ Tauri.
 [**Architecture**](#-architecture) &nbsp;•&nbsp;
 [**Getting started**](#-getting-started) &nbsp;•&nbsp;
 [**Formats**](#-supported-formats) &nbsp;•&nbsp;
-[**Roadmap**](#-roadmap)
+[**Roadmap**](#-roadmap) &nbsp;•&nbsp;
+[**Changelog**](./CHANGELOG.md)
 
 </div>
 
@@ -108,9 +109,9 @@ a kernel with none.
 
 ### 🔄 STEP / STL interchange
 
-STEP exports the kernel's own B-Rep (round-trips exactly); STL is a binary triangulation for
-manufacturing hand-off. Both import back into the document as real features, with their
-geometry embedded in subsequently saved MaBuCAD files.
+STEP exports the active model's exact B-Rep. STL exports a binary mesh for manufacturing
+and 3D printing. Imports become features with geometry embedded in the saved
+`.mabucad` document.
 
   </td>
   </tr>
@@ -136,12 +137,9 @@ Mica backdrop — Fluent 2 design tokens throughout, not an imitation.
 
 ### 🧪 A real regression suite
 
-A committed Playwright suite drives the actual app end to end — the sketcher and the
-constraint solver's live DOF readout, an extrude through the WASM kernel, undo/redo, a
-document Save As/Open round-trip, the language switcher — plus a 250-test unit suite that
-runs the real WASM kernel under Node (the rebuild cache is proven byte-identical cached
-vs. from-scratch) and pins the sketch renderer's drag memoisation at a 240-entity scale,
-typecheck and a CI workflow that runs all of it on every push, not just typecheck and hope.
+Playwright covers sketching, extrusion, drawing projections, document round trips and
+closing a modified tab. Vitest exercises the sketch solver, document state and the real
+WASM kernel. Rust tests cover native file access and safe replacement on save.
 
   </td>
   </tr>
@@ -168,12 +166,12 @@ wired to the viewport, not decorative checkboxes.
   </td>
   <td width="33%" valign="top">
 
-### 💾 Autosave & recovery
+### 💾 Save, close & recover
 
-Opt-in recovery snapshots every 60s for documents with unsaved changes. File ▸ Restore
-Autosave opens each snapshot in a separate tab without taking over an existing file.
-Closing a modified tab or the Windows app offers to save the pending work, close without
-saving, or cancel. The window can save changes across all open tabs before exiting.
+Save confirms the destination the first time you save a file opened in Windows. Closing
+a modified tab or the app offers to save, close without saving, or cancel. Enable Autosave
+to keep a recovery snapshot for each modified document. Restore Autosave opens a separate
+tab without adopting an existing file's path.
 
   </td>
   </tr>
@@ -182,8 +180,9 @@ saving, or cancel. The window can save changes across all open tabs before exiti
 
 ### ⌨️ Rebindable keyboard shortcuts
 
-Esc/Del/Space and Undo/Redo work as bare-key shortcuts out of the box, with a Settings ▸
-Shortcuts tab to rebind any of them by pressing a key.
+Settings ▸ Shortcuts lets you rebind actions such as New (`Ctrl+N`), Open (`Ctrl+O`),
+Save (`Ctrl+S`), Save As (`Ctrl+Shift+S`) and Import (`Ctrl+Shift+O`). Delete, Hide/Show,
+Undo and Redo can also be rebound.
 
   </td>
   <td width="33%" valign="top">
@@ -262,10 +261,9 @@ Hole Wizard bolt pattern and a fillet — shown in the Feature Manager tree.</su
   history is cached under a content hash of everything it reads (features, their
   sketches), so a rebuild resumes from the longest still-matching prefix and replays only
   the tail — an edit of a late feature no longer pays for the whole chain, and a
-  no-change rebuild costs little more than re-meshing. Checkpoints are never stored for
-  an errored prefix or across an imported body (whose solid the import registry owns and
-  may release), and kernel-shape release is centralised in an identity-based eviction
-  plan that understands the aliasing dress-ups create.
+  no-change rebuild costs little more than re-meshing. An import is rebuilt from its embedded
+  B-Rep, and checkpoints cover only features before the first active import. An identity-based
+  eviction plan accounts for shared kernel shapes.
 - **A Part is a single fused body, by design** — the same rule FreeCAD's PartDesign Body
   documents ("each Body is one contiguous solid"), rather than SolidWorks' / Inventor's /
   Onshape's multi-body parts, where a single part can hold several solids that become
@@ -368,8 +366,8 @@ Hole Wizard bolt pattern and a fillet — shown in the Feature Manager tree.</su
 > [!IMPORTANT]
 > **Prerequisites (Windows 11 x64):** [Visual Studio 2022 Build Tools](https://visualstudio.microsoft.com/downloads/)
 > with the *Desktop development with C++* workload, [Rust](https://rustup.rs)
-> (`stable-x86_64-pc-windows-msvc`), and **Node.js 20+**. The WebView2 runtime ships with
-> Windows 11 already. Full details: <https://v2.tauri.app/start/prerequisites/>.
+> (`stable-x86_64-pc-windows-msvc`), and **Node.js 24** to match CI and installer builds.
+> Windows 11 includes WebView2. See the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```powershell
 npm install
@@ -379,20 +377,32 @@ npm run tauri dev      # desktop app with hot reload
 npm run dev             # http://localhost:24200
 ```
 
+### Document workflow
+
+- On Windows, **Save** confirms the file path on the first write after **Open**. Later
+  saves reuse that path. **Save As** lets you choose another destination.
+- When closing the app, **Save all and close** saves modified tabs in order. If you cancel
+  a file picker or a save fails, the workspace stays open. A retry saves the remaining changes.
+- **File ▸ Autosave** takes a recovery snapshot of each modified tab every 60 seconds.
+  Use **File ▸ Restore Autosave** to open a recovery copy.
+- When a linked drawing source is missing or no longer readable, choose the part again
+  from **Update Views** to restore the link.
+
 <details>
 <summary><b>✅ Quality gates</b></summary>
 
 <br />
 
 ```powershell
-npm run lint             # ESLint over all source (hook discipline, unused code)
-npm run typecheck      # tsc --noEmit
-npm run test             # Vitest unit suite: solver, residuals, Jacobian, equations, undo
-                         # history, point drag, render memoisation, translations, document
-                         # validation, rebuild cache (boots the real WASM kernel)
-npm run build           # typecheck + production frontend build
-npm run test:e2e       # Playwright regression suite against the dev server
-npm run tauri build    # MSI and NSIS installers in src-tauri/target/release/bundle/
+npm run lint                       # ESLint
+npm run typecheck                  # TypeScript checks
+npm test                           # Vitest, including real OpenCASCADE WASM tests
+npx playwright install chromium    # browser setup before the first E2E run
+npm run test:e2e                    # dev-server tests and production-preview CSP tests
+npm run build                       # typecheck and production frontend build
+cargo test --manifest-path src-tauri/Cargo.toml
+npm run tauri build -- --no-bundle  # Windows executable in src-tauri/target/release/
+npm run tauri build                 # MSI and NSIS installers in src-tauri/target/release/bundle/
 ```
 
 `scripts\build-msi.ps1` wraps install + typecheck + `tauri build` into one command:
@@ -417,17 +427,12 @@ gates branch pushes.
 
 <br />
 
-A committed Playwright suite (`e2e/`) drives the real dev server end to end — the
-application shell, sketch drawing with the constraint solver's live DOF readout, an
-extrude that boots the WASM kernel, undo/redo, a document Save As/Open round-trip that
-asserts the on-disk format, and the language switcher — rather than relying on typecheck
-and build alone to say a feature actually works. GitHub Actions (`.github/workflows/ci.yml`)
-runs the suite plus typecheck, the production build, `cargo check` and clippy on every
-push and pull request. See [`CHANGELOG.md`](./CHANGELOG.md) for the dated history of what
-was verified along the way, including the bugs past rounds of testing caught (a WASM
-heap-corruption bug in the vendored kernel, a rare pointer-event race in the sketch tool,
-and a UI panel that silently never surfaced a new Fillet/Chamfer's own edge-selection and
-radius controls).
+Playwright tests that a blank tab cannot export a different tab's model, imported STEP
+geometry survives Save/Open, and a dirty background tab can be saved and closed while
+another tab remains active. A separate production-preview suite checks drawing workflows
+under the app's content security policy. GitHub Actions runs frontend checks on Linux
+and Cargo check, tests and Clippy on Windows for pushes and pull requests targeting
+`main`. [Changelog](./CHANGELOG.md)
 
 </details>
 
@@ -488,7 +493,7 @@ eslint.config.js              ESLint flat config: hook discipline + unused code,
 | **STEP** | ✅ | ✅ | Exact B-Rep (`ADVANCED_BREP`), round-trips exactly |
 | **STL** | ✅ binary | ✅ binary | Triangulated mesh, for manufacturing hand-off / 3D printing |
 | **IGES** | — | — | The bundled OpenCASCADE build has no IGES support compiled in; the ribbon button stays visibly present but disabled, with the reason in its tooltip |
-| **`.mabucad`** (document) | ✅ | ✅ | The full parametric feature history, sketches included; files carry a format version and are migrated forward on open |
+| **`.mabucad`** (document) | ✅ | ✅ | Native project format with feature history, sketches and embedded STEP/STL geometry. Older format versions are migrated on open. |
 | **`.mabucad-settings`** | ✅ | ✅ | App-wide preferences (theme, accent, tolerances) — for backup or a second machine |
 
 ---
@@ -512,7 +517,7 @@ eslint.config.js              ESLint flat config: hook discipline + unused code,
 | Theming | Light/Gray/Dark skins, 5 live accent colours, Model/Edge colour overrides | ✅ |
 | 3D Navigation | Zoom-to-cursor, ViewCube toggle + navigation arrows (full-cycle rotation, correct left/right direction), origin indicator + axis labels | ✅ |
 | Selection filter | Body/Face/Edge priority — left-click cycles, right-click opens a direct-pick dropdown | ✅ |
-| Autosave | Opt-in periodic recovery snapshot, restorable from the File menu | ✅ |
+| Document recovery | Per-document autosave, recovery copies, and save prompts when closing modified tabs or the Windows app | ✅ |
 | New Document picker | Visual Part/Assembly/Drawing chooser (Part and Drawing wired, Assembly "coming soon") | ✅ |
 | Localisation | 9-language switcher; English and Slovak fully translated | 🟡 |
 | Boundary surface | Guide-curve boundary blending | ⬜ |

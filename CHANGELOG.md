@@ -7,6 +7,43 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-11-22 — Safer document workflows and CAD interchange (v0.32.0)
+
+The document and geometry changes were introduced in [`edf10eb`](https://github.com/bucala/MaBuCAD/commit/edf10eb9d06824a84d7abb3aa6792661311dcd10).
+
+### Added
+
+- Closing a modified tab or the Windows app offers to save, close without saving, or
+  cancel. **Save all and close** saves each modified tab. A cancelled picker or failed
+  write keeps the workspace open, and a retry saves the remaining changes.
+- Added rebindable shortcuts for New, Open, Save, Save As and Import.
+
+### Fixed
+
+- STEP and STL exports rebuild the document that initiated the export. An empty tab
+  cannot export geometry left over from a different tab.
+- Imported STEP and STL geometry is embedded in `.mabucad` files so it survives Save/Open
+  and recovery. An older file that lacks embedded geometry still needs the original
+  STEP or STL reimported.
+- The first Save after opening a file in Windows offers the original path for approval.
+  Native writes flush a temporary file before replacing the destination. A save stays
+  associated with its originating tab and rejects a destination already open in another tab.
+- Autosave keeps separate snapshots for modified documents. Saving the current revision
+  clears only that tab's recovery snapshot. Restoring opens a separate tab without
+  inheriting a file path.
+- Drawing operations verify their originating tab before applying results. **Update Views**
+  can prompt for a missing or unreadable part and save the newly selected source link.
+
+### Changed
+
+- CI and Windows installer builds use Node.js 24.
+
+### Verification
+
+- Passed typecheck, ESLint, 289 Vitest tests, 17 Playwright tests, 4 Rust tests and Clippy.
+  Built the Windows executable and verified that its close prompt lists modified tabs,
+  **Cancel** keeps them open, and **Close without saving** exits.
+
 ## 2026-10-24 — Id-collision and multi-plane geometry corruption fixes (v0.32.0)
 
 A kernel-correctness round, not a UI feature round: both fixes change what the kernel
