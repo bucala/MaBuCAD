@@ -7,6 +7,83 @@ per feedback round so the in-app version number is a quick way to tell whether a
 build actually contains a given round's work — see the entry below), so entries are grouped
 by date and by the commit that introduced them instead of by release tag.
 
+## 2026-11-22 — Drawing-view axis fix, preview/confirmed geometry isolation (v0.33.0)
+
+A follow-up architectural-audit round, closing the remaining items from the kernel-
+correctness pass two rounds ago (id collisions, multi-plane geometry): the drawing-view
+axis mismatch flagged as a known follow-up there, and the confirmed/preview geometry
+separation (WP01) and sketch-solver rollback (WP03) items from the original audit.
+
+### Fixed — a feature's drawing view no longer matches the wrong named camera
+- `kernel/drawingProjection.ts`'s Front/Top/Right/Back/Bottom/Left views passed replicad's
+  own same-named camera straight through (`projectOne(shape, "front")`, etc.) — but
+  replicad's six named cameras are a fixed, Z-up rig (Front looks down world −Y, Top down
+  world −Z, Right down world −X), unrelated to this app's own Y-up `REFERENCE_PLANES`
+  (Front's normal is world +Z, Top's is world +Y, Right's is world +X — the same basis
+  `rebuild.ts`'s `replicadPlaneFor` uses for every sketch-based feature, fixed two rounds
+  ago). A feature sketched on this app's own Top plane projected edge-on under replicad's
+  `"top"` camera and only showed up, undistorted, under its `"front"`/`"back"` — i.e. it
+  appeared in the drawing's *Front* view, not its *Top* view.
+- Added `APP_TO_REPLICAD_PLANE`, a verified lookup from this app's own view labels to the
+  replicad camera that actually looks straight at that labelled plane's face — derived by
+  building a real, asymmetric L-profile on each reference plane and projecting it through
+  all six of replicad's own named cameras with the real kernel, not worked out by hand
+  (hand-derived sign/handedness algebra for this kind of mapping is exactly the class of
+  mistake that's easy to get backwards without checking). `rebuildAndProjectPart`'s six
+  standard views and `auxiliaryCamera` now route through it.
+- `sectionAxisAndOffset`/`sectionArrowSign` (used by Section view creation and its cutting-
+  plane sighting arrows) re-derived against the same verified camera data — every
+  (view, orientation) pair now maps its local click coordinate straight onto its world
+  axis with no sign flip at all, a direct consequence of `APP_TO_REPLICAD_PLANE` having
+  picked, for each view, whichever of its two camera candidates lands unmirrored.
+  `sectionArrowSign` dropped its now-unused `projection` parameter as a result.
+  `sectionViewCamera`/`AXIS_PLANE` (which pick a camera by world axis, not by this app's
+  view labels, and feed `drawProjection` a real replicad string directly) were already
+  correct and untouched.
+- New regression coverage: `kernel/drawingProjectionPlanes.spec.ts` builds a hole on each
+  of the three reference planes and asserts it lands as a circle in the drawing view of
+  the *same name* and nowhere else, plus pins `sectionAxisAndOffset`/`sectionArrowSign`'s
+  own simplified contract directly. `drawingProjection.spec.ts`'s existing tapped-hole
+  fixture's assertion moved from `views.top` to `views.front` to match (it was unknowingly
+  relying on the bug above — Front's own normal is the axis replicad's `"top"` camera
+  looked along, which is exactly what this fix no longer does).
+
+### Fixed — a live Fillet/Chamfer edge-pick preview could leak into Export/Measure
+- `geometryStore.ts`'s `rebuildPreview` — fired continuously for as long as a Fillet/
+  Chamfer's edge-pick mode stays open, rebuilding with that one feature forced suppressed
+  to preview the body as it was before — called the same `rebuildDocument` a real,
+  confirmed rebuild uses, writing through the same shared `currentShape`/checkpoint chain
+  `rebuild.ts` keeps. For that whole window, Export, Measure/Mass Properties/Check
+  Geometry, and `drawingProjection.ts` could read the throwaway preview body instead of
+  the last confirmed one.
+- `rebuildDocument`/`rebuildDocumentSync` take a new optional `persist` (default `true`);
+  `rebuildPreview` now passes `false`, which skips the three lines that write
+  `checkpoints`/`currentShape` back out. The replay itself still freely resumes from the
+  confirmed checkpoint chain for performance — replicad's boolean/transform operations
+  always build a new shape from their operands rather than mutating them, so a preview
+  resuming from a confirmed checkpoint's own state can't corrupt it.
+- New regression coverage: `kernel/rebuildPreviewIsolation.spec.ts` builds a confirmed two-
+  feature body, runs a suppressed-feature preview rebuild, and asserts `getCurrentShape()`
+  is still exactly the confirmed body (by reference) throughout, and that a later confirmed
+  rebuild still works correctly afterward.
+
+### Investigated and closed without a code change — sketch solver rollback
+- The original audit flagged the sketch solver as committing an over-defined/non-converged
+  result with no clean reject-and-restore. Re-investigated: the solver (`sketch/solver.ts`)
+  already gained a backtracking line search with best-so-far tracking in an earlier round,
+  so it never returns a worse-than-the-input, wildly-diverged result — only a monotonically-
+  improving best attempt, confirmed never to regress past the geometry it was handed
+  (`solver.spec.ts`). Sketch Doctor (`sketch/sketchDoctor.ts`) already gives the user a
+  tested, deliberate recovery flow for exactly this state (over-defined or non-converged):
+  it names the offending constraint(s) and deletes them in one step. A blanket "revert the
+  edit" would have removed the user's ability to add a genuinely conflicting constraint in
+  the first place — contradicting Sketch Doctor's own tested flow. No change needed.
+
+### Cleanup
+- Removed `state/inuse.20520.lock`, a PID-named lock file from some local tool (not part of
+  this app's own code) accidentally committed in `388a55c`, with a `.gitignore` rule
+  against a repeat.
+
 ## 2026-11-22 — Safer document workflows and CAD interchange (v0.32.0)
 
 The document and geometry changes were introduced in [`edf10eb`](https://github.com/bucala/MaBuCAD/commit/edf10eb9d06824a84d7abb3aa6792661311dcd10).

@@ -948,13 +948,33 @@ function applyOperation(base: Solid | null, addition: Solid, operation: BooleanO
 export async function rebuildDocument(
   features: Feature[],
   sketches: Record<string, Sketch>,
+  persist = true,
 ): Promise<RebuildResult> {
   await initKernel();
-  return rebuildDocumentSync(features, sketches);
+  return rebuildDocumentSync(features, sketches, persist);
 }
 
-/** Replay and consume the current shape in one turn once OpenCASCADE is ready. */
-export function rebuildDocumentSync(features: Feature[], sketches: Record<string, Sketch>): RebuildResult {
+/**
+ * Replay and consume the current shape in one turn once OpenCASCADE is ready.
+ *
+ * `persist` is false for a throwaway preview rebuild (`geometryStore.ts`'s `rebuildPreview`,
+ * run continuously while Fillet/Chamfer's edge-pick mode is open with one feature forced
+ * `suppressed` to show the body as it was before the feature being edited) — it must never
+ * promote its own result into the shared `checkpoints` chain or `currentShape`, since every
+ * other consumer of those (Export, Measure/Mass Properties/Check Geometry,
+ * `drawingProjection.ts`) has to keep reading the last *confirmed* tree's shape even while a
+ * preview is live, not whatever a suppressed-feature preview happened to build most
+ * recently. The replay itself still freely *reads* the existing confirmed `checkpoints` to
+ * resume from the longest matching prefix — replicad's own boolean/transform ops
+ * (`fuse`/`cut`/`translate`/…) always build a new shape from their operands rather than
+ * mutating them, so a preview resuming from a confirmed checkpoint's `current` can't corrupt
+ * it — only the three lines that write `checkpoints`/`currentShape` back out are skipped.
+ */
+export function rebuildDocumentSync(
+  features: Feature[],
+  sketches: Record<string, Sketch>,
+  persist = true,
+): RebuildResult {
   // Suppressed features never reach the kernel, so the cache addresses the *evaluated*
   // list — un-suppressing a feature inserts it into that list and shifts every key after
   // it, which is exactly the divergence the prefix match exists to catch.
@@ -1224,18 +1244,24 @@ export function rebuildDocumentSync(features: Feature[], sketches: Record<string
   // the new one does not — the old final solid included, when no kept checkpoint still
   // holds it. This is the single place checkpoint shapes are deleted; `replaceCurrentShape`
   // only assigns, because every previous final is either kept here or released here.
-  const doomed = planCheckpointEviction(checkpoints, newChain, currentShape, current);
-  checkpoints = newChain;
-  for (const shape of doomed) {
-    try {
-      (shape as unknown as { delete?: () => void }).delete?.();
-    } catch {
-      // A shape already released by the kernel is not worth failing a rebuild over.
+  // Skipped entirely for a non-persisted preview: its own `newChain`/`current` must never
+  // become the confirmed chain's state, and nothing it built is reachable from the real
+  // chain, so there is nothing of its own to evict either — see this function's own doc
+  // comment on `persist`.
+  if (persist) {
+    const doomed = planCheckpointEviction(checkpoints, newChain, currentShape, current);
+    checkpoints = newChain;
+    for (const shape of doomed) {
+      try {
+        (shape as unknown as { delete?: () => void }).delete?.();
+      } catch {
+        // A shape already released by the kernel is not worth failing a rebuild over.
+      }
     }
   }
 
   if (!current) {
-    replaceCurrentShape(null);
+    if (persist) replaceCurrentShape(null);
     return { mesh: null, errors };
   }
 
@@ -1255,7 +1281,7 @@ export function rebuildDocumentSync(features: Feature[], sketches: Record<string
   const triangulated = shape.mesh({ tolerance: 0.05, angularTolerance: 20 });
   const wireframe = shape.meshEdges();
 
-  replaceCurrentShape(current);
+  if (persist) replaceCurrentShape(current);
 
   return {
     mesh: {

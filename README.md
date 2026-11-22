@@ -295,6 +295,23 @@ Hole Wizard bolt pattern and a fillet — shown in the Feature Manager tree.</su
   occasionally latch onto the wrong edge if the body changes drastically between picks.
   Picking against an already-rounded result would mean clicking edges that already moved, so
   entering pick mode previews the body as it was *before* the Fillet/Chamfer being edited.
+  That live preview rebuild (`geometryStore.ts`'s `rebuildPreview`) shares `rebuild.ts`'s
+  own replay/checkpoint machinery with every real rebuild for performance, but runs with
+  `persist=false` — the one difference is it never writes its own result back into the
+  shared `currentShape`/checkpoint chain, so Export, Measure and a drawing's own projection
+  keep reading the last *confirmed* tree for as long as edge-pick mode stays open, never a
+  throwaway suppressed-feature preview.
+- **A drawing's Front/Top/Right views are this app's own planes, not replicad's** — the
+  vendored kernel's six named projection cameras are a fixed, Z-up rig (its own Front looks
+  down world −Y, Top down world −Z, Right down world −X) with no relation to this app's own
+  Y-up `REFERENCE_PLANES` (Front's normal is world +Z, Top's is world +Y, Right's is world
+  +X — the same basis every sketch-based feature embeds through, see the plane bullet
+  above). `drawingProjection.ts`'s `APP_TO_REPLICAD_PLANE` maps each of this app's six view
+  labels onto whichever replicad camera actually looks straight at that plane's own face —
+  verified by projecting a real, intentionally asymmetric profile through all six candidate
+  cameras with the real kernel and checking which one lands each app label's profile
+  unmirrored, rather than derived by hand (this exact class of sign/handedness mapping is
+  easy to get backwards without checking against real output).
 - **A memory-corruption bug found and fixed in the vendored kernel**: STEP export goes
   through replicad's `shape.blobSTEP()` rather than its module-level `exportSTEP()`, and
   that choice is load-bearing. `exportSTEP()` builds a throwaway XCAF document and cleans up

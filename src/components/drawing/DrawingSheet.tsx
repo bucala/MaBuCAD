@@ -8,7 +8,7 @@ import { nearestHoleTarget } from "@/commands/holeCallout";
 import { useTranslation } from "@/i18n/useTranslation";
 import { statAtPath } from "@/io/files";
 import { nearestVertex, sheetPointFromClientRect, viewScaleFor } from "@/kernel/drawingGeometry";
-import { sectionArrowSign, type OrthoProjection } from "@/kernel/drawingProjection";
+import { sectionArrowSign } from "@/kernel/drawingProjection";
 import { viewsAreStale } from "@/kernel/drawingStaleness";
 import { useDocumentStore } from "@/state/documentStore";
 import { useDrawingToolStore } from "@/state/drawingToolStore";
@@ -335,7 +335,7 @@ function SectionCutMarkView({ sourceView, section }: { sourceView: DrawingViewDa
   const left = sourceView.x - width / 2;
   const top = sourceView.y - height / 2;
   const scaledPosition = section.localScreenPosition * sourceView.scale;
-  const arrowSign = sectionArrowSign(sourceView.projection as OrthoProjection, section.orientation, section.keepPositiveSide);
+  const arrowSign = sectionArrowSign(section.orientation, section.keepPositiveSide);
 
   const vertical = section.orientation === "vertical";
   const lineX1 = vertical ? left + scaledPosition : left - SECTION_MARK_OVERHANG;

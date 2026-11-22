@@ -52,7 +52,11 @@ interface GeometryStore {
 
   rebuild: (features: Feature[], sketches: Record<string, Sketch>) => Promise<void>;
   /** Rebuilds with `hideFeatureId` suppressed, into `previewMesh` rather than `mesh` — the
-   * document itself is untouched, this is display-only. */
+   * document itself is untouched, this is display-only. Calls `rebuildDocument` with
+   * `persist=false`: edge-pick mode can stay open indefinitely while the user picks edges,
+   * and for that whole window this must never become what `getCurrentShape()` (Export,
+   * Measure/Mass Properties/Check Geometry, `drawingProjection.ts`) reads — those all need
+   * the last *confirmed* tree's shape, not a throwaway suppressed-feature preview. */
   rebuildPreview: (features: Feature[], sketches: Record<string, Sketch>, hideFeatureId: string) => Promise<void>;
   clearPreview: () => void;
   showToast: (message: string, durationMs?: number) => void;
@@ -127,7 +131,7 @@ export const useGeometryStore = create<GeometryStore>((set) => ({
     );
 
     try {
-      const result = await rebuildDocument(withoutPicked, sketches);
+      const result = await rebuildDocument(withoutPicked, sketches, false);
       if (request !== latestPreviewRequest) return;
       set({ previewMesh: result.mesh });
     } catch {
